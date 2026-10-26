@@ -178,13 +178,20 @@ class ResearchAPI(
             documentsExclude = excluded.map { requireNotNull(it.id) },
         )
         /*
-         * The agents it runs with, and the model each thinks with: the ones
-         * asked for, or the Research planner and writer. Checked here rather
-         * than at the step, so a research that could never think is refused
-         * before it starts instead of failing at Plan. Issue #678.
+         * The agents it runs with, and the model each thinks with: one agent
+         * for every step, or the one chosen for each. Nothing stands in for an
+         * agent nobody chose - a workspace has no research agents of its own.
+         * Checked here rather than at the step, so a research that could never
+         * think is refused before it starts instead of failing at Plan.
          */
-        val planner = picked(input.workspaceId, input.plannerAgentId, ResearchModes.PLANNER)
-        val writer = picked(input.workspaceId, input.writerAgentId, ResearchModes.WRITER)
+        val agentMode = input.agentMode ?: if (input.agentId != null) ResearchAgentMode.SINGLE else ResearchAgentMode.PER_STEP
+        val single = if (agentMode == ResearchAgentMode.SINGLE) {
+            picked(input.workspaceId, input.agentId ?: throw ResearchAgentNotChosenException())
+        } else {
+            null
+        }
+        val planner = single ?: picked(input.workspaceId, input.plannerAgentId ?: throw ResearchPlannerNotChosenException())
+        val writer = single ?: picked(input.workspaceId, input.writerAgentId ?: throw ResearchWriterNotChosenException())
         val useWebSearch = input.useWebSearch ?: true
         if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
         /*
@@ -195,14 +202,14 @@ class ResearchAPI(
         if (useWebSearch && !web.searchReady(input.workspaceId)) throw ResearchSearchKeyMissingException()
         // On unless said otherwise: a report with its pictures is what most research is asked for.
         val includeImages = input.includeImages ?: true
-        // A review is a second agent reading the report: the one asked for, or the Research reviewer.
+        // A review is an agent reading the report: the one agent, or the one chosen to review.
         val review = input.review ?: false
         val reviewer = if (!review) {
             null
         } else {
             // A review asked of a workflow with no Review step would be a research that says it was reviewed and was not.
             if (!seeding.reviews(requireNotNull(assignment.workflow.id))) throw ResearchModeNotReviewedException(mode.name)
-            picked(input.workspaceId, input.reviewerAgentId, ResearchModes.REVIEWER)
+            single ?: picked(input.workspaceId, input.reviewerAgentId ?: throw ResearchReviewerNotChosenException())
         }
         // How many questions to suggest once it is finished: what the start said, or the workspace's number.
         val bounds = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_FOLLOW_UPS.let { it.least..it.most }
@@ -238,6 +245,7 @@ class ResearchAPI(
                 writerAgentId = writer.agent.id,
                 writerAgentName = writer.agent.name,
                 reviewerAgentId = reviewer?.agent?.id,
+                agentMode = agentMode,
                 reviewerAgentName = reviewer?.agent?.name,
                 followUpCount = followUpCount,
                 parentResearchId = parent?.id,
@@ -309,12 +317,8 @@ class ResearchAPI(
      * the model it thinks with - refused where it is not this workspace's, is
      * switched off, or has no chat model this workspace can use. Issue #678.
      */
-    private fun picked(workspaceId: Long, agentId: Long?, seeded: ResearchModes.SeededAgent): Picked {
-        val agent = if (agentId != null) {
-            agents.findByIdOrNull(agentId)?.takeIf { it.workspaceId == workspaceId } ?: throw ResearchAgentNotFoundException(agentId)
-        } else {
-            agents.findByWorkspaceIdAndName(workspaceId, seeded.name) ?: throw ResearchAgentMissingException(seeded.name)
-        }
+    private fun picked(workspaceId: Long, agentId: Long): Picked {
+        val agent = agents.findByIdOrNull(agentId)?.takeIf { it.workspaceId == workspaceId } ?: throw ResearchAgentNotFoundException(agentId)
         if (!agent.enabled) throw ResearchAgentDisabledException(agent.name)
         val model = agent.modelId?.let { chatModels.usable(workspaceId, it) } ?: throw ResearchAgentModelMissingException(agent.name)
         return Picked(agent, model)
@@ -413,7 +417,9 @@ class ResearchAPI(
             workspaceId = parent.workspaceId,
             question = question,
             modeId = parent.modeId ?: throw ResearchModeNotFoundException(0),
-            // The agents it ran with; one started before there were agents to pick runs with the seeded ones.
+            // The agents it ran with, the way it ran with them.
+            agentMode = parent.agentMode ?: ResearchAgentMode.PER_STEP,
+            agentId = parent.plannerAgentId.takeIf { parent.agentMode == ResearchAgentMode.SINGLE },
             plannerAgentId = parent.plannerAgentId,
             writerAgentId = parent.writerAgentId,
             language = parent.language,
@@ -583,6 +589,7 @@ class ResearchAPI(
             writerAgentName = research.writerAgentName,
             reviewerAgentId = research.reviewerAgentId,
             reviewerAgentName = research.reviewerAgentName,
+            agentMode = research.agentMode,
             reviewRounds = pipeline.reviewRoundsFrom(research.reviewRounds),
             followUps = followUps.of(research.followUps),
             followUpCount = research.followUpCount,
@@ -670,7 +677,11 @@ data class StartResearchInput(
     val workspaceId: Long,
     val question: String,
     val modeId: Long,
-    /** The agents that plan and write; absent, the Research planner and writer. Issue #678. */
+    /** One agent for every step, or one for each; absent, [SINGLE][ResearchAgentMode.SINGLE] where [agentId] is given. */
+    val agentMode: ResearchAgentMode? = null,
+    /** The agent that does all of it, in [ResearchAgentMode.SINGLE]. */
+    val agentId: Long? = null,
+    /** The agents that plan and write, in [ResearchAgentMode.PER_STEP]. Issue #678. */
     val plannerAgentId: Long? = null,
     val writerAgentId: Long? = null,
     val language: ResearchLanguage,
@@ -685,7 +696,7 @@ data class StartResearchInput(
     val includeImages: Boolean? = null,
     /** Absent is off: a research is reviewed only when asked to. */
     val review: Boolean? = null,
-    /** The agent that reviews where it is; absent, the Research reviewer. */
+    /** The agent that reviews where it is, in [ResearchAgentMode.PER_STEP]. */
     val reviewerAgentId: Long? = null,
     /** How many follow-up questions to suggest once finished; absent is the workspace's number. */
     val followUps: Int? = null,
@@ -778,6 +789,8 @@ data class ResearchView(
     val writerAgentName: String? = null,
     val reviewerAgentId: Long? = null,
     val reviewerAgentName: String? = null,
+    /** One agent for every step or one for each; null on a research started before there was the choice. */
+    val agentMode: ResearchAgentMode? = null,
     /** What each round of review said; empty for one not reviewed, or not yet. */
     val reviewRounds: List<ResearchReviewRound> = emptyList(),
     val followUps: List<String> = emptyList(),
@@ -842,10 +855,13 @@ class ResearchAgentNotFoundException(val id: Long) : RuntimeException("No agent 
     override val arguments get() = mapOf("id" to id)
 }
 
-class ResearchAgentMissingException(val agent: String) :
-    RuntimeException("This workspace has no $agent; choose the agent to use instead"), Refusal {
-    override val arguments get() = mapOf("agent" to agent)
-}
+/** A research run by one agent, with none chosen: nothing is chosen in its place. */
+class ResearchAgentNotChosenException : RuntimeException("Choose the agent the research runs with")
+
+/** A research with an agent for each step, and none chosen for one of them. */
+class ResearchPlannerNotChosenException : RuntimeException("Choose the agent that plans the research")
+class ResearchWriterNotChosenException : RuntimeException("Choose the agent that writes the report")
+class ResearchReviewerNotChosenException : RuntimeException("Choose the agent that reviews the report")
 
 class ResearchAgentDisabledException(val agent: String) :
     RuntimeException("$agent is switched off; switch it on or choose another agent"), Refusal {

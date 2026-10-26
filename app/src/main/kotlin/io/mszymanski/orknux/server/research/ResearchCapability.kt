@@ -449,10 +449,10 @@ class ResearchCapability(
             REVIEWER_MODEL, ValueType.STRING, "The id of the chat model that reviews the report.", required = true,
         )
         private val P_WRITER_AGENT = EmbeddedParam(
-            WRITER_AGENT, ValueType.STRING, "The id of the agent that wrote the report and revises it; left out, the Research writer.",
+            WRITER_AGENT, ValueType.STRING, "The id of the agent that wrote the report and revises it; left out, the part's instructions alone, with no agent's own.",
         )
         private val P_REVIEWER_AGENT = EmbeddedParam(
-            REVIEWER_AGENT, ValueType.STRING, "The id of the agent that reviews the report; left out, the Research reviewer.",
+            REVIEWER_AGENT, ValueType.STRING, "The id of the agent that reviews the report; left out, the part's instructions alone, with no agent's own.",
         )
         private val P_EXCLUDED_NAMES = EmbeddedParam(EXCLUDED_NAMES, ValueType.STRING, "The documents not to use, by name, as the writer was told.")
         private val P_REVIEWED = EmbeddedParam(

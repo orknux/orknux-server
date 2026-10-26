@@ -666,8 +666,8 @@ class ResearchPipeline(
      * [rounds] times, then the report goes on as it stands.
      *
      * The reviewer and the writer are the agents the research was started
-     * with - the Research reviewer and writer, unless somebody picked others -
-     * by their instructions on the Agents page, each thinking with the model
+     * with - one agent for both, or one chosen for each - by their own
+     * instructions and the part's, each thinking with the model
      * it had when the research started. Issue #678. The writer is handed the conversation it
      * wrote the report in - the same request, the report as its answer - with
      * the reviewer's findings after it, so it revises its own work rather than
@@ -683,7 +683,7 @@ class ResearchPipeline(
         excluded: String,
         rounds: Int,
         said: ResearchLog = ResearchLog.NONE,
-        /** The agents the research was started with, whose instructions are read; null is the seeded one by name. Issue #678. */
+        /** The agents the research was started with, whose instructions are read; null is the part's instructions alone. Issue #678. */
         writerAgentId: Long? = null,
         reviewerAgentId: Long? = null,
     ): ResearchReviewed {
@@ -695,8 +695,8 @@ class ResearchPipeline(
         val held = mutableListOf<ResearchReviewRound>()
         val transcript = ReviewTranscript(
             asked,
-            nameOf(asked.workspaceId, reviewerAgentId, ResearchModes.REVIEWER),
-            nameOf(asked.workspaceId, writerAgentId, ResearchModes.WRITER),
+            nameOf(asked.workspaceId, reviewerAgentId, "Reviewer"),
+            nameOf(asked.workspaceId, writerAgentId, "Writer"),
         )
         for (round in 1..rounds.coerceAtLeast(1)) {
             tracker.step(if (rounds > 1) "Reviewing the report, round $round of $rounds" else "Reviewing the report")
@@ -821,8 +821,8 @@ class ResearchPipeline(
     }
 
     /** The name of the agent a research was started with for a part, or the seeded one's. */
-    private fun nameOf(workspaceId: Long, agentId: Long?, seeded: ResearchModes.SeededAgent): String =
-        agentId?.let { agents.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }?.name ?: seeded.name
+    private fun nameOf(workspaceId: Long, agentId: Long?, fallback: String): String =
+        agentId?.let { agents.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }?.name ?: fallback
 
     /**
      * Review's turns, written into the research's Review session as they are
@@ -850,24 +850,21 @@ class ResearchPipeline(
         }
     }
 
-    /** An agent's instructions as its page has them, or as it was seeded where the workspace has no such agent. */
-    private fun instructionsOf(workspaceId: Long, seeded: ResearchModes.SeededAgent): String =
-        agents.findByWorkspaceIdAndName(workspaceId, seeded.name)?.systemPrompt?.takeIf { it.isNotBlank() } ?: seeded.instructions
-
     /**
      * The instructions of the agent the research was started with for a part.
      *
-     * The seeded agent - or none named - is told what its page says, as it
-     * always was. Anybody else's agent is told its own instructions and then
-     * the part's, as this product seeded them: the review is a verdict in a
+     * Its own instructions and then the part's: the review is a verdict in a
      * JSON shape this step reads, and an agent made for something else knows
      * nothing of it, so without them a reviewer of somebody's own answers in
-     * prose and the review fails. Issue #678.
+     * prose and the review fails. An agent whose page already says the part's
+     * instructions - one this product once made for research - is not told
+     * them twice. None found, the part's alone: nothing is looked up by name.
      */
     private fun instructionsOf(workspaceId: Long, agentId: Long?, seeded: ResearchModes.SeededAgent): String {
-        val picked = agentId?.let { agents.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
-        if (picked == null || picked.name == seeded.name) return instructionsOf(workspaceId, seeded)
-        return listOfNotNull(picked.systemPrompt?.takeIf { it.isNotBlank() }?.trim(), seeded.instructions).joinToString("\n\n")
+        val own = agentId?.let { agents.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
+            ?.systemPrompt?.trim()?.takeIf { it.isNotBlank() }
+        if (own == null || own == seeded.instructions.trim()) return seeded.instructions
+        return own + "\n\n" + seeded.instructions
     }
 
     /** The rounds a research's Review step has said so far, as a row holds them. */

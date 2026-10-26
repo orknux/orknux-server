@@ -571,15 +571,14 @@ class WorkspaceDuplicateTest(
             .path("researchModes[*].kind").entityList(String::class.java).containsExactly("SHALLOW", "MEDIUM", "DEEP")
             .path("researchModes[*].workflowId").entityList(Long::class.java).get()
         assertThat(modeWorkflows).containsExactlyInAnyOrderElementsOf(carried.map { it.workflow.id })
-        // One of each step's action and one of each agent, adopted rather than made a second time beside the copied ones.
+        // One of each step's action, adopted rather than made a second time beside the copied ones.
         assertThat(actions.findByWorkspaceId(copy).map { it.name }.filter { it.startsWith("Research") })
             .containsExactlyInAnyOrder("Research: Gather sources", "Research: Deepen findings", "Research: Save report", "Research: Review report")
+        // And no agent made for research in either: the agent steps name none, the research hands them theirs.
         val copiedAgents = agents.findByWorkspaceId(copy, org.springframework.data.domain.Pageable.unpaged()).content
-        assertThat(copiedAgents.map { it.name }.filter { it.startsWith("Research") })
-            .containsExactlyInAnyOrder("Research planner", "Research writer", "Research reviewer")
-        // And the copy's agent nodes point at the copy's agents.
+        assertThat(copiedAgents.map { it.name }.filter { it.startsWith("Research") }).isEmpty()
         val agentNodes = carried.flatMap { workflowNodes.findByWorkflowId(requireNotNull(it.workflow.id)) }.mapNotNull { it.agentId }
-        assertThat(agentNodes).hasSize(6).allMatch { id -> copiedAgents.any { it.id == id } }
+        assertThat(agentNodes).isEmpty()
 
         graphQlTester.document("""query { researches(workspaceId: $copy) { totalElements } }""").execute()
             .path("researches.totalElements").entity(Int::class.java).isEqualTo(0)

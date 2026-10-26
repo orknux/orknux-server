@@ -176,26 +176,9 @@ class ResearchTest(
         }
         assertThat(numbers).containsExactly(listOf(3, 0, 1, 3, 8, 1), listOf(5, 2, 2, 4, 20, 2), listOf(6, 4, 3, 5, 50, 3))
 
-        // Two agents, ordinary ones on the Agents page, offered nothing that runs anything and with no model of their own.
-        val planner = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "Research planner"))
-        val writer = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "Research writer"))
-        // And the reviewer, whom no node names: the Review step reads its instructions.
-        assertThat(agents.findByWorkspaceIdAndName(workspaceId, "Research reviewer")!!.systemPrompt).isEqualTo(ResearchPipeline.REVIEW)
-        assertThat(planner.systemPrompt).isEqualTo(PLAN)
-        assertThat(writer.systemPrompt).startsWith(WRITE).contains("COLLOQUIAL")
-        listOf(planner, writer).forEach { agent ->
-            assertThat(agent.modelId).isNull()
-            assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.grantedTo(agent)).isEmpty()
-            assertThat(agent.skillCatalogs + agent.memoryCatalogs + agent.mcpServers).isEmpty()
-            assertThat(agent.orknuxAccess).isFalse()
-            assertThat(agent.mayAskForTools).isFalse()
-        }
-        graphQlTester.document("""query { workspaceAgents(workspaceId: $workspaceId, size: 50) { content { name } } }""").execute()
-            .path("workspaceAgents.content[*].name").entityList(String::class.java).contains("Research planner", "Research writer")
-        // Nor handed a memory catalog made later, as every other agent is by default.
-        graphQlTester.document("""mutation { createMemoryCatalog(workspaceId: $workspaceId, name: "Customers") { id } }""")
-            .execute().errors().verify()
-        assertThat(listOf(planner, writer).map { agents.findByIdOrNull(requireNotNull(it.id))!!.memoryCatalogs }).allMatch { it.isEmpty() }
+        // And no agent: a workspace has none of its own for research, so nothing is chosen for anybody.
+        assertThat(agents.findAll().filter { it.workspaceId == workspaceId }.map { it.name })
+            .doesNotContain(ResearchModes.PLANNER.name, ResearchModes.WRITER.name, ResearchModes.REVIEWER.name)
     }
 
     /* ------------------------------------------------------------ upgrade --- */
@@ -394,7 +377,7 @@ class ResearchTest(
         assertThat(drawn.map { it.name })
             .containsExactly("Plan research", "Dig", "Deepen findings", "Write report", "Review asked for?", "Review report", "Save report")
         assertThat(drawn.single { it.nodeKey == "gather" }.description).isEqualTo("Digs")
-        assertThat(drawn.single { it.nodeKey == "plan" }.description).isEqualTo("Research planner drafts the search queries")
+        assertThat(drawn.single { it.nodeKey == "plan" }.description).isEqualTo("Plans the search queries")
     }
 
     @Test
@@ -431,8 +414,9 @@ class ResearchTest(
         assertThat(modesOf().map { it["workflowId"]?.toString()?.toLong() }).isEqualTo(before)
         assertThat(actions.findByWorkspaceId(workspaceId).filter { it.name.startsWith(ResearchModes.ACTION_NAME) }.map { it.name })
             .containsExactlyInAnyOrder("Research: Gather sources", "Research: Deepen findings", "Research: Review report", "Research: Save report")
+        // And no agent made for it: a workspace has none of its own for research.
         assertThat(agents.findByWorkspaceId(workspaceId, org.springframework.data.domain.Sort.unsorted()).map { it.name }.filter { it.startsWith("Research") })
-            .containsExactlyInAnyOrder("Research planner", "Research writer", "Research reviewer")
+            .isEmpty()
         assertThat(modesOf()).hasSize(3)
     }
 
@@ -744,7 +728,7 @@ class ResearchTest(
         val started = mapper.readTree(
             orknux.run(
                 scope, "orknux_start_research",
-                """{"question":"Why are there tides?","mode":"medium","planner":"research planner",
+                """{"question":"Why are there tides?","mode":"medium","planner":"research planner","writer":"research writer",
                    "sitesExclude":["tabloid.example"],"register":"academic"}""",
             ),
         )
@@ -771,22 +755,31 @@ class ResearchTest(
         assertThat(orknux.run(reading, "orknux_start_research", """{"question":"Tides"}""")).contains("may read")
         assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","mode":"Galactic"}"""))
             .contains("There is no research mode called Galactic")
-        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","webSearch":false}"""))
+        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","agent":"research writer","webSearch":false}"""))
             .contains("Without web search, pick documents or websites to read")
         assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","writer":"Nobody"}"""))
             .contains("There is no agent called Nobody")
         assertThat(read.path("planner").stringValue()).isEqualTo("Research planner")
         assertThat(read.path("writer").stringValue()).isEqualTo("Research writer")
 
-        // Left out, the agents are the research's own, thinking with their models.
+        // Left out, no agent stands in: the start says which to choose.
+        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","sitesInclude":["one.example.org"],"webSearch":false}"""))
+            .contains("Choose the agent that plans the research")
+        // Nor both ways at once.
+        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","agent":"research writer","planner":"research planner"}"""))
+            .contains("not both")
+        // One agent for all of it, thinking with its own model.
         val unnamed = mapper.readTree(
-            orknux.run(scope, "orknux_start_research", """{"question":"Tides","sitesInclude":["one.example.org"],"webSearch":false}"""),
+            orknux.run(scope, "orknux_start_research", """{"question":"Tides","agent":"research writer","sitesInclude":["one.example.org"],"webSearch":false}"""),
         )
         // And so is the mode: Shallow, which is what an agent is told to leave it at unless the person asked for more. Issue #669.
         assertThat(unnamed.path("mode").stringValue()).isEqualTo("Shallow")
         val second = settled(unnamed.path("started").asLong())
         assertThat(second.modelId).isEqualTo(modelId)
         assertThat(second.useWebSearch).isFalse()
+        assertThat(second.agentMode).isEqualTo(ResearchAgentMode.SINGLE)
+        assertThat(listOf(second.plannerAgentName, second.writerAgentName)).containsOnly("Research writer")
+        assertThat(mapper.readTree(orknux.run(scope, "orknux_research", """{"id":${second.id}}""")).path("agents").stringValue()).isEqualTo("SINGLE")
     }
 
     /**
@@ -817,10 +810,50 @@ class ResearchTest(
         assertThat(store.open(file.location).use { it.readNBytes(4) }).isEqualTo("%PDF".toByteArray())
     }
 
-    /** The seeded agents are made with no model, so a research with them is refused until they have one, rather than run to fail. */
+    /**
+     * One agent for every step, or one chosen for each - and nothing in place
+     * of one nobody chose, because a workspace has no research agents of its
+     * own: a start that leaves one out is refused, saying which.
+     */
+    @Test
+    fun `a research runs with one agent for every step or one for each, and an agent left out is refused`() {
+        model(serve())
+        val writer = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, ResearchModes.WRITER.name))
+        val one = settled(
+            start(
+                """{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, agentMode: SINGLE,
+                     agentId: ${writer.id}, review: true, language: FORMAL, outputFormat: DOCUMENT }""",
+            ),
+        )
+        assertThat(one.status).describedAs(one.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(one.agentMode).isEqualTo(ResearchAgentMode.SINGLE)
+        assertThat(listOf(one.plannerAgentId, one.writerAgentId, one.reviewerAgentId)).containsOnly(writer.id)
+        graphQlTester.document("""query { research(id: ${one.id}) { agentMode plannerAgentName reviewerAgentName } }""").execute()
+            .path("research.agentMode").entity(String::class.java).isEqualTo("SINGLE")
+            .path("research.reviewerAgentName").entity(String::class.java).isEqualTo(writer.name)
+
+        val each = settled(start("""{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL, outputFormat: DOCUMENT }"""))
+        assertThat(each.status).describedAs(each.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(each.agentMode).isEqualTo(ResearchAgentMode.PER_STEP)
+        assertThat(each.plannerAgentName).isEqualTo(ResearchModes.PLANNER.name)
+
+        fun refusedAs(input: String, code: String) = graphQlTester.document("""mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL, outputFormat: DOCUMENT, $input }) { id } }""")
+            .execute().errors().expect { it.extensions?.get("code") == code }.verify()
+        refusedAs("agentMode: SINGLE", "ResearchAgentNotChosen")
+        refusedAs("agentMode: PER_STEP, writerAgentId: ${writer.id}", "ResearchPlannerNotChosen")
+        refusedAs("agentMode: PER_STEP, plannerAgentId: ${writer.id}", "ResearchWriterNotChosen")
+        refusedAs("agentMode: PER_STEP, plannerAgentId: ${writer.id}, writerAgentId: ${writer.id}, review: true", "ResearchReviewerNotChosen")
+        // Nothing given at all is an agent for each step, none of them chosen.
+        refusedAs("useWebSearch: true", "ResearchPlannerNotChosen")
+    }
+
+    /** An agent with no model is refused before the research starts, rather than run to fail. */
     @Test
     fun `a research is not started with an agent that has no model`() {
-        refused("""{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL, outputFormat: DOCUMENT }""", "ResearchAgentModelMissing")
+        val bare = agents.save(
+            io.mszymanski.orknux.server.agent.Agent(workspaceId = workspaceId, name = "No model $stamp", type = io.mszymanski.orknux.server.agent.AgentType.LLM),
+        )
+        refused("""{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, agentMode: SINGLE, agentId: ${bare.id}, language: FORMAL, outputFormat: DOCUMENT }""", "ResearchAgentModelMissing")
         assertThat(researches.findAll().filter { it.workspaceId == workspaceId }).isEmpty()
     }
 
@@ -880,7 +913,7 @@ class ResearchTest(
             """{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL, outputFormat: PDF }""",
             "ResearchSearchKeyMissing",
         )
-        assertThat(orknux.run(io.mszymanski.orknux.server.mcp.OrknuxScope(workspaceId = workspaceId, mayWrite = true), "orknux_start_research", """{"question":"Tides"}"""))
+        assertThat(orknux.run(io.mszymanski.orknux.server.mcp.OrknuxScope(workspaceId = workspaceId, mayWrite = true), "orknux_start_research", """{"question":"Tides","agent":"research writer"}"""))
             .contains("search key")
         assertThat(researches.findAll().filter { it.workspaceId == workspaceId }).isEmpty()
         assertThat(web.searched).isEmpty()
@@ -1033,7 +1066,7 @@ class ResearchTest(
         val started = mapper.readTree(
             orknux.run(
                 scope, "orknux_start_research",
-                """{"question":"Tides","sitesInclude":["harbour.example.org/tides"],"webSearch":false,"includeImages":true}""",
+                """{"question":"Tides","agent":"research writer","sitesInclude":["harbour.example.org/tides"],"webSearch":false,"includeImages":true}""",
             ),
         )
         assertThat(started.path("error").isMissingNode).describedAs(started.toString()).isTrue()
@@ -1048,13 +1081,13 @@ class ResearchTest(
 
         // Left out, it is on; said, it is off.
         val plain = mapper.readTree(
-            orknux.run(scope, "orknux_start_research", """{"question":"Tides","sitesInclude":["harbour.example.org/tides"],"webSearch":false}"""),
+            orknux.run(scope, "orknux_start_research", """{"question":"Tides","agent":"research writer","sitesInclude":["harbour.example.org/tides"],"webSearch":false}"""),
         )
         assertThat(settled(plain.path("started").asLong()).includeImages).isTrue()
         val without = mapper.readTree(
             orknux.run(
                 scope, "orknux_start_research",
-                """{"question":"Tides","sitesInclude":["harbour.example.org/tides"],"webSearch":false,"includeImages":false}""",
+                """{"question":"Tides","agent":"research writer","sitesInclude":["harbour.example.org/tides"],"webSearch":false,"includeImages":false}""",
             ),
         )
         assertThat(settled(without.path("started").asLong()).includeImages).isFalse()
@@ -1319,8 +1352,9 @@ class ResearchTest(
         mapper.readTree(body).path("tools").values().map { it.path("function").path("name").stringValue() }
 
     /**
-     * The current shape: Plan and Write the two agents, each answered by the
-     * agent the research was started with for it, lent web search where it
+     * The current shape: Plan and Write agent nodes naming no agent, each
+     * answered by the agent the research was started with for it and asking
+     * the step's instructions with its prompt, lent web search where it
      * searches the web, and asking its own prompt; Gather, Follow up and Save
      * actions, reading the request off the run and the step before off the run.
      */
@@ -1328,9 +1362,12 @@ class ResearchTest(
         assertThat(drawn.map { it.kind })
             .containsExactly(NodeKind.AGENT, NodeKind.ACTION, NodeKind.ACTION, NodeKind.AGENT, NodeKind.CONDITION, NodeKind.ACTION, NodeKind.ACTION)
         val byKey = drawn.associateBy { it.nodeKey }
-        listOf("plan" to "Research planner", "write" to "Research writer").forEach { (key, agent) ->
+        listOf("plan" to ResearchModes.PLANNER, "write" to ResearchModes.WRITER).forEach { (key, part) ->
             val node = byKey.getValue(key)
-            assertThat(agents.findByIdOrNull(requireNotNull(node.agentId))!!.name).isEqualTo(agent)
+            // Naming no agent: the research hands it the one it was started with, and nothing was made for it.
+            assertThat(node.agentId).isNull()
+            // The step's instructions are in what it asks, after whatever the agent was told on its page.
+            assertThat(node.mappings.single { it.name == "prompt" }.expression).startsWith(part.instructions)
             // No model of the node's own: the agent's is the one it thinks with (#678).
             assertThat(node.mappings.map { it.name }).doesNotContain("model")
             val agent = node.mappings.single { it.name == "agent" }
@@ -1482,11 +1519,39 @@ class ResearchTest(
     }
 
     /**
+     * A mode's workflow as it was drawn while Plan and Write named the agents
+     * this product seeded - the Research planner and writer, made here as they
+     * were then - and asked only the question, the agent's page carrying the
+     * step's instructions. Every shape before today's named them.
+     */
+    private fun namingAgents(workflowId: Long) {
+        nodes.saveAll(
+            nodes.findByWorkflowId(workflowId).onEach { node ->
+                val part = when (node.nodeKey) {
+                    "plan" -> ResearchModes.PLANNER
+                    "write" -> ResearchModes.WRITER
+                    else -> return@onEach
+                }
+                val agent = agents.findByWorkspaceIdAndName(workspaceId, part.name)
+                    ?: agents.save(
+                        io.mszymanski.orknux.server.agent.Agent(
+                            workspaceId = workspaceId, name = part.name,
+                            type = io.mszymanski.orknux.server.agent.AgentType.LLM, systemPrompt = part.instructions,
+                        ),
+                    )
+                node.agentId = agent.id
+                node.mappings.single { it.name == "prompt" }.let { it.expression = it.expression.removePrefix(part.instructions + "\n\n") }
+            },
+        )
+    }
+
+    /**
      * A mode's workflow as it was seeded before research picked its agents
      * (#678): Plan and Write naming the research's model, no agent and no web
      * search read off the run, and Review reading no agents.
      */
     private fun beforeAgents(workflowId: Long) {
+        namingAgents(workflowId)
         nodes.saveAll(
             nodes.findByWorkflowId(workflowId).onEach { node ->
                 when (node.nodeKey) {
@@ -1555,7 +1620,7 @@ class ResearchTest(
     }
 
     @Test
-    fun `the seeded agents are given the model the workspace's research last ran with, once`() {
+    fun `a research agent this product once seeded is left as it is, and given nothing`() {
         val endpoint = serve()
         val first = model(endpoint)
         // As a research started before #678 left it: the model named on the research, none on the agents.
@@ -1566,19 +1631,15 @@ class ResearchTest(
                 sources = "{}", startedBy = "alice", status = ResearchStatus.COMPLETED,
             ),
         )
-        val seeded = listOf("Research planner", "Research writer", "Research reviewer").map { requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, it)) }
-        agents.saveAll(seeded.onEach { it.modelId = null })
+        // As an earlier release seeded it, with no model: somebody's agent now, kept, and given none behind their back.
+        val seeded = agents.findByWorkspaceIdAndName(workspaceId, ResearchModes.PLANNER.name)!!.also { it.modelId = null }
+        agents.save(seeded)
+        val before = agents.findAll().count { it.workspaceId == workspaceId }
 
         researchModes.ensure(workspaceId)
 
-        assertThat(seeded.map { agents.findByIdOrNull(requireNotNull(it.id))!!.modelId }).containsOnly(first)
-
-        // After a research has picked its agents, an agent with no model is somebody's decision and is left so.
-        val done = settled(start("""{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL, outputFormat: DOCUMENT }"""))
-        assertThat(done.writerAgentId).isNotNull()
-        agents.saveAll(seeded.map { agents.findByIdOrNull(requireNotNull(it.id))!! }.onEach { it.modelId = null })
-        researchModes.ensure(workspaceId)
-        assertThat(seeded.map { agents.findByIdOrNull(requireNotNull(it.id))!!.modelId }).containsOnlyNulls()
+        assertThat(agents.findByIdOrNull(requireNotNull(seeded.id))!!.modelId).isNull()
+        assertThat(agents.findAll().count { it.workspaceId == workspaceId }).isEqualTo(before)
     }
 
     @Test
@@ -1760,11 +1821,11 @@ class ResearchTest(
     }
 
     private fun start(input: String): Long =
-        graphQlTester.document("""mutation { startResearch(input: $input) { id status } }""")
+        graphQlTester.document("""mutation { startResearch(input: ${agents.withResearchAgents(workspaceId, input)}) { id status } }""")
             .execute().path("startResearch.id").entity(Long::class.java).get()
 
     private fun refused(input: String, code: String) {
-        graphQlTester.document("""mutation { startResearch(input: $input) { id } }""")
+        graphQlTester.document("""mutation { startResearch(input: ${agents.withResearchAgents(workspaceId, input)}) { id } }""")
             .execute().errors().expect { it.extensions?.get("code") == code }.verify()
     }
 

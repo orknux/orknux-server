@@ -379,7 +379,7 @@ class ResearchRestartTest(
 
     private fun start(modelId: Long): Long =
         graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")},
+            """mutation { startResearch(input: { ${agents.researchAgents(workspaceId)}, workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")},
                  language: FORMAL, outputFormat: DOCUMENT }) { id } }""",
         ).execute().path("startResearch.id").entity(Long::class.java).get()
 

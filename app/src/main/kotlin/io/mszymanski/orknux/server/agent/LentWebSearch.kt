@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component
  *
  * A research that searches the web runs with the agents somebody picked for
  * it, and web search is off on an agent until somebody turns it on (see
- * [BuiltInTools.REACHING]) - so the Research planner and writer, and anybody's
+ * [BuiltInTools.REACHING]) - so a research's planning and writing agents, and anybody's
  * own agent picked in their place, would plan and write about the web without
  * being able to look at it. The research asked for the web, so for that run
  * the agents it runs with may search it; the agent's own grants are not

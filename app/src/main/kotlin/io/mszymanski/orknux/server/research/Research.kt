@@ -26,6 +26,16 @@ enum class ResearchModeKind {
 }
 
 /** The register the report is written in. */
+/**
+ * Who does a research's thinking: one agent for Plan, Write and Review, or an
+ * agent chosen for each of them. Nothing is chosen for anybody - a workspace
+ * has no research agents of its own.
+ */
+enum class ResearchAgentMode {
+    SINGLE,
+    PER_STEP,
+}
+
 enum class ResearchLanguage {
     ACADEMIC,
     COLLOQUIAL,
@@ -190,6 +200,11 @@ class Research(
 
     @Column(name = "reviewer_agent_name", length = 255)
     val reviewerAgentName: String? = null,
+
+    /** Whether one agent did all of it or one was chosen for each step; null on a research started before there was a choice. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "agent_mode", length = 16)
+    val agentMode: ResearchAgentMode? = null,
 
     /** What each round of review said, as a JSON list of [ResearchReviewRound]; written by the Review step. */
     @Column(name = "review_rounds", columnDefinition = "text")

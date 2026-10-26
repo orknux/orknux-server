@@ -107,7 +107,7 @@ class ResearchFollowUpTest(
         assertThat(followUpsAsked()).isEmpty()
 
         graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()}, 
+            """mutation { startResearch(input: { ${agents.researchAgents(workspaceId)}, workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()}, 
                  language: FORMAL, outputFormat: DOCUMENT, followUps: 11 }) { id } }""",
         ).execute().errors().expect { it.extensions?.get("code") == "ResearchFollowUpsOutOfRange" }.verify()
     }
@@ -186,7 +186,7 @@ class ResearchFollowUpTest(
         val format = if (more.contains("outputFormat")) "" else ", outputFormat: DOCUMENT"
         val language = if (more.contains("language")) "" else ", language: FORMAL"
         return graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId()}$language$format$extra }) { id } }""",
+            """mutation { startResearch(input: { ${agents.researchAgents(workspaceId)}, workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId()}$language$format$extra }) { id } }""",
         ).execute().path("startResearch.id").entity(Long::class.java).get()
     }
 

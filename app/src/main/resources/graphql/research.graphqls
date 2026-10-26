@@ -37,6 +37,15 @@ enum ResearchModeKind {
     CUSTOM
 }
 
+"""
+Who does a research's thinking: one agent for Plan, Write and Review, or one
+chosen for each. A workspace has no research agents of its own.
+"""
+enum ResearchAgentMode {
+    SINGLE
+    PER_STEP
+}
+
 enum ResearchLanguage {
     ACADEMIC
     COLLOQUIAL
@@ -105,6 +114,8 @@ type Research {
     writerAgentName: String
     reviewerAgentId: ID
     reviewerAgentName: String
+    "One agent for every step, or one for each; null on one started before there was the choice."
+    agentMode: ResearchAgentMode
     language: ResearchLanguage!
     outputFormat: ResearchOutputFormat!
     websitesInclude: [String!]!
@@ -274,9 +285,13 @@ input StartResearchInput {
     workspaceId: ID!
     question: String!
     modeId: ID!
-    "The agent that plans, by id; absent, the Research planner. It thinks with the model on its own page."
+    "One agent for every step, or one for each; absent, SINGLE where agentId is given and PER_STEP where it is not."
+    agentMode: ResearchAgentMode
+    "The agent that plans, writes and reviews, by id, in SINGLE. It thinks with the model on its own page."
+    agentId: ID
+    "The agent that plans, by id, in PER_STEP. Nothing stands in for one left out."
     plannerAgentId: ID
-    "The agent that writes, by id; absent, the Research writer. Its model also takes the notes on each source."
+    "The agent that writes, by id, in PER_STEP. Its model also takes the notes on each source."
     writerAgentId: ID
     language: ResearchLanguage!
     outputFormat: ResearchOutputFormat!
@@ -294,7 +309,7 @@ input StartResearchInput {
     includeImages: Boolean
     "Whether a second agent reviews the report before it is saved. Off when absent."
     review: Boolean
-    "The agent that reviews, by id, where it is reviewed; absent, the Research reviewer."
+    "The agent that reviews, by id, in PER_STEP where it is reviewed."
     reviewerAgentId: ID
     "How many follow-up questions it suggests once finished, 0 to 10; absent is the workspace's number."
     followUps: Int

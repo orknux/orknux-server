@@ -37,6 +37,7 @@ import java.time.OffsetDateTime
 import tools.jackson.databind.ObjectMapper
 import java.util.concurrent.CompletableFuture
 import io.mszymanski.orknux.server.research.ResearchAPI
+import io.mszymanski.orknux.server.research.ResearchAgentMode
 import io.mszymanski.orknux.server.research.ResearchLanguage
 import io.mszymanski.orknux.server.research.ResearchModeKind
 import io.mszymanski.orknux.server.research.ResearchOutputFormat
@@ -827,11 +828,20 @@ class OrknuxTools(
                                 "Only when they asked, the mode they named - Medium, Deep or one the workspace added.",
                             required = false,
                         ),
+                        /*
+                         * Nothing stands in for an agent left out: a workspace has no research agents
+                         * of its own. One agent for all of it, or one for each step - the start refuses
+                         * whichever is missing, in words the model can act on.
+                         */
                         ToolParameterSpec(
-                            "planner", "The agent that plans it: its name or id. Left out, the Research planner. Each agent thinks with its own model.",
+                            RESEARCH_AGENT,
+                            "The one agent that plans, writes and reviews it: its name or id. Give this, or " +
+                                "$RESEARCH_PLANNER, $RESEARCH_WRITER and, with review, $RESEARCH_REVIEWER - an agent for each step. " +
+                                "Each agent thinks with its own model.",
                             required = false,
                         ),
-                        ToolParameterSpec("writer", "The agent that writes the report: its name or id. Left out, the Research writer.", required = false),
+                        ToolParameterSpec(RESEARCH_PLANNER, "The agent that plans it, where each step has its own: its name or id.", required = false),
+                        ToolParameterSpec(RESEARCH_WRITER, "The agent that writes the report, where each step has its own: its name or id.", required = false),
                         ToolParameterSpec("webSearch", "Whether to search the web; false reads only the documents and sitesInclude. true when left out.", required = false),
                         ToolParameterSpec(
                             "includeImages",
@@ -843,7 +853,7 @@ class OrknuxTools(
                             "Whether a second agent reviews the report before it is saved and the writer revises it where asked. false when left out.",
                             required = false,
                         ),
-                        ToolParameterSpec("reviewer", "The agent that reviews: its name or id. Left out, the Research reviewer.", required = false),
+                        ToolParameterSpec(RESEARCH_REVIEWER, "The agent that reviews, where each step has its own: its name or id.", required = false),
                         ToolParameterSpec(
                             "followUps", "How many follow-up questions it suggests once finished, 0 to 10. The workspace's number when left out.",
                             required = false,
@@ -2056,12 +2066,13 @@ class OrknuxTools(
             modes.firstOrNull { it.name.equals(asked, ignoreCase = true) || it.kind.name.equals(asked, ignoreCase = true) }
         } ?: return refuse("There is no research mode called ${asked ?: "Shallow"}; there are ${modes.joinToString(", ") { it.name }}")
         /*
-         * The agents it runs with, by name or id; left out, the research's own
-         * - which the start checks, along with the model each thinks with.
-         * Issue #678.
+         * The agents it runs with, by name or id: one for all of it, or one for
+         * each step. Which is missing the start says, along with the model each
+         * thinks with. Issue #678.
          */
         val workspaceAgents = agents.findByWorkspaceId(scope.workspaceId, org.springframework.data.domain.Sort.by("name"))
-        val named = listOf("planner", "writer", "reviewer").associateWith { key -> text(arguments, key)?.trim()?.takeIf { it.isNotEmpty() } }
+        val named = listOf(RESEARCH_AGENT, RESEARCH_PLANNER, RESEARCH_WRITER, RESEARCH_REVIEWER)
+            .associateWith { key -> text(arguments, key)?.trim()?.takeIf { it.isNotEmpty() } }
         val chosen = named.mapValues { (_, said) ->
             said?.let {
                 (said.toLongOrNull()?.let { id -> workspaceAgents.firstOrNull { it.id == id } }
@@ -2069,9 +2080,13 @@ class OrknuxTools(
                     ?: return refuse("There is no agent called $said here")
             }
         }
-        val planner = chosen["planner"]
-        val writer = chosen["writer"]
-        val reviewer = chosen["reviewer"]
+        val single = chosen[RESEARCH_AGENT]
+        val planner = chosen[RESEARCH_PLANNER]
+        val writer = chosen[RESEARCH_WRITER]
+        val reviewer = chosen[RESEARCH_REVIEWER]
+        if (single != null && (planner != null || writer != null || reviewer != null)) {
+            return refuse("Give $RESEARCH_AGENT for one agent doing all of it, or $RESEARCH_PLANNER, $RESEARCH_WRITER and $RESEARCH_REVIEWER for one each - not both")
+        }
         val review = flag(arguments, "review") ?: false
         val register = text(arguments, "register")?.trim()?.uppercase()?.let { said ->
             ResearchLanguage.entries.firstOrNull { it.name == said } ?: return refuse("The register is ACADEMIC, COLLOQUIAL or FORMAL")
@@ -2091,6 +2106,8 @@ class OrknuxTools(
                     workspaceId = scope.workspaceId,
                     question = question,
                     modeId = mode.id,
+                    agentMode = if (single != null) ResearchAgentMode.SINGLE else ResearchAgentMode.PER_STEP,
+                    agentId = single,
                     plannerAgentId = planner,
                     writerAgentId = writer,
                     language = register,
@@ -2157,6 +2174,7 @@ class OrknuxTools(
                 "id" to held.id,
                 "question" to held.question,
                 "mode" to held.modeName,
+                "agents" to held.agentMode?.name,
                 "planner" to held.plannerAgentName,
                 "writer" to held.writerAgentName,
                 "model" to held.modelName,
@@ -2365,6 +2383,11 @@ class OrknuxTools(
         const val START_RESEARCH = "orknux_start_research"
         const val RESEARCH = "orknux_research"
         const val RESTART_RESEARCH = "orknux_restart_research"
+        /** What orknux_start_research calls the agents it runs with: one for all of it, or one per step. */
+        const val RESEARCH_AGENT = "agent"
+        const val RESEARCH_PLANNER = "planner"
+        const val RESEARCH_WRITER = "writer"
+        const val RESEARCH_REVIEWER = "reviewer"
 
         /** What a list parameter is declared as, so a model sends a list rather than the text of one. */
         val LIST = mapOf("type" to "array", "items" to mapOf("type" to "string"))

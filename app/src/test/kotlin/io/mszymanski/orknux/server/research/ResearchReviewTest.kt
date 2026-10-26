@@ -212,13 +212,13 @@ class ResearchReviewTest(
         reviewer.modelId = null
         agents.save(reviewer)
         graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()},
+            """mutation { startResearch(input: { ${agents.researchAgents(workspaceId)}, workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()},
                  language: FORMAL, outputFormat: DOCUMENT, review: true }) { id } }""",
         ).execute().errors().expect {
             it.extensions?.get("code") == "ResearchAgentModelMissing" && it.message.orEmpty().contains("Research reviewer")
         }.verify()
         val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = true)
-        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","review":true}"""))
+        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","review":true,"planner":"Research planner","writer":"Research writer","reviewer":"Research reviewer"}"""))
             .contains("Research reviewer has no chat model")
         assertThat(received).isEmpty()
 
@@ -231,7 +231,7 @@ class ResearchReviewTest(
         created.path("createResearchMode.reviewable").entity(Boolean::class.java).isEqualTo(false)
         val patents = created.path("createResearchMode.id").entity(String::class.java).get()
         graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: $patents,
+            """mutation { startResearch(input: { ${agents.researchAgents(workspaceId)}, workspaceId: $workspaceId, question: "Tides", modeId: $patents,
                  language: FORMAL, outputFormat: DOCUMENT, review: true }) { id } }""",
         ).execute().errors().expect { it.extensions?.get("code") == "ResearchModeNotReviewed" }.verify()
     }
@@ -276,7 +276,7 @@ class ResearchReviewTest(
         agents.researchWith(workspaceId, writer, reviewer = writer)
         val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = true)
         val started = mapper.readTree(
-            orknux.run(scope, "orknux_start_research", """{"question":"Why are there tides?","review":true,"reviewer":"Second opinion $stamp"}"""),
+            orknux.run(scope, "orknux_start_research", """{"question":"Why are there tides?","review":true,"planner":"Research planner","writer":"Research writer","reviewer":"Second opinion $stamp"}"""),
         )
         assertThat(started.path("error").isMissingNode).describedAs(started.toString()).isTrue()
         val done = settled(started.path("started").asLong())
@@ -314,7 +314,7 @@ class ResearchReviewTest(
         agents.researchWith(workspaceId, writer, reviewer = reviewer ?: writer)
         val reviewing = if (review) ", review: true" else ""
         return graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId()},
+            """mutation { startResearch(input: { ${agents.researchAgents(workspaceId)}, workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId()},
                  language: FORMAL, outputFormat: DOCUMENT$reviewing }) { id } }""",
         ).execute().path("startResearch.id").entity(Long::class.java).get()
     }
