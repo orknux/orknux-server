@@ -538,7 +538,19 @@ if (process.argv[1]?.endsWith('screens-draw.mjs')) {
     const parts = [];
     request.on('data', (part) => parts.push(part));
     request.on('end', () => {
-      // A provider check lists models; answering one keeps the provider green.
+      const path = request.url.split('?')[0];
+      /*
+       * A provider check lists models; answering one keeps the provider green.
+       * Only that GET, and a 404 for any other: the server saves an OpenAI
+       * provider whose `/sdcpp/v1/capabilities` answers as stable-diffusion.cpp,
+       * a type that takes no tools - so answering every GET made this an image
+       * server, the Writer on it was sent no tools, and every newsletter task
+       * ended FAILED having drawn nothing (#670).
+       */
+      if (request.method === 'GET' && !path.endsWith('/models')) {
+        answer(response, 404, { error: { message: 'Only /models answers a GET here.' } });
+        return;
+      }
       if (request.method === 'GET') {
         answer(response, 200, {
           object: 'list',
@@ -549,7 +561,6 @@ if (process.argv[1]?.endsWith('screens-draw.mjs')) {
         });
         return;
       }
-      const path = request.url.split('?')[0];
       let asked;
       try {
         asked = JSON.parse(Buffer.concat(parts).toString('utf8') || '{}');
