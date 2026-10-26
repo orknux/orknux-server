@@ -216,22 +216,22 @@ class ChatCostTest(
      * between its own storage and this.
      */
     @Test
-    fun `the cost line is off until somebody turns it on, and is theirs alone`() {
+    fun `the cost line is on until somebody turns it off, and is theirs alone`() {
         // Nothing is asked of a model here; the stub exists so the teardown has
         // a server to stop.
         serveAnswer(input = 1, output = 1)
         val id = graphQlTester.document(
             """mutation { createUser(input: { username: "alice", displayName: "Alice" })
                { id chatCostShown } }""",
-        ).execute().path("createUser.chatCostShown").entity(Boolean::class.java).isEqualTo(false)
+        ).execute().path("createUser.chatCostShown").entity(Boolean::class.java).isEqualTo(true)
             .path("createUser.id").entity(Long::class.java).get()
-
-        graphQlTester.document("""mutation { setChatCostShown(shown: true) { chatCostShown } }""")
-            .execute().path("setChatCostShown.chatCostShown").entity(Boolean::class.java).isEqualTo(true)
-        assertThat(requireNotNull(users.findByIdOrNull(id)).chatCostShown).isTrue()
 
         graphQlTester.document("""mutation { setChatCostShown(shown: false) { chatCostShown } }""")
             .execute().path("setChatCostShown.chatCostShown").entity(Boolean::class.java).isEqualTo(false)
+        assertThat(requireNotNull(users.findByIdOrNull(id)).chatCostShown).isFalse()
+
+        graphQlTester.document("""mutation { setChatCostShown(shown: true) { chatCostShown } }""")
+            .execute().path("setChatCostShown.chatCostShown").entity(Boolean::class.java).isEqualTo(true)
     }
 
     /**

@@ -157,11 +157,12 @@ class AppUser(
      * Here rather than in the browser's storage because it follows somebody to
      * the next machine, which is the line the interface draws between the two.
      *
-     * Off by default. The number is for somebody who has gone looking for it;
-     * printed under every answer unasked it is a running total nobody wanted.
+     * On by default since 1.2.3 (V624): it shipped off, and the person running
+     * the installation asked for what an answer cost to be seen without going
+     * looking for it. Preferences turns it off.
      */
     @Column(name = "chat_cost_shown", nullable = false)
-    var chatCostShown: Boolean = false,
+    var chatCostShown: Boolean = true,
 
     /**
      * Which language they read the product in, or null while they have not said.

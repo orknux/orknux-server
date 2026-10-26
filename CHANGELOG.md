@@ -24,6 +24,8 @@ have failed.
 
 ### 🔧 Changed
 
+- **A chat shows what each answer cost, for everybody**, unless they turn it off under Preferences → Answer Cost. It was off unless turned on; on upgrade every person is switched on, so somebody who wants it off again sets it there.
+- **A chat message's time carries its date, today's included**, where it showed only the clock for today's lines.
 - **A research runs with agents, not a model.** New research picks a Planner, a Writer and, when reviewed, a Reviewer - the Research planner, writer and reviewer unless you pick others - and each thinks with the model on its own page; the Writer's model also takes the notes on each source. A research that searches the web lends its agents web search for that research. On upgrade the three Research agents are given the model your last research ran with; where you never ran one, choose a model on each of their pages, or a research is refused with "has no chat model". `orknux_start_research` takes `planner`, `writer` and `reviewer` agents in place of `model` and `reviewerModel`, and the `startResearch` mutation `plannerAgentId`, `writerAgentId` and `reviewerAgentId` in place of `modelId` and `reviewerModelId`.
 
 ### 🐛 Fixed
