@@ -500,8 +500,23 @@ function write(asked) {
   return { text: said };
 }
 
+/*
+ * What a chapter of the manual has the model say, where the drawing script above
+ * says nothing useful: one file per group of chapters under `screens-draw/`, each
+ * exporting `answer(asked, { textOf, parsed })` - the request as the product sent
+ * it - and answering `{ text }` or `{ call: { name, arguments } }`, or nothing to
+ * pass. Tried in file-name order before the writer, so a group's script decides
+ * its own conversations and leaves every other one alone (#684).
+ */
+const SCRIPTS = [];
+
 function completion(asked) {
-  const answer = write(asked);
+  let answer = null;
+  for (const script of SCRIPTS) {
+    answer = script.answer(asked, { textOf, parsed }) ?? null;
+    if (answer) break;
+  }
+  answer ??= write(asked);
   const message = answer.call
     ? {
         role: 'assistant',
@@ -534,6 +549,12 @@ const answer = (response, status, body) => {
 };
 
 if (process.argv[1]?.endsWith('screens-draw.mjs')) {
+  const { readdir } = await import('node:fs/promises');
+  const scripts = new URL('./screens-draw/', import.meta.url);
+  for (const file of (await readdir(scripts).catch(() => [])).filter((name) => name.endsWith('.mjs')).sort()) {
+    SCRIPTS.push(await import(new URL(file, scripts).href));
+    console.log(`answering with ${file} too`);
+  }
   createServer((request, response) => {
     const parts = [];
     request.on('data', (part) => parts.push(part));

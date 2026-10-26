@@ -89,6 +89,22 @@
     A stable-diffusion.cpp server that draws the demo's pictures for real, e.g.
     http://192.168.0.22:8085. Empty, the stand-in draws them.
 
+.PARAMETER Lane
+    Which of several runs at once this is, for photographing chapters in
+    parallel (#684). 0, the default, is the one run there has always been, on the
+    ports and the compose project it has always used. Lane N moves every port it
+    was not handed by ten times N - server 8181+10N, interface 5199+10N, drawing
+    model 8299+10N, directory 3899+10N, Temporal 7299+10N - and runs its
+    containers as the compose project orknux-screens-N, with volumes of its own,
+    so two lanes never share a port, a container or an npm install. A lane's first
+    run fetches its own dependencies and browser, as the first run ever did.
+
+.PARAMETER LdapPort
+    Where the directory is published, as the server on this machine reaches it.
+
+.PARAMETER TemporalPort
+    Where Temporal is published, as the server on this machine reaches it.
+
 .PARAMETER DrawPort
     Where the stand-in drawing model listens, as the server on this machine
     reaches it. With -PictureEndpoint it only scripts the writer.
@@ -115,7 +131,10 @@ param(
     # server on this machine reaches it; empty keeps the stand-in's drawings.
     [string] $PictureEndpoint = '',
     # The type the chat model's provider is made as: OLLAMA, or LLAMA_CPP for a llama.cpp server.
-    [string] $ProviderType = 'OLLAMA'
+    [string] $ProviderType = 'OLLAMA',
+    [int] $Lane = 0,
+    [int] $LdapPort = 3899,
+    [int] $TemporalPort = 7299
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,11 +143,25 @@ $started = Get-Date
 $root = Split-Path -Parent $PSScriptRoot
 $compose = Join-Path $PSScriptRoot 'screens-compose.yaml'
 
+# A lane moves every port nobody named, and runs under a project of its own. Lane 0
+# is the single run as it always was, project name and all.
+if ($Lane -lt 0 -or $Lane -gt 50) { throw "-Lane is 0 to 50." }
+$offset = 10 * $Lane
+if (-not $PSBoundParameters.ContainsKey('ServerPort')) { $ServerPort += $offset }
+if (-not $PSBoundParameters.ContainsKey('UiPort')) { $UiPort += $offset }
+if (-not $PSBoundParameters.ContainsKey('DrawPort')) { $DrawPort += $offset }
+if (-not $PSBoundParameters.ContainsKey('LdapPort')) { $LdapPort += $offset }
+if (-not $PSBoundParameters.ContainsKey('TemporalPort')) { $TemporalPort += $offset }
+$project = if ($Lane -eq 0) { 'orknux-screens' } else { "orknux-screens-$Lane" }
+$composeArgs = @('compose', '-p', $project, '-f', $compose)
+
 # The one port each, decided here and handed to compose, which defaults to the
 # same two. Nothing may invent a third number.
 $env:ORKNUX_SCREENS_SERVER_PORT = "$ServerPort"
 $env:ORKNUX_SCREENS_UI_PORT = "$UiPort"
 $env:ORKNUX_SCREENS_DRAW_PORT = "$DrawPort"
+$env:ORKNUX_SCREENS_LDAP_PORT = "$LdapPort"
+$env:ORKNUX_SCREENS_TEMPORAL_PORT = "$TemporalPort"
 $UI_ORIGIN = "http://localhost:$UiPort"
 
 function Step($message) {
@@ -192,8 +225,10 @@ if ($version -ne $uiVersion) {
 Assert-PortFree -Port $ServerPort -What 'the server' -Parameter '-ServerPort'
 Assert-PortFree -Port $UiPort -What 'the interface' -Parameter '-UiPort'
 Assert-PortFree -Port $DrawPort -What 'the drawing model' -Parameter '-DrawPort'
+Assert-PortFree -Port $LdapPort -What 'the directory' -Parameter '-LdapPort'
+Assert-PortFree -Port $TemporalPort -What 'Temporal' -Parameter '-TemporalPort'
 
-Step "Photographing $version."
+Step "Photographing $version, lane $Lane ($project): server $ServerPort, interface $UiPort."
 
 # ------------------------------------------------------- the installation, part one
 #
@@ -202,7 +237,7 @@ Step "Photographing $version."
 # browser; that is a few minutes which may as well be the same few minutes Maven
 # is using. Waited for further down.
 Step 'Starting the directory, Temporal, the drawing model and the interface.'
-Invoke-Checked 'docker compose up' { docker compose -f $compose up -d }
+Invoke-Checked 'docker compose up' { docker @composeArgs up -d }
 
 # ------------------------------------------------------------------------ the jar
 
@@ -219,7 +254,9 @@ if ($null -eq $jar) { throw "No app/target/orknux-app-$version.jar. Run without 
 
 # ---------------------------------------------------- the installation, part two
 
-$data = Join-Path ([IO.Path]::GetTempPath()) ("orknux-screens-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+# The lane and the process in the name as well as the time: two lanes started in the
+# same second must not share a database.
+$data = Join-Path ([IO.Path]::GetTempPath()) ("orknux-screens-$Lane-$PID-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $data | Out-Null
 
 # Forward slashes, and an absolute path. SQLite is handed this verbatim.
@@ -234,8 +271,8 @@ $keyBytes = New-Object byte[] 32
 $env:ORKNUX_PORT = "$ServerPort"
 $env:ORKNUX_DB_URL = "jdbc:sqlite:$dbPath"
 $env:ORKNUX_SECRET_KEY = [Convert]::ToBase64String($keyBytes)
-$env:ORKNUX_LDAP_URLS = 'ldap://localhost:3899'
-$env:ORKNUX_TEMPORAL_TARGET = 'localhost:7299'
+$env:ORKNUX_LDAP_URLS = "ldap://localhost:$LdapPort"
+$env:ORKNUX_TEMPORAL_TARGET = "localhost:$TemporalPort"
 # The origin the browser will actually be on. See the note at the top.
 $env:ORKNUX_ALLOWED_ORIGINS = $UI_ORIGIN
 $env:ORKNUX_BASE_URL = $UI_ORIGIN
@@ -254,13 +291,13 @@ try {
     # Everything the server needs has to be up before it is: it reads the
     # directory at the first sign-in and Temporal at the first run.
     Step 'Waiting for the containers.'
-    Invoke-Checked 'docker compose up --wait' { docker compose -f $compose up -d --wait --wait-timeout 900 }
+    Invoke-Checked 'docker compose up --wait' { docker @composeArgs up -d --wait --wait-timeout 900 }
     Wait-ForHttp -Url "$UI_ORIGIN/" -Seconds 600 -What 'The interface'
     Wait-ForHttp -Url "http://localhost:$ServerPort/api/session" -Seconds 300 -What 'The server'
 
     Step "Seeding the demonstration workspace ($Model at $Endpoint)."
     Invoke-Checked 'The seed' {
-        docker compose -f $compose exec -T `
+        docker @composeArgs exec -T `
             -e "ORKNUX_DEMO_ENDPOINT=$Endpoint" -e "ORKNUX_DEMO_MODEL=$Model" `
             -e "ORKNUX_DEMO_IMAGE_ENDPOINT=http://localhost:$DrawPort" `
             -e "ORKNUX_DEMO_PICTURE_ENDPOINT=$PictureEndpoint" -e "ORKNUX_DEMO_TYPE=$ProviderType" `
@@ -269,7 +306,7 @@ try {
 
     Step 'Taking the pictures.'
     Invoke-Checked 'The capture' {
-        docker compose -f $compose exec -T -e "ORKNUX_ONLY=$Only" ui node scripts/screenshots.mjs
+        docker @composeArgs exec -T -e "ORKNUX_ONLY=$Only" ui node scripts/screenshots.mjs
     }
 
     Step 'Done. They are in orknux-ui/public/screens; git status there says which moved.'
@@ -280,7 +317,7 @@ try {
     }
     # Without -v: the browser, the dependency tree and Temporal's schema are worth
     # keeping between runs, and none of them is anybody's data.
-    docker compose -f $compose down --remove-orphans | Out-Null
+    docker @composeArgs down --remove-orphans | Out-Null
 
     if ($KeepData) {
         Step "The installation is still at $data."

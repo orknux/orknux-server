@@ -10,7 +10,9 @@
 #
 # Everything is on ports nobody else here is on, under a project name of its own,
 # so `docker compose up` in this directory and `docker compose up` in orknux-ui
-# never see each other's containers. Started, used and thrown away by
+# never see each other's containers. Every published port is a variable, and
+# screenshots.ps1 -Lane hands each run its own ports and its own project name
+# (`-p orknux-screens-<lane>`), so several runs can be up at once (#684). Started, used and thrown away by
 # scripts/screenshots.ps1; there is no reason to run it by hand.
 name: orknux-screens
 
@@ -33,7 +35,7 @@ services:
       LDAP_DOMAIN: orknux.io
       LDAP_ADMIN_PASSWORD: admin
     ports:
-      - "3899:389"
+      - "${ORKNUX_SCREENS_LDAP_PORT:-3899}:389"
     volumes:
       - ../docker/ldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-bootstrap.ldif:ro
     healthcheck:
@@ -83,7 +85,7 @@ services:
       VISIBILITY_DBNAME: temporal_visibility
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
     ports:
-      - "7299:7233"
+      - "${ORKNUX_SCREENS_TEMPORAL_PORT:-7299}:7233"
     volumes:
       - ../docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
     healthcheck:
@@ -111,6 +113,8 @@ services:
       - "${ORKNUX_SCREENS_DRAW_PORT:-8299}:${ORKNUX_SCREENS_DRAW_PORT:-8299}"
     volumes:
       - ./screens-draw.mjs:/scripts/screens-draw.mjs:ro
+      # A chapter's own scripted answers, beside it; see SCRIPTS in screens-draw.mjs.
+      - ./screens-draw:/scripts/screens-draw:ro
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:${ORKNUX_SCREENS_DRAW_PORT:-8299}/models').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" ]
       interval: 5s
