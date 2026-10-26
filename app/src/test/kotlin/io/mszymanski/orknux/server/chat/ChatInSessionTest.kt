@@ -66,6 +66,7 @@ class ChatInSessionTest(
     @Autowired val chatService: ChatService,
     @Autowired val titles: ChatTitles,
     @Autowired val transactions: org.springframework.transaction.PlatformTransactionManager,
+    @Autowired val address: io.mszymanski.orknux.server.security.InstallationAddress,
 ) {
 
     private var workspaceId: Long = 0
@@ -196,6 +197,37 @@ class ChatInSessionTest(
      * and showing it would say the agent looked something up in the middle of
      * an exchange that had already ended.
      */
+    /**
+     * A call that named something with a page links to it, read back from
+     * what it returned. Issue #660: the run or research an agent started was
+     * on the line only as arguments, and somebody wanting to look at it had to
+     * go and find it.
+     */
+    @Test
+    fun `a call that named an item comes back with a link to its page`() {
+        val sessionId = session("issue", "42")
+        recorder.userSaid(sessionId, "Ask reviewer", "File the export bug, and look for the old one.")
+        val filed = recorder.toolCalled(sessionId, "orknux_open_issue", """{"title":"Export runs twice"}""")
+        recorder.toolReturned(
+            filed,
+            """{"issue":7,"title":"Export runs twice","url":"${address.base()}/workspace/$workspaceId/issues/7"}""",
+        )
+        val searched = recorder.toolCalled(sessionId, "search_tickets", """{"query":"export"}""")
+        recorder.toolReturned(searched, """{"found":0,"url":"https://tickets.example.com/workspace/1/issues/2"}""")
+        recorder.agentSaid(sessionId, "Reviewer", "Filed as #7; there was no old one.")
+
+        val chatId = startChat(sessionId)
+
+        graphQlTester.document("""{ chatMessages(id: $chatId) { role actor link { url name } } }""")
+            .execute()
+            .path("chatMessages[1].actor").entity(String::class.java).isEqualTo("orknux_open_issue")
+            .path("chatMessages[1].link.url").entity(String::class.java).isEqualTo("/workspace/$workspaceId/issues/7")
+            .path("chatMessages[1].link.name").entity(String::class.java).isEqualTo("Export runs twice")
+            // Somebody else's page is not this installation's item.
+            .path("chatMessages[2].actor").entity(String::class.java).isEqualTo("search_tickets")
+            .path("chatMessages[2].link").valueIsNull()
+    }
+
     @Test
     fun `a call made before what was carried is left where it happened`() {
         val sessionId = session("issue", "42")

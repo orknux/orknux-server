@@ -808,6 +808,7 @@ class LlmSessionRecorder(
         actor = event.actor,
         at = event.at,
         millis = event.millis.takeIf { event.kind == LlmSessionEventKind.THINKING },
+        result = event.result.takeIf { event.kind == LlmSessionEventKind.TOOL },
     )
 
     /**
@@ -985,6 +986,8 @@ data class RememberedTurn(
     val at: OffsetDateTime? = null,
     /** How long a [THOUGHT] went on for, or null where it is not one or was never settled. */
     val millis: Long? = null,
+    /** What a [CALL] got back, as it was recorded; null for every other line. */
+    val result: String? = null,
 ) {
 
     /**

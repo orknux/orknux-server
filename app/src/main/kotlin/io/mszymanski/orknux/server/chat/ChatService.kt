@@ -79,6 +79,8 @@ class ChatService(
     private val shelf: io.mszymanski.orknux.server.attachment.ChatAttachmentShelf,
     /** What plan and auto mode lend the agent; see [ChatModes]. Issue #653. */
     private val modes: ChatModes,
+    /** The page a call read back out of the session named. Issue #660. */
+    private val links: ItemLinks,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -527,7 +529,13 @@ class ChatService(
         for (at in where[from]..where[from + spans - 1]) {
             val line = read[at]
             when {
-                line.called -> head += ChatMessage(role = RememberedTurn.CALL, content = line.content, actor = line.actor, at = sentAtOf(line))
+                line.called -> head += ChatMessage(
+                    role = RememberedTurn.CALL,
+                    content = line.content,
+                    actor = line.actor,
+                    at = sentAtOf(line),
+                    link = links.of(line.result),
+                )
                 line.thought -> head += ChatMessage(
                     role = RememberedTurn.THOUGHT,
                     content = "",
@@ -1730,6 +1738,11 @@ data class ChatMessage(
      * the agent's side filed during the turn this answer ends.
      */
     val attachments: List<io.mszymanski.orknux.server.attachment.ChatAttachment> = emptyList(),
+    /**
+     * For a call, the page of the item it named - a run it started, an issue it
+     * filed - read off what it returned; null for every other line. Issue #660.
+     */
+    val link: ItemLink? = null,
 ) {
     constructor(message: Message) : this(message.messageType.name.lowercase(), message.text.orEmpty())
 }

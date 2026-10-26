@@ -87,6 +87,8 @@ class ChatStreamAPI(
     /** Whether the sounds on a message may go to the model answering it, and in which format. */
     private val audios: ChatAudios,
     private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
+    /** The page a tool call named, for the `called` frame. Issue #660. */
+    private val links: ItemLinks,
 ) {
 
     /**
@@ -370,7 +372,7 @@ class ChatStreamAPI(
                     val answer = if (start.agentId == null) {
                         // A bare model on llama.cpp reads its prompt for as long as an agent's does.
                         val reading = WritingProgress(
-                            generation.watch(),
+                            generation.watch(links),
                             settings.writingProgressMillis().toLong(),
                             settings.readingShownAfterSeconds() * 1000L,
                         )
@@ -389,7 +391,7 @@ class ChatStreamAPI(
                          * something to announce - a picture it wrote into the
                          * thread, which the open chat learns about no other way.
                          */
-                        val watch = generation.watch()
+                        val watch = generation.watch(links)
                         // A voice turn is the one whose reader leaves on a lost stream, and the one with speakers to play to.
                         chats.ask(start, watch, chatTools.shed(session, watch, voice = interruptOnLeave), hangup)
                             .also { whole ->
@@ -622,7 +624,7 @@ class ChatStreamAPI(
  * See [RoundWatch] for why it is a counter rather than the provider's own
  * call id or the session line's.
  */
-internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
+internal fun ChatGeneration.watch(links: ItemLinks): RoundWatch = object : RoundWatch {
     override fun thinking(text: String) = post("thinking", mapOf("text" to text))
 
     override fun thought(text: String, millis: Long) = post("thought", mapOf("text" to text, "millis" to millis))
@@ -647,6 +649,7 @@ internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
     override fun called(at: Int, tool: String, arguments: String) =
         post("call", mapOf("at" to at, "tool" to tool, "arguments" to arguments))
 
+    // The page the call named, so its line links to it (#660); nothing where it failed or named none.
     override fun returned(at: Int, result: String, failed: Boolean) =
-        post("called", mapOf("at" to at, "result" to result, "failed" to failed))
+        post("called", mapOf("at" to at, "result" to result, "failed" to failed, "link" to links.of(result).takeIf { !failed }))
 }

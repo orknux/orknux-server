@@ -214,7 +214,38 @@ class ChatStreamRedactionTest(
         assertThat(afterTheTool).contains("ghp_ZmFrZXRva2VuZm9yYXRlc3Q0Mg")
     }
 
+    /**
+     * The page a call named rides on its `called` frame, so the line links to
+     * it while the turn is still going. Issue #660.
+     */
+    @Test
+    fun `a call that named a page of this installation carries the link on its frame`() {
+        val chatId = chatCalling(
+            """{"command":"start"}""",
+            returning = "{ started: 12, workflow: 'Nightly export', url: '/workspace/$workspaceId/executions/12' }",
+        )
+
+        val frames = stream(chatId, "Start the export")
+
+        val link = linkOf(frames)
+        assertThat(link.path("url").asString()).isEqualTo("/workspace/$workspaceId/executions/12")
+        assertThat(link.path("name").asString()).isEqualTo("Nightly export")
+    }
+
+    @Test
+    fun `a call that named nothing carries no link`() {
+        val chatId = chatCalling("""{"command":"env"}""")
+
+        assertThat(linkOf(stream(chatId, "Run it")).isNull).isTrue()
+    }
+
     /* ------------------------------------------------------------- the frames */
+
+    /** The page the `called` frame says the call named. */
+    private fun linkOf(frames: String) = mapper.readTree(
+        frames.split(BLANK).single { it.startsWith("event: called\n") }.substringAfter("data: "),
+    ).path("link")
+
 
     /** What the `call` frame said the agent asked for. */
     private fun argumentsOf(frames: String): String = field(frames, "call", "arguments")
@@ -270,8 +301,8 @@ class ChatStreamRedactionTest(
      * @param printing what the tool answers with. Empty for the tests that are
      *   about the call rather than the result.
      */
-    private fun chatCalling(arguments: String, printing: String = "Done."): Long {
-        tool(printing)
+    private fun chatCalling(arguments: String, printing: String = "Done.", returning: String? = null): Long {
+        tool(printing, returning)
         val endpoint = serve { body ->
             if (body.contains("tool_call_id")) answered("There you go.") else calling(arguments)
         }
@@ -285,11 +316,11 @@ class ChatStreamRedactionTest(
      * to text on the way out of the round rather than anything the sandbox does
      * with it.
      */
-    private fun tool(printing: String): Long = graphQlTester.document(
+    private fun tool(printing: String, returning: String? = null): Long = graphQlTester.document(
         """mutation { createTool(input: {
              workspaceId: $workspaceId, name: "run_command", description: "Runs a command",
-             source: ${Q}export default function run_command(input) { return { output: "$printing" }; }$Q,
-             typescript: ${Q}export default function run_command(input) { return { output: "$printing" }; }$Q
+             source: ${Q}export default function run_command(input) { return ${returning ?: "{ output: \"$printing\" }"}; }$Q,
+             typescript: ${Q}export default function run_command(input) { return ${returning ?: "{ output: \"$printing\" }"}; }$Q
            }) { id } }""",
     ).execute().path("createTool.id").entity(Long::class.java).get()
 

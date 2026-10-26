@@ -35,6 +35,8 @@ class ChatWake(
     private val generations: ChatGenerations,
     private val inbox: SessionInbox,
     private val steps: ExecutionStepRepository,
+    /** The page a tool call named, for the `called` frame. Issue #660. */
+    private val links: ItemLinks,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -89,7 +91,7 @@ class ChatWake(
         // Followable like a turn somebody asked for, so a page open on this chat
         // - or opened on it while this is being written - sees it arrive (#201).
         val generation = ChatGeneration(woken = true)
-        val watch = generation.watch()
+        val watch = generation.watch(links)
         generations.register(id, generation)
         try {
             when (val said = service.ask(start, watch, chatTools.shed(chat, watch), generation.hangup)) {

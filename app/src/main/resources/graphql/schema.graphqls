@@ -4593,6 +4593,12 @@ type ChatMessage {
     role: String!
     content: String!
     """
+    For a tool call, the page of the item it named - a run it started, an issue
+    it filed, a research - read off what it returned; null for every other line
+    and for a call that named nothing with a page here.
+    """
+    link: ChatItemLink
+    """
     The files this message came with: what the person sent with it, or what the
     agent's side filed during the turn this answer ends. Drawn under the message
     rather than in a strip of their own, which said nothing about which message
@@ -4649,6 +4655,16 @@ type ChatMessage {
     measurement and are not is worse than one number missing.
     """
     thinkingMillis: Float
+}
+
+"""
+A page of this installation a tool call named, drawn as a link on the call's line.
+"""
+type ChatItemLink {
+    "The page's path on this installation, which the browser follows without leaving it."
+    url: String!
+    "What the tool's answer called the item, or null where it gave no name."
+    name: String
 }
 
 type ChatAnswer {

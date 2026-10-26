@@ -135,6 +135,7 @@ class ChatAPI(
                 it.thinkingMillis,
                 it.at,
                 it.attachments.map { file -> file.view() },
+                it.link,
             )
         }
     }
@@ -527,6 +528,8 @@ data class ChatMessageView(
     val at: String? = null,
     /** The files this message came with; see [ChatMessage.attachments]. */
     val attachments: List<io.mszymanski.orknux.server.attachment.ChatAttachmentView> = emptyList(),
+    /** For a call, the page of the item it named; see [ChatMessage.link]. */
+    val link: ItemLink? = null,
 )
 
 data class ChatAnswerView(
