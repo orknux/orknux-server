@@ -19,6 +19,7 @@ class BuiltInToolsAPI(
     private val http: io.mszymanski.orknux.server.embedded.HttpToolPolicy,
     private val adminTools: io.mszymanski.orknux.server.workspace.AdminWorkspaceTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
+    private val flagMarks: io.mszymanski.orknux.server.flag.SessionFlagToolMarks,
 ) {
 
     /** Read once: the built-ins and what the model is told about them are fixed for a release. */
@@ -34,7 +35,9 @@ class BuiltInToolsAPI(
     @QueryMapping
     fun builtInTools(@org.springframework.graphql.data.method.annotation.Argument workspaceId: Long?): List<BuiltInTool> {
         val admin = workspaceId?.takeIf { access.canSee(it) }?.let { adminTools.namesFor(it) }.orEmpty()
-        return builtIns.all() + admin.map { BuiltInTool(it, BuiltInGovernance.ADMIN_WORKSPACE) }
+        // The flag tools, only while Admin Settings lets their marks be changed; see SessionFlagToolMarks.
+        val withheld = flagMarks.withheld()
+        return builtIns.all().filterNot { it.name in withheld } + admin.map { BuiltInTool(it, BuiltInGovernance.ADMIN_WORKSPACE) }
     }
 
     @SchemaMapping(typeName = "BuiltInTool")

@@ -1557,6 +1557,15 @@ type Mutation {
     """
     setSessionFlaggingEnabled(enabled: Boolean!): InstallationSettings!
     """
+    Whether an agent's Tools list shows flag_session and unflag_session and
+    their mark may be changed. Administrators only.
+
+    False by default: the rows are not listed by `builtInTools`, and every agent
+    holds both at Always - a save that marks them otherwise is put back. Setting
+    it false puts every agent back to Always on both.
+    """
+    setSessionFlagToolsAdjustable(adjustable: Boolean!): InstallationSettings!
+    """
     Says which chat uploaded files belong to. Sent when the message is, since a
     first message is what makes the chat.
     """
@@ -7568,6 +7577,11 @@ type InstallationSettings {
     readable on the report and the session pages.
     """
     sessionFlaggingEnabled: Boolean!
+    """
+    Whether an agent's Tools list shows flag_session and unflag_session and
+    their mark may be changed. False until an operator turns it on.
+    """
+    sessionFlagToolsAdjustable: Boolean!
     """
     How long a session counts as active after its last line, in seconds.
 

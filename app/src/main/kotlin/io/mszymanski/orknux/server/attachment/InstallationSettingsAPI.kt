@@ -23,6 +23,8 @@ class InstallationSettingsAPI(
     private val settings: InstallationSettings,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
+    /** Switching the flag tools' marks puts agents back too; see SessionFlagToolMarks. */
+    private val flagToolMarks: io.mszymanski.orknux.server.flag.SessionFlagToolMarks,
 ) {
 
     @QueryMapping
@@ -137,6 +139,7 @@ class InstallationSettingsAPI(
         sessionsRemovable = settings.sessionsRemovable(),
         concealedCallsHiddenInChats = settings.concealedCallsHiddenInChats(),
         sessionFlaggingEnabled = settings.sessionFlaggingEnabled(),
+        sessionFlagToolsAdjustable = settings.sessionFlagToolsAdjustable(),
         sessionsActiveWindowSeconds = settings.sessionsActiveWindowSeconds(),
         sessionsActiveWindowSecondsConfigured = settings.sessionsActiveWindowSecondsConfigured(),
         workspaceCopyLockWaitSeconds = settings.workspaceCopyLockWaitSeconds(),
@@ -1229,6 +1232,24 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /**
+     * Whether an agent's Tools list shows the flag tools and their mark may be
+     * changed. Switched off, every agent is put back to Always on both - see
+     * [io.mszymanski.orknux.server.flag.SessionFlagToolMarks].
+     */
+    @MutationMapping
+    fun setSessionFlagToolsAdjustable(@Argument adjustable: Boolean): InstallationSettingsView {
+        access.requireAdmin()
+
+        flagToolMarks.set(adjustable, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (adjustable) "Flag tools shown on agents' Tools lists" else "Flag tools hidden from agents' Tools lists and held at Always",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setPluginMaxSourceKb(@Argument kb: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -1467,6 +1488,8 @@ data class InstallationSettingsView(
     val concealedCallsHiddenInChats: Boolean,
     /** Whether agents are offered flag_session and unflag_session. True until somebody turns it off. */
     val sessionFlaggingEnabled: Boolean,
+    /** Whether an agent's Tools list shows the two flag tools and their mark may change. False until somebody turns it on. */
+    val sessionFlagToolsAdjustable: Boolean,
     /**
      * How long a session counts as active after its last line, in seconds.
      *

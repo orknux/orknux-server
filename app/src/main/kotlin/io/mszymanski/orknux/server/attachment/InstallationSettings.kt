@@ -140,6 +140,9 @@ object SettingNames {
 
     /** Whether agents are offered flag_session and unflag_session at all. */
     const val SESSION_FLAGGING_ENABLED = "session.flagging.enabled"
+
+    /** Whether an agent's Tools list draws the two flag tools and a save may change their mark. */
+    const val SESSION_FLAG_TOOLS_ADJUSTABLE = "session.flag-tools.adjustable"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
 
     /** What the files in one session's scratchpads may come to. Issue #491. */
@@ -2235,6 +2238,22 @@ class InstallationSettings(
     @Transactional
     fun setSessionFlaggingEnabled(enabled: Boolean, by: String) {
         write(SettingNames.SESSION_FLAGGING_ENABLED, enabled.toString(), by)
+    }
+
+    /**
+     * Whether an agent's Tools list shows flag_session and unflag_session and
+     * lets their mark be changed. Off by default: every agent holds them at
+     * Always. See [io.mszymanski.orknux.server.flag.SessionFlagToolMarks],
+     * which is what to call to change it - switching it off puts the marks back.
+     */
+    fun sessionFlagToolsAdjustable(): Boolean {
+        val held = settings.findByIdOrNull(SettingNames.SESSION_FLAG_TOOLS_ADJUSTABLE) ?: return false
+        return held.value.toBooleanStrictOrNull() ?: false
+    }
+
+    @Transactional
+    fun setSessionFlagToolsAdjustable(adjustable: Boolean, by: String) {
+        write(SettingNames.SESSION_FLAG_TOOLS_ADJUSTABLE, adjustable.toString(), by)
     }
 
     fun pluginMaxSourceBytes(): Long = pluginMaxSourceKb() * 1024L

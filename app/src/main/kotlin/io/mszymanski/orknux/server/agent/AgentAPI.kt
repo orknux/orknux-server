@@ -54,6 +54,8 @@ class AgentAPI(
     /** What other workspaces lend this one: a model's provider, a catalog. */
     @param:org.springframework.context.annotation.Lazy
     private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
+    /** Whether the flag tools' marks are the agent's to change; see SessionFlagToolMarks. */
+    private val flagMarks: io.mszymanski.orknux.server.flag.SessionFlagToolMarks,
 ) {
 
     /**
@@ -94,7 +96,7 @@ class AgentAPI(
 
     /** The agent, with what its model is called: the screen shows the name. */
     private fun describe(agent: Agent) =
-        AgentView(agent, agent.modelId?.let { models.model(it)?.name }, builtIns.orknuxNames())
+        AgentView(agent, agent.modelId?.let { models.model(it)?.name }, builtIns.orknuxNames(), flagMarks.withheld())
 
     /**
      * What this agent's memory share works out to against the model it uses.
@@ -186,6 +188,7 @@ class AgentAPI(
          * agent uses. Issue #616.
          */
         val orknuxNames = builtIns.orknuxNames()
+        val withheld = flagMarks.withheld()
         val modelNames = if (found.content.any { it.modelId != null }) {
             models.models(workspaceId).associate { it.id to it.name }
         } else {
@@ -193,7 +196,7 @@ class AgentAPI(
         }
         return AgentPage(found) { agent ->
             val modelName = agent.modelId?.let { modelNames[it] ?: models.model(it)?.name }
-            AgentView(agent, modelName, orknuxNames)
+            AgentView(agent, modelName, orknuxNames, withheld)
         }
     }
 
@@ -639,6 +642,8 @@ class AgentAPI(
                 .filter { it in holding && it !in agent.requiredTools }
                 .forEach { agent.requiredTools.add(it) }
         }
+        // And the flag tools at Always while Admin Settings keeps their marks; put back rather than refused.
+        flagMarks.hold(agent)
         if (input.connectionIds != null) {
             // Another workspace's connection is not this agent's to be granted,
             // so the id is checked here rather than trusted into the briefing.
@@ -1117,7 +1122,14 @@ data class AgentView(
     /** How much it says while it works. */
     val chattiness: Chattiness,
 ) {
-    constructor(agent: Agent, modelName: String? = null, orknuxNames: List<String> = emptyList()) : this(
+    /**
+     * @param withheld names left out of [tools] and [requiredTools]: the flag
+     *   tools, while Admin Settings keeps them off the Tools list - see
+     *   [io.mszymanski.orknux.server.flag.SessionFlagToolMarks]. The form draws
+     *   a granted name it has no row for as a row of its own, so leaving the
+     *   row out of `builtInTools` alone would still draw them.
+     */
+    constructor(agent: Agent, modelName: String? = null, orknuxNames: List<String> = emptyList(), withheld: Set<String> = emptySet()) : this(
         id = requireNotNull(agent.id),
         workspaceId = agent.workspaceId,
         name = agent.name,
@@ -1146,11 +1158,11 @@ data class AgentView(
         tools = (
             agent.tools + BuiltInTools.grantedTo(agent) +
                 (if (agent.orknuxAccess) orknuxNames.filter { it !in agent.hiddenTools } else emptyList())
-            ).distinct(),
+            ).distinct().filterNot { it in withheld },
         connectionIds = agent.connections.toList(),
         agentIds = agent.agents.toList(),
         maxTools = agent.maxTools,
-        requiredTools = agent.requiredTools.toList(),
+        requiredTools = agent.requiredTools.filterNot { it in withheld },
         icon = agent.icon,
         memoryShare = agent.memoryShare,
         maxRounds = agent.maxRounds,

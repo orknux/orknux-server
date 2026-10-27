@@ -8,6 +8,7 @@ import io.mszymanski.orknux.server.database.jdbcUrlOf
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -40,7 +41,24 @@ class BasicToolsAlwaysTest(
     @Autowired val agents: AgentRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val jdbc: JdbcTemplate,
+    @Autowired val flagMarks: io.mszymanski.orknux.server.flag.SessionFlagToolMarks,
 ) {
+
+    /*
+     * The flag tools are Admin Settings' to list and mark - off by default,
+     * which holds them at Always and leaves their rows out (SessionFlagToolMarksTest).
+     * These tests are about built-ins as a family, so the flag tools are let
+     * be marked like the rest for their duration and put back after.
+     */
+    @BeforeEach
+    fun flagMarksAdjustable() {
+        flagMarks.set(true, "test")
+    }
+
+    @AfterEach
+    fun flagMarksHeld() {
+        flagMarks.set(false, "test")
+    }
 
     private var workspaceId: Long = 0
 
