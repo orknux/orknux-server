@@ -20,6 +20,8 @@ import org.springframework.stereotype.Component
 class ResearchModeSeeder(
     private val workspaces: WorkspaceRepository,
     private val modes: ResearchModes,
+    /** The research agents an earlier version made, taken away where untouched. */
+    private val seededAgents: SeededResearchAgents,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -30,6 +32,10 @@ class ResearchModeSeeder(
             val id = workspace.id ?: return@forEach
             runCatching { modes.ensure(id) }
                 .onFailure { log.warn("Could not give workspace {} its research modes", id, it) }
+            // After ensure, which redraws the modes' workflows so they no longer name these agents.
+            runCatching { seededAgents.retire(id) }
+                .onSuccess { if (it.isNotEmpty()) log.info("Workspace {}: deleted the unused {}", id, it.joinToString(", ")) }
+                .onFailure { log.warn("Could not look for workspace {}'s unused research agents", id, it) }
         }
     }
 }
