@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.workspace
 
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.agent.Agent
@@ -51,6 +52,8 @@ import tools.jackson.databind.node.ObjectNode
 class AdminWorkspaceTools(
     private val workspaces: WorkspaceRepository,
     private val settings: AdminWorkspaceRepository,
+    /** How many rows a read answers; Admin Settings → Limits. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
     /** The workspace readers, handed the workspace being read. Lazy: it reaches the controllers that run agents. */
     @param:Lazy private val orknux: OrknuxTools,
     private val chats: io.mszymanski.orknux.server.chat.ChatSessionRepository,
@@ -124,7 +127,12 @@ class AdminWorkspaceTools(
                         kind,
                         ToolParameterSpec("search", "For sessions: only those whose key contains this.", required = false),
                         ToolParameterSpec("status", "For runs: RUNNING, COMPLETED, FAILED or STOPPED.", required = false),
-                        ToolParameterSpec("limit", "How many to return; 20 by default, 100 at most.", required = false),
+                        ToolParameterSpec(
+                            "limit",
+                            "How many to return; ${tuning[Tunable.ADMIN_WORKSPACE_ROWS_DEFAULT]} by default, " +
+                                "${tuning[Tunable.ADMIN_WORKSPACE_ROWS_MOST]} at most.",
+                            required = false,
+                        ),
                     ),
                     summary = "Lists sessions, chats, agents, actions, workflows, runs or reports in another workspace.",
                 ),
@@ -147,7 +155,17 @@ class AdminWorkspaceTools(
                 ),
             )
         }
-        AdminWorkspaceTool.entries.filter { it in held.tools }.forEach { add(ADMIN_SPECS.getValue(it)) }
+        // The limit's numbers are the installation's, said as it is set now rather than as it shipped.
+        val limit = ToolParameterSpec(
+            LIMIT.name,
+            "How many rows to return; ${tuning[Tunable.ADMIN_WORKSPACE_PAGE_ROWS_DEFAULT]} by default, " +
+                "${tuning[Tunable.ADMIN_WORKSPACE_ROWS_MOST]} at most.",
+            required = false,
+        )
+        AdminWorkspaceTool.entries.filter { it in held.tools }.forEach { tool ->
+            val spec = ADMIN_SPECS.getValue(tool)
+            add(spec.copy(parameters = spec.parameters.map { if (it === LIMIT) limit else it }))
+        }
     }
 
     /** The admin workspace's settings, where [workspaceId] is an admin workspace now; null otherwise. */
@@ -199,13 +217,13 @@ class AdminWorkspaceTools(
             is Asked.Refused -> return said.answer
             is Asked.Reading -> said.target to said.scope
         }
-        val limit = (number(arguments, "limit")?.toInt() ?: SOME).coerceIn(1, MANY)
+        val limit = (number(arguments, "limit")?.toInt() ?: tuning[Tunable.ADMIN_WORKSPACE_ROWS_DEFAULT]).coerceIn(1, tuning[Tunable.ADMIN_WORKSPACE_ROWS_MOST])
         return reading(target, agent) {
             when (scope) {
-                AdminWorkspaceScope.SESSIONS -> orknux.run(scopeOf(target, agent), "orknux_sessions", only(arguments, "search", "limit"))
+                AdminWorkspaceScope.SESSIONS -> orknux.run(scopeOf(target, agent), "orknux_sessions", only(arguments, limit, "search"))
                 AdminWorkspaceScope.AGENTS -> orknux.run(scopeOf(target, agent), "orknux_agents", "{}")
                 AdminWorkspaceScope.WORKFLOWS -> orknux.run(scopeOf(target, agent), "orknux_workflows", "{}")
-                AdminWorkspaceScope.RUNS -> orknux.run(scopeOf(target, agent), "orknux_executions", only(arguments, "status", "limit"))
+                AdminWorkspaceScope.RUNS -> orknux.run(scopeOf(target, agent), "orknux_executions", only(arguments, limit, "status"))
                 AdminWorkspaceScope.ACTIONS -> {
                     val parts = mapper.readTree(orknux.run(scopeOf(target, agent), "orknux_workflow_parts", "{}"))
                     val functions = mapper.readTree(orknux.run(scopeOf(target, agent), "orknux_functions", "{}"))
@@ -339,7 +357,7 @@ class AdminWorkspaceTools(
      * afterwards.
      */
     private fun adminRead(tool: AdminWorkspaceTool, arguments: String): String {
-        val limit = (number(arguments, "limit")?.toInt() ?: SOME_ROWS).coerceIn(1, MANY)
+        val limit = (number(arguments, "limit")?.toInt() ?: tuning[Tunable.ADMIN_WORKSPACE_PAGE_ROWS_DEFAULT]).coerceIn(1, tuning[Tunable.ADMIN_WORKSPACE_ROWS_MOST])
         val answer: Any = asAdministrator {
             when (tool) {
                 AdminWorkspaceTool.DOCTOR -> mapOf("checks" to doctorApi.doctor())
@@ -414,6 +432,13 @@ class AdminWorkspaceTools(
         return out.toString()
     }
 
+    /** As [only], with the limit this tool settled rather than the one the model asked for. */
+    private fun only(arguments: String, limit: Int, vararg names: String): String {
+        val out = mapper.readTree(only(arguments, *names)) as tools.jackson.databind.node.ObjectNode
+        out.put("limit", limit)
+        return out.toString()
+    }
+
     private fun refuse(says: String): String = mapper.writeValueAsString(mapOf("error" to says))
 
     private fun text(arguments: String, name: String): String? = runCatching {
@@ -441,9 +466,6 @@ class AdminWorkspaceTools(
         /** Who the admin pages are read as, for the length of one query. */
         private const val READER = "admin-workspace-reader"
 
-        private const val SOME = 20
-        private const val SOME_ROWS = 50
-        private const val MANY = 100
 
         private val READERS = setOf(WORKSPACES, LIST, READ)
 

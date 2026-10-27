@@ -68,6 +68,7 @@ class AdminWorkspaceTest(
     @Autowired val catalogs: VariableCatalogRepository,
     @Autowired val variables: WorkspaceVariableRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val tunables: io.mszymanski.orknux.server.tuning.Tunables,
 ) {
 
     private var backendId = 0L
@@ -285,6 +286,30 @@ class AdminWorkspaceTest(
 
         val reached = mapper.readTree(call(agent, AdminWorkspaceTools.WORKSPACES, "{}"))
         assertThat(reached.path("workspaces").toList().map { it.path("name").stringValue() }).containsExactly("backend")
+    }
+
+    /** How many rows a read answers is Admin Settings', and the tool says the numbers as they are set. */
+    @Test
+    fun `how many rows a read answers is set in Admin Settings, and the tool says so`() {
+        makeAdmin(opsId, reachAll = false, reach = mutableSetOf(backendId))
+        repeat(3) { conversation(backendId, "rows-$it") }
+        val agent = agent(opsId)
+        val most = io.mszymanski.orknux.server.tuning.Tunable.ADMIN_WORKSPACE_ROWS_MOST
+        val default = io.mszymanski.orknux.server.tuning.Tunable.ADMIN_WORKSPACE_ROWS_DEFAULT
+        try {
+            tunables.set(default, 1, "alice")
+            tunables.set(most, 2, "alice")
+            fun count(arguments: String) =
+                mapper.readTree(call(agent, AdminWorkspaceTools.LIST, arguments)).path("sessions").toList().size
+            assertThat(count("""{"workspace":"backend","kind":"sessions"}""")).isEqualTo(1)
+            assertThat(count("""{"workspace":"backend","kind":"sessions","limit":50}""")).isEqualTo(2)
+            val described = agentTools.specsFor(agent).single { it.name == AdminWorkspaceTools.LIST }
+                .parameters.single { it.name == "limit" }.description
+            assertThat(described).contains("1 by default").contains("2 at most")
+        } finally {
+            tunables.set(default, null, "alice")
+            tunables.set(most, null, "alice")
+        }
     }
 
     /**

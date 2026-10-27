@@ -922,6 +922,10 @@ orknux:
     agent.wait.default.seconds: ${ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS:30}
     agent.wait.longest.seconds: ${ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS:300}
     tools.loaded.at.once: ${ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE:8}
+    # What an admin workspace's agent is handed per read of another workspace or an admin page.
+    admin.workspace.rows.default: ${ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_DEFAULT:20}
+    admin.workspace.page.rows.default: ${ORKNUX_TUNING_ADMIN_WORKSPACE_PAGE_ROWS_DEFAULT:50}
+    admin.workspace.rows.most: ${ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_MOST:100}
     tools.searches.at.once: ${ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE:8}
     tool.result.window.percent: ${ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT:10}
     # One character a token: an SVG measured 1.3 on Qwen, so two let a 10% share take 15%.

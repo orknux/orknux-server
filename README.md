@@ -463,6 +463,9 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS` | How long agent_wait waits when not told, in seconds. | `30` |
 | `ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS` | The longest agent_wait may wait, in seconds. | `300` |
 | `ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE` | How many findable tools one search loads, in items. | `8` |
+| `ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_DEFAULT` | How many rows an admin workspace's read answers when not told, in items. | `20` |
+| `ORKNUX_TUNING_ADMIN_WORKSPACE_PAGE_ROWS_DEFAULT` | How many rows an admin page read answers when not told, in items. | `50` |
+| `ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_MOST` | The most rows one admin workspace read answers, in items. | `100` |
 | `ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE` | How many names or searches one tool_find call may carry, in items. | `8` |
 | `ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT` | How much of the model's window one tool result may take, in percent. | `10` |
 | `ORKNUX_TUNING_TURN_WINDOW_CHARS_PER_TOKEN` | How many characters a token is counted as against the window, in characters. | `1` |

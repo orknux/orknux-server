@@ -128,6 +128,21 @@ enum class Tunable(
         "How many findable tools one search loads",
         "An agent with more tools than its briefing names finds the rest with tool_find. This is how many of the matches one search hands it at once; the rest are counted and a narrower search finds them.",
     ),
+    ADMIN_WORKSPACE_ROWS_DEFAULT(
+        "admin.workspace.rows.default", 20, 1, 1000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many rows an admin workspace's read answers when not told",
+        "An admin workspace's agent listing another workspace's sessions, chats, agents and the like gets this many when it does not ask for a number.",
+    ),
+    ADMIN_WORKSPACE_PAGE_ROWS_DEFAULT(
+        "admin.workspace.page.rows.default", 50, 1, 1000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many rows an admin page read answers when not told",
+        "Reports, audit, users and the other admin pages an admin workspace's agent reads answer this many rows when it does not ask for a number.",
+    ),
+    ADMIN_WORKSPACE_ROWS_MOST(
+        "admin.workspace.rows.most", 100, 1, 1000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "The most rows one admin workspace read answers",
+        "An agent asking for more is given this many; the two defaults above are held to it too.",
+    ),
     TOOL_SEARCHES_AT_ONCE(
         "tools.searches.at.once", 8, 1, 50, TuningSection.AGENTS, TuningUnit.ITEMS,
         "How many names or searches one tool_find call may carry",
