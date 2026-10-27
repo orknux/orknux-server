@@ -14,6 +14,17 @@ extend type Mutation {
     be changed here.
     """
     setWorkspaceMemberRole(workspaceId: ID!, username: String!, role: WorkspaceRole!): WorkspaceMember!
+
+    """
+    Removes a member from this workspace only: their roles stay, and so does
+    every other workspace those roles open. A workspace admin named here stops
+    being one. Whoever administers the workspace; an installation administrator
+    cannot be removed, nor can the last workspace admin remove themselves.
+    """
+    excludeWorkspaceMember(workspaceId: ID!, username: String!): WorkspaceMember!
+
+    "Lets a removed member back in, as an ordinary member. Whoever administers the workspace."
+    allowWorkspaceMember(workspaceId: ID!, username: String!): WorkspaceMember!
 }
 
 "What somebody may do in one workspace."
@@ -34,4 +45,6 @@ type WorkspaceMember {
     role: WorkspaceRole!
     "True for an installation administrator, who administers every workspace and is not changed here."
     fixed: Boolean!
+    "True for somebody removed from this workspace although a role of theirs opens it."
+    excluded: Boolean!
 }

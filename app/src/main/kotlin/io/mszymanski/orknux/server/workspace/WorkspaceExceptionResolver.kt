@@ -40,6 +40,11 @@ class WorkspaceExceptionResolver : DataFetcherExceptionResolverAdapter() {
             // Somebody who is not a member, or who administers everywhere already.
             is WorkspaceMemberUnknownException,
             is WorkspaceMemberFixedException,
+            // Removing an installation administrator, the last workspace admin
+            // removing themselves, and changing the role of somebody removed.
+            is WorkspaceMemberNotRemovableException,
+            is WorkspaceLastAdministratorException,
+            is WorkspaceMemberExcludedException,
             // An admin workspace somebody who is not an administrator could open,
             // and a reach list naming nothing. Thrown by the role save as well.
             is AdminWorkspaceOpenToOthersException,

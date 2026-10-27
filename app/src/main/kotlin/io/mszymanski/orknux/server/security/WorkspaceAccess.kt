@@ -26,6 +26,8 @@ class WorkspaceAccess(
     private val users: io.mszymanski.orknux.server.user.AppUserRepository,
     /** The people named on a workspace as administering it. See [canAdminister]. */
     private val adminUsers: io.mszymanski.orknux.server.workspace.WorkspaceAdminUserRepository,
+    /** The people a workspace has removed although a role lets them in. See [excluded]. */
+    private val exclusions: io.mszymanski.orknux.server.workspace.WorkspaceExcludedUserRepository,
 ) {
 
     fun roles(): Set<String> {
@@ -116,7 +118,23 @@ class WorkspaceAccess(
         // subset of it - the API refuses a save where it is not - so this reads as
         // belt and braces, and it is: a role that administers a workspace it cannot
         // see is a state no screen can produce and no check should have to survive.
-        return (workspace.roles + workspace.adminRoles).any { it.id in held }
+        return (workspace.roles + workspace.adminRoles).any { it.id in held } && !excluded(workspace)
+    }
+
+    /**
+     * Whether this workspace has removed the caller, whatever their roles say.
+     *
+     * Asked here and nowhere else, after the roles have said yes, so that every
+     * door - the workspace list, a query by id, an MCP token, a REST call -
+     * loses the workspace in the same moment, and so that the question costs a
+     * lookup only where it can change the answer. An installation administrator
+     * never reaches it: [isAdmin] has already answered, because they see every
+     * workspace by definition, and the members page refuses to remove one.
+     */
+    private fun excluded(workspace: Workspace): Boolean {
+        val username = SecurityContextHolder.getContext().authentication?.name ?: return false
+        val id = workspace.id ?: return false
+        return exclusions.existsByIdWorkspaceIdAndIdUsername(id, username)
     }
 
     /**
