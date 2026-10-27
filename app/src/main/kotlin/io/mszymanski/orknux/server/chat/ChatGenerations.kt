@@ -27,8 +27,15 @@ class ChatFrame(val event: String, val payload: Any)
  * goes when the answer ends.
  */
 class ChatGeneration(
-    /** How this answer is stopped on purpose: Stop, or a voice reader leaving. */
+    /** How this answer is stopped on purpose: Stop, or the voice panel's circle or a voice talking over it. */
     val hangup: Hangup = Hangup(),
+    /**
+     * A spoken turn. Stopped on purpose, it is hung up on as an ordinary part
+     * of the conversation - somebody talked over it - and recorded as no
+     * failure (#671). Its reader leaving stops nothing, as a typed turn's does
+     * not (#615).
+     */
+    val voice: Boolean = false,
     /**
      * Started by the server rather than by somebody sending - [ChatWake]. A page
      * open on the chat did not ask for it and so has no stream reading it; it
@@ -171,11 +178,12 @@ class ChatGenerations {
      * Stops whatever is being answered on this chat, if anything is.
      *
      * Only hangs up: the answering thread reads that on its next piece and puts
-     * itself back the way an interrupted turn is, the same path a voice chat's
-     * lost reader already takes. Nothing here waits for that to happen - the
-     * caller is a button press, not the turn.
+     * itself back the way an interrupted turn is. Nothing here waits for that
+     * to happen - the caller is a button press, not the turn. A spoken turn is
+     * cut short ordinarily: talking over an answer is the conversation working,
+     * not a failure (#671).
      */
     fun interrupt(chatId: Long) {
-        inFlight[chatId]?.forEach { it.hangup.hangUp() }
+        inFlight[chatId]?.forEach { if (it.voice) it.hangup.hangUpOrdinarily() else it.hangup.hangUp() }
     }
 }

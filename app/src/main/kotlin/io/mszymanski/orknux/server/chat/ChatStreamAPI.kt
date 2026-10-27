@@ -41,14 +41,14 @@ data class ChatStreamRequest @JsonCreator constructor(
      */
     @JsonProperty("attachmentIds") val attachmentIds: List<Long> = emptyList(),
     /**
-     * Whether a lost reader should stop the answer.
+     * Whether the voice panel asked: a spoken turn, with speakers to play to.
      *
-     * A voice turn is spoken and then gone, so a reader who walks away wants it
-     * stopped - which is what #299 gave voice mode. A text chat is a record: an
-     * answer left half-read is wanted when the person comes back, so leaving no
-     * longer stops it and it is written to the history whether anybody is still
-     * reading or not. That is #335, and this flag is which of the two this turn
-     * is. False - a text turn - unless the voice panel says otherwise.
+     * It no longer decides what a lost reader means. #299 made a spoken turn's
+     * reader walking away stop the model, and so leaving voice mode or
+     * switching chat while it thought threw the answer away (#615). Now a spoken
+     * turn is kept as a typed one is (#335), and interrupting it is the panel's
+     * own call to `/interrupt`, as Stop is for a typed turn. False - a text turn
+     * - unless the voice panel says otherwise.
      */
     @JsonProperty("voice") val voice: Boolean = false,
 )
@@ -149,7 +149,7 @@ class ChatStreamAPI(
             request.text,
             response,
             session,
-            interruptOnLeave = request.voice,
+            voice = request.voice,
         )
     }
 
@@ -179,7 +179,7 @@ class ChatStreamAPI(
         // A question still being answered is not one to answer twice at once.
         if (generations.answering(id)) throw ChatNothingToRegenerateException("This chat is answering already; wait for it, or stop it first")
 
-        return answering(id, { chats.beginRegenerate(id) }, said = null, response = response, session = session, interruptOnLeave = voice) {
+        return answering(id, { chats.beginRegenerate(id) }, said = null, response = response, session = session, voice = voice) {
             chats.abandonRegenerate(id)
         }
     }
@@ -229,12 +229,13 @@ class ChatStreamAPI(
         response: HttpServletResponse,
         session: ChatSession,
         /**
-         * Whether a lost reader stops the answer. A voice turn's does (#299); a
-         * text turn's does not, and is written to the history whether anybody is
-         * still reading or not (#335). Either way, pressing Stop stops it - that
-         * goes through [interrupt] and the [ChatGenerations] registry, not this.
+         * Whether the voice panel asked: a spoken turn. Neither kind is stopped
+         * by a lost reader (#335, #615): each is written to the history whether
+         * anybody is still reading or not. Stopping on purpose - Stop, or the
+         * voice panel's interrupt - goes through [interrupt] and the
+         * [ChatGenerations] registry, not this.
          */
-        interruptOnLeave: Boolean,
+        voice: Boolean,
         giveUp: () -> Unit = {},
     ): StreamingResponseBody {
         // Nothing between here and the browser may hold a piece of the answer
@@ -300,7 +301,7 @@ class ChatStreamAPI(
              * [ChatGenerations]) and a voice turn's lost reader both reach for
              * it.
              */
-            val generation = ChatGeneration()
+            val generation = ChatGeneration(voice = voice)
             val hangup = generation.hangup
             fun send(event: String, payload: Any) = generation.post(event, payload)
             generations.register(id, generation)
@@ -393,7 +394,7 @@ class ChatStreamAPI(
                          */
                         val watch = generation.watch(links)
                         // A voice turn is the one whose reader leaves on a lost stream, and the one with speakers to play to.
-                        chats.ask(start, watch, chatTools.shed(session, watch, voice = interruptOnLeave), hangup)
+                        chats.ask(start, watch, chatTools.shed(session, watch, voice = voice), hangup)
                             .also { whole ->
                                 if (whole is ChatCompletion.Answered) send("chunk", mapOf("text" to whole.content))
                             }
@@ -497,10 +498,15 @@ class ChatStreamAPI(
                 }
             }
 
-            // The relay, which reads this answer exactly as a page that comes
-            // back to it does. Only what leaving means differs: see [relay].
-            // A voice reader leaving is how a spoken turn is cut short, not a failure: nothing is recorded as one. Issue #671.
-            relay(stream, generation) { if (interruptOnLeave) hangup.hangUpOrdinarily() }
+            /*
+             * The relay, which reads this answer exactly as a page that comes
+             * back to it does. A reader leaving stops nothing, a spoken turn's
+             * included: leaving voice mode or switching chat while the model
+             * thought threw the answer away, "Nobody was left to read the
+             * answer" (#615). Interrupting a spoken turn is the panel's own call
+             * to [interrupt], as Stop is for a typed one.
+             */
+            relay(stream, generation) {}
             // Left holding nothing: the response is the container's again the
             // moment this returns, and the worker was built to never touch it.
             if (!worker.isAlive) log.debug("Chat {} answered before its reader left", id)

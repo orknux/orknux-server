@@ -39,11 +39,11 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * When a chat whose reader has gone stops the model, and when it does not.
  *
- * Two issues meet here. A voice turn whose reader leaves is stopped rather than
- * paid to finish (#299); a text turn whose reader leaves is finished and written
- * to the history, because a chat is a record and the answer is wanted when the
- * person comes back (#335). Stopping a text turn on purpose is [ChatStreamAPI]'s
- * own interrupt door, not a lost reader.
+ * A turn whose reader leaves is finished and written to the history, because a
+ * chat is a record and the answer is wanted when the person comes back (#335) -
+ * a spoken turn as much as a typed one (#615; #299 had made a spoken turn's lost
+ * reader stop the model, and leaving voice mode lost the answer). Stopping a
+ * turn on purpose is [ChatStreamAPI]'s own interrupt door, not a lost reader.
  *
  * Issue #299, on the server's half. The browser learnt to abort the request when
  * somebody interrupts; this is the claim that aborting it means anything —
@@ -131,67 +131,66 @@ class ChatStreamInterruptTest(
      * between the question and that one frame there is no write, and before the
      * fix there was therefore nothing for a hang-up to be discovered on.
      */
+    /**
+     * A spoken turn whose reader leaves is finished and kept, as a typed one is.
+     * Issue #615.
+     *
+     * #299 had a voice turn's lost reader hang the model up, and so leaving
+     * voice mode or switching chat while the model thought threw the answer
+     * away: "Nobody was left to read the answer", fifteen seconds later, and
+     * nothing in the history. Leaving is not a decision to stop. The reader is
+     * gone from the first frame; the provider runs to the end and the history
+     * ends on the answer.
+     */
     @Test
-    fun `a voice agent's answer is stopped when the reader goes`() {
+    fun `a voice agent's answer is finished and kept when the reader goes`() {
         val chatId = chatWithAgent(model(serve()))
 
         run(chatId)
 
-        assertThat(torn.get()).isTrue()
-        assertThat(written.get()).isLessThan(FRAMES)
+        assertThat(torn.get()).isFalse()
+        assertThat(written.get()).isEqualTo(FRAMES)
+        graphQlTester.document("{ chatMessages(id: $chatId) { role } }")
+            .execute()
+            .path("chatMessages[*].role").entityList(String::class.java)
+            .containsExactly("user", "assistant")
     }
 
-    /**
-     * And a chat from before agents were compulsory, which streams every piece.
-     *
-     * Held because it is the branch that appeared to work: each chunk is written
-     * to the browser as it lands, so a write does fail eventually and the SDK's
-     * stream is closed on the way out. That was luck rather than design - it
-     * worked only while the model was producing text, and stopped working the
-     * moment the answer went quiet - and it is worth keeping honest either way.
-     */
+    /** And a chat on a bare model, which streams every piece to the reader, the same. */
     @Test
-    fun `a voice bare model's answer is stopped when the reader goes`() {
+    fun `a voice bare model's answer is finished when the reader goes`() {
         val chatId = chatOnBareModel(model(serve()))
 
         run(chatId)
 
+        assertThat(torn.get()).isFalse()
+        assertThat(written.get()).isEqualTo(FRAMES)
+    }
+
+    /**
+     * Interrupting a spoken turn on purpose - the panel's circle, or a voice
+     * talking over it - stops the model and keeps nothing, through the same
+     * interrupt Stop uses for a typed turn. A conversation reopened tomorrow
+     * ending in half a sentence attributed to the model is a worse record than
+     * one ending on the question.
+     */
+    @Test
+    fun `a voice turn that is interrupted is stopped and not kept`() {
+        val chatId = chatWithAgent(model(serve()))
+        val response = MockHttpServletResponse()
+        val body = streaming.stream(chatId, ChatStreamRequest("Say something long", voice = true), response)
+
+        val worker = Executors.newSingleThreadExecutor()
+        worker.submit { runCatching { body.writeTo(response.outputStream) } }
+        Thread.sleep(INTERRUPT_AFTER_MILLIS)
+        streaming.interrupt(chatId)
+
+        assertThat(done.await(10, TimeUnit.SECONDS)).isTrue()
         assertThat(torn.get()).isTrue()
         assertThat(written.get()).isLessThan(FRAMES)
-    }
-
-    /**
-     * And nothing an abandoned turn produced is written down.
-     *
-     * The chat keeps the question and no answer. What the model had composed
-     * when the connection went is part of an answer somebody stopped on purpose,
-     * and a conversation reopened tomorrow ending in half a sentence attributed
-     * to the model is a worse record than one ending on the question.
-     */
-    /**
-     * A voice turn whose reader is gone before the first frame is never put to
-     * the model: the turn names its session first, that write fails, and there
-     * is nobody to answer.
-     */
-    @Test
-    fun `a voice turn whose reader is already gone never asks the model`() {
-        val chatId = chatWithAgent(model(serve()))
-
-        val response = GoneAlready()
-        streaming.stream(chatId, ChatStreamRequest("Say something long", voice = true), response)
-            .writeTo(response.outputStream)
         val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (generations.current(chatId)?.isOver() == false && System.nanoTime() < until) Thread.sleep(10)
-        Thread.sleep(300)
-
-        assertThat(written.get()).isZero()
-    }
-
-    @Test
-    fun `a voice turn's abandoned answer is not kept`() {
-        val chatId = chatWithAgent(model(serve()))
-
-        run(chatId)
+        worker.shutdownNow()
 
         graphQlTester.document("{ chatMessages(id: $chatId) { role content } }")
             .execute()
@@ -200,21 +199,29 @@ class ChatStreamInterruptTest(
     }
 
     /**
-     * And a voice turn cut short that way is not written down as a failure.
+     * And a spoken turn cut short that way is not written down as a failure.
      * Issue #671.
      *
-     * Talking over an answer, or leaving voice mode, is how a spoken turn
-     * ends every few minutes - and each one was in the session as "Worker
-     * could not answer: Nobody was left to read the answer", a failure line for
-     * the conversation working as it should.
+     * Talking over an answer is how a spoken turn ends every few minutes - and
+     * each one was in the session as "Worker could not answer: Nobody was left
+     * to read the answer", a failure line for the conversation working as it
+     * should.
      */
     @Test
-    fun `a voice turn whose reader goes records no failure`() {
+    fun `a voice turn that is interrupted records no failure`() {
         val chatId = chatWithAgent(model(serve()))
+        val response = MockHttpServletResponse()
+        val body = streaming.stream(chatId, ChatStreamRequest("Say something long", voice = true), response)
 
-        run(chatId)
+        val worker = Executors.newSingleThreadExecutor()
+        worker.submit { runCatching { body.writeTo(response.outputStream) } }
+        Thread.sleep(INTERRUPT_AFTER_MILLIS)
+        streaming.interrupt(chatId)
 
+        assertThat(done.await(10, TimeUnit.SECONDS)).isTrue()
         assertThat(torn.get()).isTrue()
+        Thread.sleep(500)
+        worker.shutdownNow()
         assertThat(llmEvents.findAll().map { it.content.orEmpty() }).noneMatch { it.contains("could not answer") }
     }
 
@@ -506,20 +513,6 @@ class ChatStreamInterruptTest(
      * [io.mszymanski.orknux.server.stream.ReaderWatch] sends is a write like any
      * other, so this is also how it finds out.
      */
-    /** A reader gone before anything is written: the turn ends before the model is asked at all. */
-    private class GoneAlready : MockHttpServletResponse() {
-        private val stream = object : ServletOutputStream() {
-            override fun write(b: Int) = throw IOException("Broken pipe")
-            override fun write(b: ByteArray, off: Int, len: Int) = throw IOException("Broken pipe")
-            override fun isReady() = true
-            override fun setWriteListener(listener: WriteListener?) = Unit
-        }
-
-        override fun getOutputStream(): ServletOutputStream = stream
-
-        override fun flushBuffer() = throw IOException("Broken pipe")
-    }
-
     /**
      * A reader that leaves once the model has begun answering.
      *
