@@ -44,8 +44,7 @@ class ResearchFollowUps(
 
     /** How many a research started now in [workspaceId] is given when its start does not say. */
     fun countFor(workspaceId: Long): Int {
-        val bounds = Tunable.RESEARCH_FOLLOW_UPS.least..Tunable.RESEARCH_FOLLOW_UPS.most
-        return workspaces.findByIdOrNull(workspaceId)?.researchFollowUps?.takeIf { it in bounds }
+        return workspaces.findByIdOrNull(workspaceId)?.researchFollowUps?.takeIf(Tunable.RESEARCH_FOLLOW_UPS::accepts)
             ?: tuning[Tunable.RESEARCH_FOLLOW_UPS]
     }
 

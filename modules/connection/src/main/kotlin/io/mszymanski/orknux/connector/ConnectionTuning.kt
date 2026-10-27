@@ -9,22 +9,23 @@ package io.mszymanski.orknux.connector
  * in the app because the module cannot see the app, and so that the default
  * stays beside the code that reads it.
  *
- * [least] and [most] are what a stored value is held inside: a value outside
+ * [least] and [most] are what a stored value is held inside, [most] null meaning
+ * no upper bound: a value outside
  * them reads as [fallback], the way every other installation setting does.
  */
-enum class ConnectionKnob(val key: String, val fallback: Int, val least: Int, val most: Int) {
+enum class ConnectionKnob(val key: String, val fallback: Int, val least: Int, val most: Int?) {
 
     /** The longest Retry-After a model call waits out itself before the node's own policy takes over. */
-    RETRY_AFTER_LONGEST_SECONDS("model.retry.after.longest.seconds", 120, 0, 3600),
+    RETRY_AFTER_LONGEST_SECONDS("model.retry.after.longest.seconds", 120, 0, null),
 
     /** How many Retry-Afters one model call waits out before it gives up. */
-    RETRY_AFTER_ATTEMPTS("model.retry.after.attempts", 2, 0, 20),
+    RETRY_AFTER_ATTEMPTS("model.retry.after.attempts", 2, 0, null),
 
     /** The longest a throttled model call is held before it is let through. */
-    THROTTLE_LONGEST_DELAY_SECONDS("model.throttle.longest.delay.seconds", 60, 1, 3600),
+    THROTTLE_LONGEST_DELAY_SECONDS("model.throttle.longest.delay.seconds", 60, 1, null),
 
     /** How long fetching a picture a provider answered with by URL may take. */
-    IMAGE_FETCH_SECONDS("model.image.fetch.seconds", 60, 1, 600),
+    IMAGE_FETCH_SECONDS("model.image.fetch.seconds", 60, 1, null),
 }
 
 /**

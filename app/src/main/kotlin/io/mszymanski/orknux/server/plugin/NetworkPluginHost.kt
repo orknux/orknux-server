@@ -89,10 +89,10 @@ class NetworkPluginHost(
      * and `orknux.slack.download`, which a plugin moved onto from the first and
      * should find the same files fit. Tunable.PLUGIN_DOWNLOAD_MB; issue #453.
      */
-    fun mostDownloadedBytes(): Int = tuning[Tunable.PLUGIN_DOWNLOAD_MB] * 1024 * 1024
+    fun mostDownloadedBytes(): Long = io.mszymanski.orknux.server.tuning.TunableArithmetic.bytesOf(tuning[Tunable.PLUGIN_DOWNLOAD_MB])
 
     /** The largest upload through either door, `orknux.http` or `orknux.slack.upload`; Tunable.PLUGIN_UPLOAD_MB. */
-    fun mostUploadedBytes(): Int = tuning[Tunable.PLUGIN_UPLOAD_MB] * 1024 * 1024
+    fun mostUploadedBytes(): Long = io.mszymanski.orknux.server.tuning.TunableArithmetic.bytesOf(tuning[Tunable.PLUGIN_UPLOAD_MB])
 
     private fun client(): HttpClient {
         val generation = System.identityHashCode(trusted.context())

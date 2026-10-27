@@ -12,7 +12,8 @@ extend type Query {
 extend type Mutation {
     """
     Sets one number, by its key. Leave out the value to hand it back to the
-    configuration file. Refused outside `least`..`most`. Administrators only.
+    configuration file. Refused below `least`, and above `most` where there is
+    one. Administrators only.
     """
     setTunable(key: String!, value: Int): Tunable!
 }
@@ -39,8 +40,8 @@ type Tunable {
     set: Boolean!
     "The smallest it may be."
     least: Int!
-    "The largest it may be."
-    most: Int!
+    "The largest it may be, or null where it has no upper bound - every number but a share of a whole or a range a format takes."
+    most: Int
     "The environment variable that sets where a fresh installation starts."
     variable: String!
 }

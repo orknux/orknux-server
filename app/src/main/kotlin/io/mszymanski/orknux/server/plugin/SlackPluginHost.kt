@@ -642,7 +642,7 @@ class SlackPluginHost(
                 }
                 val mostUploaded = network.mostUploadedBytes()
                 if (bytes.size > mostUploaded) {
-                    return refusal("the file is larger than ${mostUploaded / (1024 * 1024)} MB")
+                    return refusal("the file is larger than ${mostUploaded / (1024L * 1024L)} MB")
                 }
                 uploads.upload(
                     connectionId, filename, bytes,

@@ -1033,8 +1033,8 @@ class WorkspaceAPI(
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
         access.requireAdministers(workspace)
         val tunable = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_FOLLOW_UPS
-        if (count != null && count !in tunable.least..tunable.most) {
-            throw io.mszymanski.orknux.server.research.ResearchFollowUpsOutOfRangeException(count, tunable.least, tunable.most)
+        if (count != null && !tunable.accepts(count)) {
+            throw io.mszymanski.orknux.server.research.ResearchFollowUpsOutOfRangeException(count, tunable.least)
         }
         workspace.researchFollowUps = count
         auditRecorder.record(
@@ -1056,8 +1056,8 @@ class WorkspaceAPI(
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
         access.requireAdministers(workspace)
         val tunable = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_REVIEW_ROUNDS
-        if (count != null && count !in tunable.least..tunable.most) {
-            throw io.mszymanski.orknux.server.research.ResearchReviewRoundsOutOfRangeException(count, tunable.least, tunable.most)
+        if (count != null && !tunable.accepts(count)) {
+            throw io.mszymanski.orknux.server.research.ResearchReviewRoundsOutOfRangeException(count, tunable.least)
         }
         workspace.researchReviewRounds = count
         auditRecorder.record(

@@ -577,7 +577,8 @@ class DocumentPdfReader(mapper: ObjectMapper, private val tuning: Tuning = Tunin
         val full = cells.count { row -> row.all { it != null && cellText(it).isNotEmpty() } }
         if (full * 100 < cells.size * tuning[Tunable.DOCUMENT_IMPORT_TABLE_ROWS_FULL_PERCENT] && !aligned(cells)) return false
         val words = cells.flatten().mapNotNull { it?.let { cell -> cellText(cell) } }.filter { it.isNotEmpty() }
-        if (words.sumOf { it.length } > words.size * tuning[Tunable.DOCUMENT_IMPORT_TABLE_CELL_CHARACTERS]) return false
+        // In Long, so a cell length set as high as the box takes means "any length" rather than wrapping negative.
+        if (words.sumOf { it.length.toLong() } > words.size.toLong() * tuning[Tunable.DOCUMENT_IMPORT_TABLE_CELL_CHARACTERS]) return false
         val first = cells.mapNotNull { row -> row.firstOrNull()?.let { cellText(it) } }.filter { it.isNotEmpty() }
         return !first.all { LIST_MARKER.matches(it) }
     }

@@ -513,15 +513,7 @@ class DocumentAPI(
      * The words around the first place [needle] is found, on one line; the
      * start of the document where it is only in the name.
      */
-    fun snippet(text: String, needle: String): String {
-        val flat = text.replace(Regex("\\s+"), " ").trim()
-        val room = tuning[Tunable.DOCUMENT_SNIPPET_CHARACTERS]
-        val at = flat.indexOf(needle, ignoreCase = true)
-        if (at < 0) return flat.take(room).let { if (flat.length > room) "$it…" else it }
-        val start = (at - room / 3).coerceAtLeast(0)
-        val end = (start + room).coerceAtMost(flat.length)
-        return (if (start > 0) "…" else "") + flat.substring(start, end).trim() + (if (end < flat.length) "…" else "")
-    }
+    fun snippet(text: String, needle: String): String = documentSnippet(text, needle, tuning[Tunable.DOCUMENT_SNIPPET_CHARACTERS])
 
     /**
      * Every write of a document's content, whichever door it came through.
@@ -699,3 +691,14 @@ data class DocumentChatTurnInput @com.fasterxml.jackson.annotation.JsonCreator c
     /** Files uploaded through the attachments endpoint, sent with this turn. */
     @com.fasterxml.jackson.annotation.JsonProperty("attachmentIds") val attachmentIds: List<Long>? = null,
 )
+
+/** [DocumentAPI.snippet], [room] characters long. */
+internal fun documentSnippet(text: String, needle: String, room: Int): String {
+    val flat = text.replace(Regex("\\s+"), " ").trim()
+    val at = flat.indexOf(needle, ignoreCase = true)
+    if (at < 0) return flat.take(room).let { if (flat.length > room) "$it…" else it }
+    val start = (at - room / 3).coerceAtLeast(0)
+    // In Long: a room of Int.MAX_VALUE is "to the end", and start + room in Int would wrap negative.
+    val end = (start.toLong() + room).coerceAtMost(flat.length.toLong()).toInt()
+    return (if (start > 0) "…" else "") + flat.substring(start, end).trim() + (if (end < flat.length) "…" else "")
+}

@@ -146,7 +146,9 @@ class CommandRunner(
         Files.createDirectories(dir)
         ownerOnly(dir)
         val files = RunFiles(dir.toString())
-        val run = CommandRun(id, by, command, shell, elevated, files, tuning[Tunable.COMMAND_OUTPUT_CHARACTERS])
+        // Held to the longest text a StringBuilder can hold: past it appending would throw, not keep more.
+        val cap = tuning[Tunable.COMMAND_OUTPUT_CHARACTERS].coerceAtMost(io.mszymanski.orknux.server.tuning.TunableArithmetic.LONGEST_TEXT)
+        val run = CommandRun(id, by, command, shell, elevated, files, cap)
         runs[id] = run
 
         val posixShell = posixShellFor(language)

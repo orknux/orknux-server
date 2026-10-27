@@ -100,7 +100,7 @@ class SlackWebApi(
      *   before anything is fetched, and again while reading, since a size is
      *   only what Slack said.
      */
-    fun download(connectionId: Long, fileId: String, mostBytes: Int, on: Long? = null): SlackDownload {
+    fun download(connectionId: Long, fileId: String, mostBytes: Long, on: Long? = null): SlackDownload {
         if (fileId.isBlank()) return SlackDownload.NotPossible("a download needs the file's id")
         val token = when (val held = tokenFor(connectionId, asUser = false, on)) {
             is Held.Token -> held.token
@@ -124,8 +124,9 @@ class SlackWebApi(
         return try {
             slack.httpClient.get(url, null, token).use { answer ->
                 if (answer.code != 200) return SlackDownload.Refused("Slack answered ${answer.code} for that file")
-                val bytes = answer.body?.byteStream()?.use { it.readNBytes(mostBytes + 1) } ?: ByteArray(0)
-                if (bytes.size > mostBytes) return SlackDownload.Refused(tooLarge(null, mostBytes))
+                val readable = readableOf(mostBytes)
+                val bytes = answer.body?.byteStream()?.use { it.readNBytes(readable + 1) } ?: ByteArray(0)
+                if (bytes.size > readable) return SlackDownload.Refused(tooLarge(null, mostBytes))
                 val said = answer.header("content-type")?.substringBefore(';')?.trim()?.takeIf { it.isNotEmpty() }
                 SlackDownload.Fetched(bytes, text("mimetype") ?: said, file)
             }
@@ -202,12 +203,19 @@ class SlackWebApi(
         return address.scheme == api.scheme && host == api.host.lowercase() && address.port == api.port
     }
 
-    private fun tooLarge(size: Long?, mostBytes: Int): String {
+    private fun tooLarge(size: Long?, mostBytes: Long): String {
         val most = "${mostBytes / (1024 * 1024)} MB"
         return if (size != null) "that file is $size bytes, and at most $most are fetched" else "that file is larger than $most"
     }
 
     companion object {
+        /**
+         * How many bytes of a file are read: [mostBytes], held to what one array
+         * can hold - the setting it comes from has no ceiling, and a file past
+         * that could not be handed back whatever it said.
+         */
+        fun readableOf(mostBytes: Long): Int = mostBytes.coerceIn(0L, (Int.MAX_VALUE - 9).toLong()).toInt()
+
         /**
          * Every method [read] makes, all of them reads.
          *

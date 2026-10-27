@@ -84,7 +84,8 @@ data class TunableView(
     val configured: Int,
     val set: Boolean,
     val least: Int,
-    val most: Int,
+    /** Null where there is no upper bound. */
+    val most: Int?,
     val variable: String,
 )
 

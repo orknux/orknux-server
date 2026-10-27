@@ -201,7 +201,7 @@ class ResearchReviewTest(
         graphQlTester.document("""mutation { setWorkspaceResearchReviewRounds(workspaceId: $workspaceId, count: null) { researchReviewRounds } }""")
             .execute().path("setWorkspaceResearchReviewRounds.researchReviewRounds").valueIsNull()
         assertThat(rounds.of(workspaceId)).isEqualTo(2)
-        graphQlTester.document("""mutation { setWorkspaceResearchReviewRounds(workspaceId: $workspaceId, count: 99) { id } }""")
+        graphQlTester.document("""mutation { setWorkspaceResearchReviewRounds(workspaceId: $workspaceId, count: 0) { id } }""")
             .execute().errors().expect { it.extensions?.get("code") == "ResearchReviewRoundsOutOfRange" }.verify()
     }
 

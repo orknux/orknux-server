@@ -101,9 +101,10 @@ class ChatAttachmentShelf(
             val (from, to) = range
             val askers = readers.ifAvailable?.askersOf(type).orEmpty().filter { it.first != reader.first }
             val finding = askers.joinToString(", ") { "${it.first} {\"${it.second}\": \"$key\", …}" }
+            // Held rather than wrapped: a step of Int.MAX_VALUE pages is "the whole file", not a negative page.
             return " - it is long: read it $step pages at a time with ${reader.first} " +
-                "{\"${reader.second}\": \"$key\", \"$from\": 1, \"$to\": ${minOf(step, pages)}}, then \"$from\": ${step + 1}, " +
-                "\"$to\": ${2 * step} and so on to page $pages, and summarise each part before reading the next rather than reading it whole" +
+                "{\"${reader.second}\": \"$key\", \"$from\": 1, \"$to\": ${minOf(step, pages)}}, then \"$from\": ${io.mszymanski.orknux.server.tuning.TunableArithmetic.plus(step, 1)}, " +
+                "\"$to\": ${io.mszymanski.orknux.server.tuning.TunableArithmetic.times(2, step)} and so on to page $pages, and summarise each part before reading the next rather than reading it whole" +
                 (if (finding.isNotEmpty()) "; to find something in it, use $finding" else "")
         }
         /*

@@ -7,6 +7,7 @@ import io.mszymanski.orknux.server.chat.AgentRunTools
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRepository
 import io.mszymanski.orknux.workflow.ExecutionKnob
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -38,7 +39,9 @@ class TunablesTest(
     @Autowired val connectionTuning: ConnectionTuning,
 ) {
 
+    /** Before and after: a test that stores the largest number for every setting must not leave it for the next class. */
     @BeforeEach
+    @AfterEach
     fun clean() {
         settings.deleteAll(settings.findAll().filter { row -> Tunable.entries.any { it.key == row.name } })
         audit.deleteAll()
@@ -48,7 +51,9 @@ class TunablesTest(
     fun `every tunable has a unique key, a fallback inside its range, and one line of label`() {
         assertThat(Tunable.entries.map { it.key }).doesNotHaveDuplicates()
         Tunable.entries.forEach {
-            assertThat(it.fallback).describedAs(it.key).isBetween(it.least, it.most)
+            assertThat(it.accepts(it.fallback)).describedAs(it.key).isTrue()
+            assertThat(it.fallback).describedAs(it.key).isGreaterThanOrEqualTo(it.least)
+            it.most?.let { most -> assertThat(it.fallback).describedAs(it.key).isLessThanOrEqualTo(most) }
             assertThat(it.label).describedAs(it.key).doesNotContain("\n").doesNotEndWith(".")
             assertThat(it.hint).describedAs(it.key).isNotBlank()
         }
@@ -66,6 +71,57 @@ class TunablesTest(
             assertThat(listOf(tunable.fallback, tunable.least, tunable.most))
                 .isEqualTo(listOf(knob.fallback, knob.least, knob.most))
         }
+        ExecutionKnob.entries.forEach { knob ->
+            val tunable = Tunable.byKey(knob.key)!!
+            assertThat(listOf(tunable.fallback, tunable.least, tunable.most))
+                .isEqualTo(listOf(knob.fallback, knob.least, knob.most))
+        }
+    }
+
+    /**
+     * The owner's rule: no ceiling that is only a guess at what is sensible. The
+     * few kept are a share of a whole or a range something outside this server
+     * takes, and each says why beside it in Tunable.kt; a new ceiling is a
+     * decision, and this list is where it is made.
+     */
+    @Test
+    fun `only shares of a whole and outside ranges have a ceiling`() {
+        assertThat(Tunable.entries.filter { it.most != null }.associate { it.key to it.most })
+            .isEqualTo(
+                mapOf(
+                    "tool.result.window.percent" to 90,
+                    "turn.window.reserve.percent" to 75,
+                    "speech.speed.percent" to 400,
+                    "midi.render.sample.rate" to 48_000,
+                    "midi.render.mp3.kbits" to 320,
+                    "wireframe.picture.pixels" to 4096,
+                    "diagram.picture.pixels" to 4096,
+                    "document.svg.pixels" to 4096,
+                    "document.import.table.rows.full.percent" to 100,
+                    "video.export.gif.fps" to 50,
+                    "images.brush.opacity.percent" to 100,
+                    "images.brush.hardness.percent" to 100,
+                    "images.marker.opacity.percent" to 100,
+                    "images.blur.pixels" to 254,
+                    "research.step.retries" to 9,
+                    "research.step.retry.seconds" to 3600,
+                ),
+            )
+    }
+
+    /** As large as the box takes is a number like any other: stored, and read back by the code. */
+    @Test
+    fun `every setting with no ceiling takes the largest number there is`() {
+        Tunable.entries.filter { it.most == null }.forEach {
+            tunables.set(it, Int.MAX_VALUE, "alice")
+            assertThat(tunables[it]).describedAs(it.key).isEqualTo(Int.MAX_VALUE)
+        }
+        assertThat(connectionTuning.valueOf(ConnectionKnob.RETRY_AFTER_LONGEST_SECONDS)).isEqualTo(Int.MAX_VALUE)
+
+        graphQlTester.document("{ tunables { key most } }")
+            .execute()
+            .path("tunables[?(@.key == 'agent.wait.longest.seconds')].most").entity(List::class.java).isEqualTo(listOf(null))
+            .path("tunables[?(@.key == 'tool.result.window.percent')].most").entityList(Int::class.java).containsExactly(90)
     }
 
     /**
@@ -140,14 +196,27 @@ class TunablesTest(
 
     @Test
     fun `a number outside the range is refused by code and nothing is stored`() {
+        // No ceiling: only the floor is said, and no `most` is sent for a translation to print.
         graphQlTester.document("""mutation { setTunable(key: "agent.wait.longest.seconds", value: 0) { value } }""")
             .execute().errors().satisfy { errors ->
                 assertThat(errors).singleElement().satisfies({
-                    assertThat(it.message).contains("Choose between 1 and 3600")
+                    assertThat(it.message).contains("Choose 1 or more.")
                     assertThat(it.extensions["code"]).isEqualTo("TunableOutOfRange")
+                    @Suppress("UNCHECKED_CAST")
+                    assertThat(it.extensions["arguments"] as Map<String, Any?>).containsEntry("least", 1).doesNotContainKey("most")
                 })
             }
         assertThat(settings.existsById("agent.wait.longest.seconds")).isFalse()
+
+        // A share of a whole keeps its ceiling, and says both ends.
+        graphQlTester.document("""mutation { setTunable(key: "tool.result.window.percent", value: 91) { value } }""")
+            .execute().errors().satisfy { errors ->
+                assertThat(errors).singleElement().satisfies({
+                    assertThat(it.message).contains("Choose between 1 and 90.")
+                    assertThat(it.extensions["code"]).isEqualTo("TunableOutOfRange")
+                })
+            }
+        assertThat(settings.existsById("tool.result.window.percent")).isFalse()
     }
 
     @Test
@@ -166,11 +235,20 @@ class TunablesTest(
         settings.save(
             io.mszymanski.orknux.server.attachment.InstallationSetting(
                 name = Tunable.HTTP_TIMEOUT_SECONDS.key,
-                value = "99999",
+                value = "0",
                 lastModifiedBy = "somebody",
             ),
         )
         assertThat(tunables[Tunable.HTTP_TIMEOUT_SECONDS]).isEqualTo(30)
+
+        settings.save(
+            io.mszymanski.orknux.server.attachment.InstallationSetting(
+                name = Tunable.TOOL_RESULT_WINDOW_PERCENT.key,
+                value = "99",
+                lastModifiedBy = "somebody",
+            ),
+        )
+        assertThat(tunables[Tunable.TOOL_RESULT_WINDOW_PERCENT]).isEqualTo(10)
     }
 
     @Test

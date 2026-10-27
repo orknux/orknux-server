@@ -148,7 +148,8 @@ class DesignVideoUpscaler(
             var next = 1
             while (next <= total) {
                 if (stopped(id)) return
-                val last = minOf(total, next + batch - 1)
+                // In Long: a batch of Int.MAX_VALUE frames is "all of them", and next + batch would wrap.
+                val last = minOf(total.toLong(), next.toLong() + batch - 1).toInt()
                 val sent = (next..last).map { Files.readAllBytes(VideoFrames.framePath(raw, it)) }
                 when (val answer = upscaling.upscaleBatch(modelId, sent, video.upscaler, scale)) {
                     is ModelUpscaleClient.Pictures.Failed -> {

@@ -505,9 +505,9 @@ class DesignImageAPITest(
 
         graphQlTester.document(
             """mutation { queueDesignImageEdit(input: {
-                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId, prompt: "Make it red", mask: "$mask", feather: 999
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId, prompt: "Make it red", mask: "$mask", feather: -1
                }) { id } }""",
-        ).execute().errors().satisfy { assertThat(it.single().message).contains("A feather is 0 to 256 pixels") }
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("A feather is 0 pixels or more") }
     }
 
     @Test

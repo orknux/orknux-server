@@ -108,7 +108,7 @@ class ResearchFollowUpTest(
 
         graphQlTester.document(
             """mutation { startResearch(input: { ${agents.researchAgents(workspaceId)}, workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()}, 
-                 language: FORMAL, outputFormat: DOCUMENT, followUps: 11 }) { id } }""",
+                 language: FORMAL, outputFormat: DOCUMENT, followUps: -1 }) { id } }""",
         ).execute().errors().expect { it.extensions?.get("code") == "ResearchFollowUpsOutOfRange" }.verify()
     }
 

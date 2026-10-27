@@ -28,6 +28,8 @@ have failed.
 ### 🔧 Changed
 
 - **An agent reads the conversation before asking what a request means.** Handed something unclear - "check this", a bare mention in a Slack thread - it is told to read the earlier messages in its session and the thread it came from first, and to ask only when that does not settle it.
+- **The numbers under Admin Settings → Limits have no upper limit, except shares of a whole and ranges a format takes** - an opacity or a share of the model's window, a speech speed, an MP3's bitrate and sample rate, a GIF's frame rate, the blur's radius, the widest picture the renderer draws, and the research retry policy workflow nodes share. Every other number takes anything from its floor up, the page says only "At least ..." for it, and the server does its sums on them in a way the largest number cannot wrap or exhaust. The research start form and a workspace's own follow-up questions and review rounds lost their ceiling of 10 with it.
+- **One tool search loads 20 findable tools at once rather than 8** (`ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE`). An installation that set its own number keeps it.
 
 ### 🐛 Fixed
 

@@ -18,8 +18,7 @@ class ResearchReviewRounds(
 ) {
 
     fun of(workspaceId: Long): Int {
-        val bounds = Tunable.RESEARCH_REVIEW_ROUNDS.least..Tunable.RESEARCH_REVIEW_ROUNDS.most
-        return workspaces.findByIdOrNull(workspaceId)?.researchReviewRounds?.takeIf { it in bounds }
+        return workspaces.findByIdOrNull(workspaceId)?.researchReviewRounds?.takeIf(Tunable.RESEARCH_REVIEW_ROUNDS::accepts)
             ?: tuning[Tunable.RESEARCH_REVIEW_ROUNDS]
     }
 }

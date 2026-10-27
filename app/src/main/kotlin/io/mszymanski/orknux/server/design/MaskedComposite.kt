@@ -111,13 +111,23 @@ object MaskedComposite {
      * spread the edge over about the feather either side.
      */
     private fun softened(weight: FloatArray, width: Int, height: Int, feather: Int) {
-        val reach = maxOf(1, (feather + 1) / 2)
+        val reach = reachOf(feather, maxOf(width, height))
         val line = FloatArray(maxOf(width, height))
         repeat(PASSES) {
             for (y in 0 until height) boxed(weight, y * width, 1, width, reach, line)
             for (x in 0 until width) boxed(weight, x, width, height, reach, line)
         }
     }
+
+    /**
+     * Half the feather either way, at least a pixel - and no further than the
+     * picture's longer side. The feather has no ceiling of its own, and a box
+     * reaching past every pixel of its line only averages the same pixels again:
+     * held here, a feather of Int.MAX_VALUE neither wraps negative in `2 * reach`
+     * nor loops two billion times a pixel.
+     */
+    internal fun reachOf(feather: Int, longest: Int): Int =
+        ((feather.toLong() + 1) / 2).coerceIn(1L, maxOf(1, longest).toLong()).toInt()
 
     /** One row or column, from [start] by [step] for [count], averaged over [reach] either side; the edge pixel stands in past the edge. */
     private fun boxed(weight: FloatArray, start: Int, step: Int, count: Int, reach: Int, line: FloatArray) {

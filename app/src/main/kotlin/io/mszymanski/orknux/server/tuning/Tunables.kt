@@ -39,13 +39,13 @@ class Tunables(
 
     override operator fun get(tunable: Tunable): Int {
         val held = settings.findByIdOrNull(tunable.key)?.value?.toIntOrNull()
-        return held?.takeIf { it in tunable.least..tunable.most } ?: configured(tunable)
+        return held?.takeIf(tunable::accepts) ?: configured(tunable)
     }
 
     /** Where a fresh installation starts: the file's number, inside the range, or the code's. */
     fun configured(tunable: Tunable): Int {
         val said = runCatching { environment.getProperty(tunable.property, Int::class.java) }.getOrNull()
-        return said?.takeIf { it in tunable.least..tunable.most } ?: tunable.fallback
+        return said?.takeIf(tunable::accepts) ?: tunable.fallback
     }
 
     /** Whether an administrator has chosen, as against the file deciding. */
@@ -61,7 +61,7 @@ class Tunables(
             settings.deleteById(tunable.key)
             return
         }
-        if (value !in tunable.least..tunable.most) throw TunableOutOfRangeException(tunable, value)
+        if (!tunable.accepts(value)) throw TunableOutOfRangeException(tunable, value)
         val held = settings.findByIdOrNull(tunable.key) ?: InstallationSetting(name = tunable.key)
         held.value = value.toString()
         held.lastModifiedAt = OffsetDateTime.now()
@@ -84,13 +84,20 @@ class TunableUnknownException(val key: String) : RuntimeException(
     override val arguments get() = mapOf("key" to key)
 }
 
+/**
+ * A value outside what [tunable] may be. Where it has no upper bound only the
+ * lower one is said, and `most` is left out of the arguments rather than sent as
+ * a number nobody chose.
+ */
 class TunableOutOfRangeException(val tunable: Tunable, val value: Int) : RuntimeException(
-    "$value is outside what \"${tunable.label}\" may be. Choose between ${tunable.least} and ${tunable.most}.",
+    "$value is outside what \"${tunable.label}\" may be. " +
+        (tunable.most?.let { "Choose between ${tunable.least} and $it." } ?: "Choose ${tunable.least} or more."),
 ), Refusal {
-    override val arguments get() = mapOf(
-        "label" to tunable.label,
-        "value" to value,
-        "least" to tunable.least,
-        "most" to tunable.most,
-    )
+    override val arguments: Map<String, Any?>
+        get() = buildMap {
+            put("label", tunable.label)
+            put("value", value)
+            put("least", tunable.least)
+            tunable.most?.let { put("most", it) }
+        }
 }

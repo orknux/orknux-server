@@ -168,7 +168,8 @@ class ExportLimits(
     private var frames = 0
 
     fun check(final: Boolean = false) {
-        if (clock() > deadline) throw DesignVideoExportTimedOutException(seconds)
+        // Compared as a difference: with seconds at Int.MAX_VALUE the deadline may have wrapped past Long's end.
+        if (clock() - deadline > 0) throw DesignVideoExportTimedOutException(seconds)
         // The file's size is a look at the disk; every frame of a long video would be thousands of them.
         if (final || ++frames % SIZE_EVERY == 0) {
             val bytes = runCatching { Files.size(out) }.getOrDefault(0L)

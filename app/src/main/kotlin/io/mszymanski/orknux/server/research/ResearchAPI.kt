@@ -212,9 +212,9 @@ class ResearchAPI(
             single ?: picked(input.workspaceId, input.reviewerAgentId ?: throw ResearchReviewerNotChosenException())
         }
         // How many questions to suggest once it is finished: what the start said, or the workspace's number.
-        val bounds = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_FOLLOW_UPS.let { it.least..it.most }
+        val bounds = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_FOLLOW_UPS
         val followUpCount = input.followUps?.also {
-            if (it !in bounds) throw ResearchFollowUpsOutOfRangeException(it, bounds.first, bounds.last)
+            if (!bounds.accepts(it)) throw ResearchFollowUpsOutOfRangeException(it, bounds.least)
         } ?: followUps.countFor(input.workspaceId)
         // The research it follows up, which has to be one of this workspace's.
         val parent = input.parentId?.let { parentId ->
@@ -873,9 +873,9 @@ class ResearchAgentModelMissingException(val agent: String) :
     override val arguments get() = mapOf("agent" to agent)
 }
 
-class ResearchFollowUpsOutOfRangeException(val count: Int, val least: Int, val most: Int) :
-    RuntimeException("$count is not a number of follow-up questions; choose between $least and $most"), Refusal {
-    override val arguments get() = mapOf("count" to count, "least" to least, "most" to most)
+class ResearchFollowUpsOutOfRangeException(val count: Int, val least: Int) :
+    RuntimeException("$count is not a number of follow-up questions; choose $least or more"), Refusal {
+    override val arguments get() = mapOf("count" to count, "least" to least)
 }
 
 class ResearchModeNotReviewedException(val mode: String) :
@@ -883,9 +883,9 @@ class ResearchModeNotReviewedException(val mode: String) :
     override val arguments get() = mapOf("mode" to mode)
 }
 
-class ResearchReviewRoundsOutOfRangeException(val rounds: Int, val least: Int, val most: Int) :
-    RuntimeException("$rounds is not a number of review rounds; choose between $least and $most"), Refusal {
-    override val arguments get() = mapOf("rounds" to rounds, "least" to least, "most" to most)
+class ResearchReviewRoundsOutOfRangeException(val rounds: Int, val least: Int) :
+    RuntimeException("$rounds is not a number of review rounds; choose $least or more"), Refusal {
+    override val arguments get() = mapOf("rounds" to rounds, "least" to least)
 }
 
 class ResearchNotFoundException(val id: Long) : RuntimeException("No research with id $id"), Refusal {

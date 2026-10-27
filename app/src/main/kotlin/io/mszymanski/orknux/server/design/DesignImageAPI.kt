@@ -76,19 +76,28 @@ class DesignImageAPI(
         val feather = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_FEATHER_PIXELS
         return ImageEditorSettingsView(
             brush = tuning[brush],
-            brushMost = brush.most,
+            brushMost = sliderReach(brush, BRUSH_SLIDER_REACH),
             blur = tuning[blur],
-            blurMost = blur.most,
+            blurMost = sliderReach(blur, BRUSH_SLIDER_REACH),
             blurFalloff = tuning[falloff],
-            blurFalloffMost = falloff.most,
+            blurFalloffMost = sliderReach(falloff, FALLOFF_SLIDER_REACH),
             feather = tuning[feather],
-            featherMost = feather.most,
+            featherMost = sliderReach(feather, FEATHER_SLIDER_REACH),
             layersMost = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST],
             brushOpacity = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_OPACITY_PERCENT],
             brushHardness = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_HARDNESS_PERCENT],
             markerOpacity = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_MARKER_OPACITY_PERCENT],
         )
     }
+
+    /**
+     * How far one of the image editor's sliders reaches: the setting's own
+     * ceiling where it has one (the blur's 254), and otherwise [reach] - or the
+     * installation's starting value, where that was set wider. A slider has to
+     * end somewhere to be a slider; the setting itself has no ceiling.
+     */
+    private fun sliderReach(tunable: io.mszymanski.orknux.server.tuning.Tunable, reach: Int): Int =
+        tunable.most ?: maxOf(reach, tuning[tunable])
 
     /** Refused here, before it waits, for anything that could never be drawn. */
     @MutationMapping
@@ -166,8 +175,9 @@ class DesignImageAPI(
             ?: throw DesignImageRefusedException("The selection could not be read; select again.")
         val feathering = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_FEATHER_PIXELS
         val feather = input.feather ?: tuning[feathering]
-        if (feather !in 0..feathering.most) {
-            throw DesignImageRefusedException("A feather is 0 to ${feathering.most} pixels.")
+        // No ceiling, as the setting has none; MaskedComposite holds a wide one to the picture.
+        if (feather < 0) {
+            throw DesignImageRefusedException("A feather is 0 pixels or more.")
         }
 
         val job = jobs.save(
@@ -360,7 +370,7 @@ class DesignImageAPI(
         val maxBytes = settings.maxFileSizeMb() * 1024 * 1024
         // An .orkx archive brings its project with it; a picture alone brings only what the page says.
         val archived = input.archive.orNullIfBlank()?.let {
-            DesignArchive.read(mapper, decoded(it), maxBytes, tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST] + 1)
+            DesignArchive.read(mapper, decoded(it), maxBytes, io.mszymanski.orknux.server.tuning.TunableArithmetic.plus(tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST], 1))
         }
         val bytes = archived?.image ?: decoded(input.image.orNullIfBlank() ?: throw DesignImageRefusedException("There is no file to import."))
         // The same refusal every upload gives, naming the limit and where it is raised.
@@ -503,7 +513,8 @@ class DesignImageAPI(
     private fun layersOf(given: List<DesignImageLayerInput>, flattened: ByteArray): List<LayerPixels> {
         if (given.isEmpty()) return emptyList()
         val most = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST]
-        if (given.size > most + 1) throw DesignImageRefusedException("A picture keeps at most $most layers over it.")
+        // given.size - 1 rather than most + 1, which wraps negative at Int.MAX_VALUE.
+        if (given.size - 1 > most) throw DesignImageRefusedException("A picture keeps at most $most layers over it.")
         if (!given.first().picture || given.drop(1).any { it.picture }) {
             throw DesignImageRefusedException("The picture itself is the lowest layer, and the only one.")
         }
@@ -1039,6 +1050,15 @@ data class DesignImageJobView(
     /** The server's clock when this was read, to count from startedAt on the same clock. */
     val asOf: String? = null,
 )
+
+/*
+ * Where the image editor's brush, blur fade and feather sliders end unless the
+ * installation starts them wider - the ceilings those settings had before they
+ * lost them, kept as the slider's length rather than as a limit.
+ */
+private const val BRUSH_SLIDER_REACH = 500
+private const val FALLOFF_SLIDER_REACH = 500
+private const val FEATHER_SLIDER_REACH = 256
 
 /** Why nothing was drawn, in the words the page shows. */
 class DesignImageRefusedException(reason: String) : RuntimeException(reason)

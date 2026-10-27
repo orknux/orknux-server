@@ -423,7 +423,7 @@ class ResearchPipeline(
         val tried = mutableListOf<Picture>()
         if (asked.webSearch) {
             val query = scoped(asked.question.trim().lineSequence().first().take(MOST_IMAGE_QUERY), asked.websitesInclude)
-            web.searchImages(asked.workspaceId, query, most * 2)
+            web.searchImages(asked.workspaceId, query, io.mszymanski.orknux.server.tuning.TunableArithmetic.times(most, 2))
                 .onSuccess { found ->
                     said.info("Searched images for \"$query\": ${found.size} ${if (found.size == 1) "result" else "results"}")
                     tried += found.map { Picture(it) }

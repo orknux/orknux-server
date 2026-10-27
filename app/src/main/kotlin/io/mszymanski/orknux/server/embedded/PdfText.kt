@@ -109,10 +109,11 @@ class PdfText(private val tuning: Tuning) {
     }
 
     /** About [around] characters of [text] centred on [range], the match between « and », on one line. */
-    private fun snippet(text: String, range: IntRange, around: Int): String {
+    internal fun snippet(text: String, range: IntRange, around: Int): String {
         val side = ((around - (range.last - range.first + 1)) / 2).coerceAtLeast(0)
         val from = (range.first - side).coerceAtLeast(0)
-        val to = (range.last + 1 + side).coerceAtMost(text.length)
+        // In Long: [around] may be Int.MAX_VALUE, which is "the whole page" and not a negative index.
+        val to = (range.last + 1L + side).coerceAtMost(text.length.toLong()).toInt()
         fun flat(part: String) = part.replace(WHITESPACE, " ")
         return (if (from > 0) "…" else "") +
             flat(text.substring(from, range.first)).trimStart() + "«" + flat(text.substring(range.first, range.last + 1)) + "»" +

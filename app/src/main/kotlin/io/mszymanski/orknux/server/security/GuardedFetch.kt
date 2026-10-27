@@ -118,8 +118,11 @@ class GuardedFetch(private val probe: ConnectionProbe) {
         private val REDIRECTS = setOf(MOVED, FOUND, SEE_OTHER, 307, 308)
         private val CREDENTIALS = setOf("authorization", "cookie", "proxy-authorization", "api-key", "x-api-key")
 
-        /** Up to [most] bytes of [stream], and whether there was more; nothing past [most] is held. */
-        fun read(stream: InputStream, most: Long): Pair<ByteArray, Boolean> {
+        /** Up to [asked] bytes of [stream], and whether there was more; nothing past that is held. */
+        fun read(stream: InputStream, asked: Long): Pair<ByteArray, Boolean> {
+            // A limit past what one array holds - a setting with no ceiling - is held to it: a longer
+            // body could not be handed back anyway, and is answered as more than is read.
+            val most = asked.coerceAtMost(io.mszymanski.orknux.server.tuning.TunableArithmetic.LARGEST_ARRAY.toLong())
             val out = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(8192)
             var total = 0L

@@ -128,6 +128,18 @@ class MidiRenderer(
         val bank = bank()
 
         val frames = Math.ceil((sequence.microsecondLength / 1_000_000.0 + TAIL_SECONDS) * rate).toLong()
+        /*
+         * A WAV is written whole into one array, so with the longest piece set
+         * past what one holds - it has no ceiling - a piece that long is refused
+         * here rather than failing as it is written. FLAC and MP3 are compressed
+         * and read back from a file.
+         */
+        if (wanted.codec == null && frames * FRAME_BYTES > io.mszymanski.orknux.server.tuning.TunableArithmetic.LARGEST_ARRAY - WAV_HEADER_ROOM) {
+            return Rendered.Refused(
+                "That piece plays for ${MidiCapability.number(playing)} seconds, which as a WAV at $rate Hz is more than " +
+                    "one file this server holds; ask for FLAC or MP3 instead.",
+            )
+        }
         val bytes = synthesised(sequence, rate, frames, bank.soundbank) { sound ->
             when (wanted.codec) {
                 null -> wav(sound)
@@ -270,6 +282,9 @@ class MidiRenderer(
         private const val CHANNELS = 2
         private const val FRAME_BYTES = 2 * CHANNELS
         private const val BLOCK_FRAMES = 4096
+
+        /** Room for a WAV's header beside its samples. */
+        private const val WAV_HEADER_ROOM = 1024
         private const val SET_TEMPO = 0x51
 
         /** 120 beats a minute, which is what a file without a Set Tempo plays at. */
