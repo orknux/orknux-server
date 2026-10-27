@@ -130,16 +130,19 @@ class SlackFiles(
             }
 
             /*
-             * What Slack said it is, and what it looks like, held against each
-             * other. `content-type` on a private file is Slack's own word and
-             * is usually right; the magic bytes are what it actually is, and a
-             * request carrying `image/png` over something that is not a PNG is
-             * a request a provider refuses in its own words.
+             * What it is by its first bytes, and nothing else. Slack's
+             * `content-type` used to stand in where the bytes were none of the
+             * four a model takes - so a HEIC photo, an SVG or a TIFF went to the
+             * model as `image/...` and the provider refused the whole turn
+             * ("the image data you provided does not represent a valid image"),
+             * failing a Slack mention over a picture nobody asked about.
              */
             val said = answer.headers().firstValue("content-type").orElse("").substringBefore(';').trim()
-            val looks = kindOf(bytes)
-            val mimetype = looks ?: said.takeIf { it.startsWith("image/") }
-                ?: return SlackFile.NotRead("that file is not a picture (Slack calls it ${said.ifEmpty { "nothing" }})")
+            val mimetype = pictureTypeOf(bytes)
+                ?: return SlackFile.NotRead(
+                    "that file is not a PNG, JPEG, GIF or WebP, the pictures a model is shown " +
+                        "(Slack calls it ${said.ifEmpty { "nothing" }})",
+                )
 
             SlackFile.Fetched(bytes, mimetype, address.path.substringAfterLast('/'))
         } catch (failure: Exception) {
@@ -148,29 +151,29 @@ class SlackFiles(
         }
     }
 
-    /**
-     * What the first bytes say it is, or null for anything this does not draw.
-     *
-     * The four a person sends. A model's request takes these and a screenshot
-     * is always one of them; anything else - a PDF, a zip, a video - is not a
-     * picture and is left to the tools that fetch files on purpose.
-     */
-    private fun kindOf(bytes: ByteArray): String? {
-        fun startsWith(vararg head: Int): Boolean =
-            bytes.size >= head.size && head.withIndex().all { (at, byte) -> bytes[at] == byte.toByte() }
+    companion object {
+        /**
+         * What the first bytes say it is, or null for anything this does not draw.
+         *
+         * The four a model's request takes, and a screenshot is always one of
+         * them; anything else - a HEIC photo, an SVG, a PDF, a video - is not
+         * shown to a model and is left to the tools that fetch files on purpose.
+         */
+        fun pictureTypeOf(bytes: ByteArray): String? {
+            fun startsWith(vararg head: Int): Boolean =
+                bytes.size >= head.size && head.withIndex().all { (at, byte) -> bytes[at] == byte.toByte() }
 
-        return when {
-            startsWith(0x89, 0x50, 0x4E, 0x47) -> "image/png"
-            startsWith(0xFF, 0xD8, 0xFF) -> "image/jpeg"
-            startsWith(0x47, 0x49, 0x46, 0x38) -> "image/gif"
-            // RIFF....WEBP
-            bytes.size > 12 && startsWith(0x52, 0x49, 0x46, 0x46) &&
-                String(bytes, 8, 4, Charsets.US_ASCII) == "WEBP" -> "image/webp"
-            else -> null
+            return when {
+                startsWith(0x89, 0x50, 0x4E, 0x47) -> "image/png"
+                startsWith(0xFF, 0xD8, 0xFF) -> "image/jpeg"
+                startsWith(0x47, 0x49, 0x46, 0x38) -> "image/gif"
+                // RIFF....WEBP
+                bytes.size > 12 && startsWith(0x52, 0x49, 0x46, 0x46) &&
+                    String(bytes, 8, 4, Charsets.US_ASCII) == "WEBP" -> "image/webp"
+                else -> null
+            }
         }
-    }
 
-    private companion object {
         /**
          * As large a file as this reads.
          *
@@ -178,9 +181,9 @@ class SlackFiles(
          * megabytes; past this it is somebody's video, which no model is going
          * to be shown. Refused by name rather than read and dropped.
          */
-        const val MOST_BYTES = 8 * 1024 * 1024
+        private const val MOST_BYTES = 8 * 1024 * 1024
 
         /** Where a private file lives. Nothing else is handed the bot token. */
-        val SLACK_HOSTS = setOf("slack.com", "slack-edge.com", "slack-files.com")
+        private val SLACK_HOSTS = setOf("slack.com", "slack-edge.com", "slack-files.com")
     }
 }

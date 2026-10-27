@@ -159,6 +159,17 @@ class SlackFilesTest {
      * from Slack into a turn without being stored anywhere in between.
      */
     @Test
+    fun `only the four pictures a model takes are shown to it, whatever Slack calls a file`() {
+        fun bytes(vararg head: Int) = ByteArray(16) { at -> if (at < head.size) head[at].toByte() else 0 }
+        assertThat(SlackFiles.pictureTypeOf(bytes(0x89, 0x50, 0x4E, 0x47))).isEqualTo("image/png")
+        assertThat(SlackFiles.pictureTypeOf(bytes(0xFF, 0xD8, 0xFF))).isEqualTo("image/jpeg")
+        // A HEIC photo from a phone: `....ftypheic`, which Slack calls image/heic and no provider reads.
+        assertThat(SlackFiles.pictureTypeOf(bytes(0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63))).isNull()
+        // An SVG is text, however Slack labels it.
+        assertThat(SlackFiles.pictureTypeOf("<svg xmlns=\"http://www.w3.org/2000/svg\"/>".toByteArray())).isNull()
+    }
+
+    @Test
     fun `a fetched file is handed on as a data url`() {
         val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
         val fetched = SlackFile.Fetched(bytes = png, mimetype = "image/png", name = "shot.png")
