@@ -182,7 +182,13 @@ class SessionFlagTest(
         workspace: Long, into: Long, type: SessionFlagType, severity: Int, note: String,
         daysAgo: Long = 0, agentName: String = "Guard", cleared: String? = null,
     ): Long {
-        val at = OffsetDateTime.now().minusDays(daysAgo)
+        /*
+         * Days back on the calendar, in this server's zone. OffsetDateTime keeps
+         * today's offset while it steps back, so across a clock change - 25
+         * October - a flag three days ago at 23:30 landed past midnight on the
+         * day after, inside the range the filter is meant to leave it out of.
+         */
+        val at = java.time.ZonedDateTime.now(ZoneId.systemDefault()).minusDays(daysAgo).toOffsetDateTime()
         return requireNotNull(
             flags.save(
                 SessionFlag(
