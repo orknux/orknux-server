@@ -38,6 +38,8 @@ class SkillAPI(
     private val auditRecorder: WorkspaceAuditRecorder,
     private val revisions: ComponentRevisionRecorder,
     private val dependants: ComponentDependants,
+    /** The agents granted a catalog, which follow it when it is renamed. */
+    private val agentRows: AgentRepository,
     /** What the loaded plugins bring, for the picker that grants a catalog. */
     private val fromPlugins: PluginSkills,
 ) {
@@ -119,6 +121,13 @@ class SkillAPI(
 
         val was = catalog.name
         catalog.name = trimmed
+        // The agents granted it follow it: a grant is a name, and a rename left it naming nothing.
+        if (trimmed != was) {
+            agentRows.findGrantedSkillCatalog(catalog.workspaceId, was).forEach { agent ->
+                agent.skillCatalogs = agent.skillCatalogs.map { if (it == was) trimmed else it }.distinct().toMutableList()
+                agentRows.save(agent)
+            }
+        }
         auditRecorder.record(
             catalog.workspaceId,
             WorkspaceAuditCategory.AGENT,

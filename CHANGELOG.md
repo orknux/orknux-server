@@ -28,6 +28,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **An agent's grant of a catalog that is not in its workspace is taken away.** A renamed memory or skill catalog left its agents granted the old name, drawn on the agent's form as "not in this workspace" and counted ("3 of 2 granted"); a rename now carries its grants, and on start-up memory and variable catalog grants naming nothing in the workspace are removed, each in the audit.
 - **The Research planner, writer and reviewer an earlier version made are taken away.** 1.2.3 stopped making them but left the ones already made; on start-up each workspace loses them where they are still exactly as made, never saved since and used by nothing. One somebody edited or uses stays, and every deletion is in the workspace's audit, by Orknux.
 - **A Slack call that names no Slack says what to pass.** An agent that wrote a made-up connection, or left it out where the Slack plugin has none set up, was told only that the first argument has to be a Slack connection; it is now told which of the two happened and to pass the id of a Slack connection it was granted, leave it out, or set the plugin's Slack.
 

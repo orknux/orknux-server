@@ -37,6 +37,8 @@ class MemoryAPI(
     private val auditRecorder: WorkspaceAuditRecorder,
     private val dependants: ComponentDependants,
     private val defaultGrants: io.mszymanski.orknux.server.agent.DefaultGrants,
+    /** The agents granted a catalog, which follow it when it is renamed. */
+    private val agentRows: io.mszymanski.orknux.server.agent.AgentRepository,
 ) {
 
     @QueryMapping
@@ -141,6 +143,17 @@ class MemoryAPI(
 
         val was = catalog.name
         catalog.name = trimmed
+        /*
+         * The agents granted it follow it, as a variable catalog's do. A grant
+         * is a name, so a rename used to leave every agent holding one that
+         * named nothing, listed as "not in this workspace" on its form.
+         */
+        if (trimmed != was) {
+            agentRows.findGrantedMemoryCatalog(catalog.workspaceId, was).forEach { granted ->
+                granted.memoryCatalogs = granted.memoryCatalogs.map { held -> if (held == was) trimmed else held }.distinct().toMutableList()
+                agentRows.save(granted)
+            }
+        }
         auditRecorder.record(
             catalog.workspaceId,
             WorkspaceAuditCategory.MEMORY,
