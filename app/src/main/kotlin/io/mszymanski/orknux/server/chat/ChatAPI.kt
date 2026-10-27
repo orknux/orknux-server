@@ -125,8 +125,9 @@ class ChatAPI(
     fun chatMessages(@Argument id: Long): List<ChatMessageView> {
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
-        // An administrator reads the flag calls too; everybody else reads the chat without them.
-        return chats.messages(session, reveal = access.isAdmin()).map {
+        // The flag calls: an administrator reads them only where the installation shows them in chats.
+        val reveal = io.mszymanski.orknux.server.flag.ConcealedTools.shownInChat(access.isAdmin(), settings::concealedCallsHiddenInChats)
+        return chats.messages(session, reveal = reveal).map {
             ChatMessageView(
                 it.role,
                 it.content,

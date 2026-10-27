@@ -19,7 +19,8 @@ package io.mszymanski.orknux.server.flag
  * - every read of what was recorded: a chat's lines, a session's transcript and
  *   its CSV, `orknux_session`, and the system turn and tool list a session page
  *   shows - each answers with the calls left out for anybody who is not an
- *   installation administrator.
+ *   installation administrator; and a chat leaves them out for an
+ *   administrator too, unless the installation says otherwise - [shownInChat].
  *
  * The model's own conversation keeps them: it has to remember what it flagged.
  */
@@ -40,6 +41,18 @@ object ConcealedTools {
     fun hiddenFrom(administrator: Boolean): Collection<String> = if (administrator) NOTHING else NAMES
 
     private val NOTHING = setOf("")
+
+    /**
+     * Whether a chat shows this reader the calls: never anybody who does not
+     * administer the installation, and an administrator only while the
+     * installation has not hidden them in chats - which by default it has
+     * ([io.mszymanski.orknux.server.attachment.InstallationSettings.concealedCallsHiddenInChats]).
+     * Asked each time a chat is drawn, so switching it applies on the next
+     * reload. The session page and its CSV ask [hiddenFrom] instead: they are
+     * where an administrator goes to look at a flag, and stay as they were.
+     * The live round needs no asking - [ConcealingWatch] tells nobody.
+     */
+    fun shownInChat(administrator: Boolean, hiddenInChats: () -> Boolean): Boolean = administrator && !hiddenInChats()
 
     /**
      * A system turn as somebody who does not administer the installation may

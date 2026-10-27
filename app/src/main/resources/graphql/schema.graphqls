@@ -1539,6 +1539,15 @@ type Mutation {
     """
     setSessionsRemovable(removable: Boolean!): InstallationSettings!
     """
+    Whether a chat keeps the concealed tools' calls - flagging the conversation -
+    from an administrator as well as from everybody else. Administrators only.
+
+    True by default. False shows an administrator the calls in their chats on a
+    reload; nobody else is shown them either way, and the session page and its
+    CSV show them to an administrator whatever this says.
+    """
+    setConcealedCallsHiddenInChats(hidden: Boolean!): InstallationSettings!
+    """
     Says which chat uploaded files belong to. Sent when the message is, since a
     first message is what makes the chat.
     """
@@ -7536,6 +7545,13 @@ type InstallationSettings {
     True until an operator turns it off, which is how this has always worked.
     """
     sessionsRemovable: Boolean!
+    """
+    Whether a chat keeps the concealed tools' calls from an administrator too.
+
+    True until an operator turns it off. Everybody else never reads them in a
+    chat, and an administrator reads them on the session page either way.
+    """
+    concealedCallsHiddenInChats: Boolean!
     """
     How long a session counts as active after its last line, in seconds.
 

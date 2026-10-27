@@ -135,6 +135,7 @@ class InstallationSettingsAPI(
         toolSummaryTrimPercent = settings.toolSummaryTrimPercent(),
         toolSummaryTrimPercentConfigured = settings.toolSummaryTrimPercentConfigured(),
         sessionsRemovable = settings.sessionsRemovable(),
+        concealedCallsHiddenInChats = settings.concealedCallsHiddenInChats(),
         sessionsActiveWindowSeconds = settings.sessionsActiveWindowSeconds(),
         sessionsActiveWindowSecondsConfigured = settings.sessionsActiveWindowSecondsConfigured(),
         workspaceCopyLockWaitSeconds = settings.workspaceCopyLockWaitSeconds(),
@@ -1191,6 +1192,24 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /**
+     * Whether a chat keeps the concealed tools' calls from an administrator as
+     * well as from everybody else. Read every time a chat is drawn, so it
+     * applies on the next reload. See [InstallationSettings.concealedCallsHiddenInChats].
+     */
+    @MutationMapping
+    fun setConcealedCallsHiddenInChats(@Argument hidden: Boolean): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setConcealedCallsHiddenInChats(hidden, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (hidden) "Concealed tool calls hidden in chats" else "Concealed tool calls shown to administrators in chats",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setPluginMaxSourceKb(@Argument kb: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -1421,6 +1440,12 @@ data class InstallationSettingsView(
      * would be worse than the hole it closes.
      */
     val sessionsRemovable: Boolean,
+    /**
+     * Whether a chat keeps the flag calls from an administrator too. True
+     * until somebody turns it off; the session page and its CSV show them to
+     * an administrator either way.
+     */
+    val concealedCallsHiddenInChats: Boolean,
     /**
      * How long a session counts as active after its last line, in seconds.
      *

@@ -134,6 +134,9 @@ object SettingNames {
     const val CLUSTER_LEASE_SECONDS = "cluster.lease.seconds"
     const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
+
+    /** Whether a chat keeps the concealed tools' calls from an administrator too. */
+    const val CONCEALED_CALLS_HIDDEN_IN_CHATS = "chat.concealed-calls.hidden"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
 
     /** What the files in one session's scratchpads may come to. Issue #491. */
@@ -2188,6 +2191,28 @@ class InstallationSettings(
     @Transactional
     fun setSessionsRemovable(removable: Boolean, by: String) {
         write(SettingNames.SESSIONS_REMOVABLE, removable.toString(), by)
+    }
+
+    /**
+     * Whether a chat keeps the concealed tools' calls - flagging the
+     * conversation - from an administrator as well as from everybody else.
+     *
+     * A chat is where a person talks to the agent, and an administrator is a
+     * person in their own chats too: a flag drawn under an answer reads as the
+     * agent reporting on the conversation they are having with it. So on by
+     * default, and the calls are read where an administrator goes looking for
+     * them - the session page, its CSV and the flags report - which this does
+     * not touch. Off puts them back into an administrator's chats; nobody else
+     * is ever shown one. See [io.mszymanski.orknux.server.flag.ConcealedTools].
+     */
+    fun concealedCallsHiddenInChats(): Boolean {
+        val held = settings.findByIdOrNull(SettingNames.CONCEALED_CALLS_HIDDEN_IN_CHATS) ?: return true
+        return held.value.toBooleanStrictOrNull() ?: true
+    }
+
+    @Transactional
+    fun setConcealedCallsHiddenInChats(hidden: Boolean, by: String) {
+        write(SettingNames.CONCEALED_CALLS_HIDDEN_IN_CHATS, hidden.toString(), by)
     }
 
     fun pluginMaxSourceBytes(): Long = pluginMaxSourceKb() * 1024L
