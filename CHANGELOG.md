@@ -15,10 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.2.3
 
 ### ✨ Added
 
+- **The manual covers everything since 1.1.0**, with pictures: eight new chapters - Images, Videos, Documents, Wireframes, Diagrams, Research, Reports and the desktop app - and sections of their own in the chapters on workflows, triggers, variables, models and agents, chat, issues and administration, where most of it had been a line or nothing.
+- **The document editor's outline column can be dragged wider or narrower**, and keeps its width.
 - **A Magic accent**, under Preferences → Accent: blue running into violet, more blue than violet. Filled surfaces - primary buttons, your messages, what is selected - paint with the gradient; text and borders take a blue-violet.
 - **A diagram shape's colour from three rows of swatches and a picker**: the pale row is shown, the stronger and deeper rows on asking, and any other colour from the browser's picker. Text on any of them is drawn light or dark to suit, in the editor and the exports.
 - **The diagram toolbar offers the common drawn shapes up front** - database, document, parallelogram, hexagon, cloud, actor, class and component - where the window is wide enough; all of them stay under More shapes.
@@ -33,7 +35,7 @@ have failed.
 - **Diagrams, documents and wireframes can be worked on together, as workflows can**: each editor shows who else has it open and where they point, saves as it goes after Admin Settings' Workflow Autosave, and takes in what the others save as it lands - merging shapes and elements by id, and a document paragraph by paragraph, so two people changing it at once both keep their work. There is no Save button: like the workflow editor, they save as they go (Ctrl+S still saves at once). An editor's saves are audited, and a document's earlier version kept, once per visit rather than once per save.
 - **A run's agent step says whether Output streaming was on**, under its Parameters, so a message that reached Slack late can be told from one the step held on purpose.
 - **A chat draws your avatar beside what you said**, as the agent's is beside its answers; Preferences → Avatar in Chat turns it off.
-- **Voice mode reads at the speed you pick**, from 0.75× to 2× in its panel; the choice is kept in your browser and also applies to reading an answer aloud. Whoever has not picked one hears the installation's pace, `ORKNUX_TUNING_SPEECH_SPEED_PERCENT` (100 by default), and at 100 no speed is sent to the speech model at all.
+- **Voice mode reads at the speed you pick**, from 0.75× to 2× in its panel; the choice is kept in your browser and also applies to reading an answer aloud. The browser plays the reading faster or slower, pitch kept, so it works with any speech server; one asked for a speed of its own answered silence. The installation's own pace, `ORKNUX_TUNING_SPEECH_SPEED_PERCENT` (100 by default), is still asked of the speech model, and at 100 nothing is.
 - **A document can link to another**, put in with the editor's Documents button: the link shows the other document's current name, so a rename is followed, and opens it on Ctrl+click in the editor or a click in View. A document's editor lists the documents that mention it, and deleting a mentioned document names them first. An agent writes one as `[name](document:12)`.
 - **The documents list imports several files at once**: each PDF, Markdown, ODT, DOCX, HTML or text file becomes a document named after it, in the catalog in view, and a file that cannot be read is named and leaves nothing behind. The page-size picker for new documents now stands apart from the buttons beside it.
 - **Diagrams have flowchart and UML shapes**, under More shapes beside the shape buttons: database, document, hexagon, parallelogram, trapezoid, triangle and cloud; actor, class, component, package, interface, device, boundary, control and entity. Agents can draw them too, and a line now ends on a shape's outline - a diamond's and an ellipse's included - rather than at the box around it.
@@ -56,6 +58,10 @@ have failed.
 
 ### 🐛 Fixed
 
+- **A voice turn left while the model thinks is finished and kept.** Switching chat or leaving the page in voice mode threw the answer away; it is now written as text and shown when the chat is opened again, live if it is still being written. The circle and talking over the model still stop it and keep nothing.
+- **A long highlight note no longer widens the document editor's outline column** until the page went under the chat; it is cut short inside the column.
+- **The grammar check no longer underlines every document link** for repeated whitespace: it read a link as one space.
+- **The Research list shows the Reviewed badge whole**, beside the mode, where it was cut to "Review…"; on a window under 1600px wide the Search rounds column gives way so the question keeps its room.
 - **A document opened and left alone no longer saves itself.** The editor adds an empty paragraph after a closing code block or table, and that alone counted as a change, so every visit wrote a new revision.
 - **A wireframe's HTML export no longer draws a second scrollbar inside the page** when a frame is filled to its edge.
 - **The attribution line at the foot of a page no longer runs under Ask AI**; it kept a fixed width clear that the button's label had outgrown.
