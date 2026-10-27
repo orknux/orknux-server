@@ -1,11 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
-import io.mszymanski.orknux.server.llm.LlmSessionNotFoundException
-import io.mszymanski.orknux.server.llm.LlmSessionRepository
 import io.mszymanski.orknux.server.llm.SessionEventKind
 import io.mszymanski.orknux.server.llm.SessionEventRepository
-import io.mszymanski.orknux.server.security.WorkspaceAccess
-import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.stereotype.Controller
@@ -21,16 +17,15 @@ import org.springframework.stereotype.Controller
  */
 @Controller
 class SessionTimerAPI(
-    private val sessions: LlmSessionRepository,
     private val events: SessionEventRepository,
-    private val access: WorkspaceAccess,
+    /** Whose chat a session is; somebody else's is answered as not there. */
+    private val visibility: io.mszymanski.orknux.server.llm.SessionVisibility,
 ) {
 
     /** Waiting and rung alike, newest first; a hundred at most. */
     @QueryMapping
     fun sessionTimers(@Argument sessionId: Long): List<SessionTimerView> {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return events.findTop100BySessionIdAndKindOrderByCreatedAtDescIdDesc(sessionId, SessionEventKind.TIMER).map {
             SessionTimerView(
                 id = requireNotNull(it.id),

@@ -240,13 +240,14 @@ class InteractionAPI(
     private val requests: InteractionRequestRepository,
     private val llmSessions: LlmSessionRepository,
     private val access: WorkspaceAccess,
+    /** Whose chat a session is; somebody else's is answered as not there. */
+    private val visibility: io.mszymanski.orknux.server.llm.SessionVisibility,
     private val auditRecorder: WorkspaceAuditRecorder,
 ) {
 
     @QueryMapping
     fun sessionRequests(@Argument sessionId: Long): List<InteractionRequestView> {
-        val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return interactions.of(sessionId).map(InteractionRequestView::of)
     }
 

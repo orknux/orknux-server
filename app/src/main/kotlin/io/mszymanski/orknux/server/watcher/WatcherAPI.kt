@@ -33,6 +33,8 @@ class WatcherAPI(
     private val settings: WatcherSettings,
     private val sessions: LlmSessionRepository,
     private val access: WorkspaceAccess,
+    /** Whose chat a session is; somebody else's is answered as not there. */
+    private val visibility: io.mszymanski.orknux.server.llm.SessionVisibility,
     private val auditRecorder: WorkspaceAuditRecorder,
 ) {
 
@@ -68,9 +70,7 @@ class WatcherAPI(
      */
     @QueryMapping
     fun sessionWatchers(@Argument sessionId: Long): List<WatcherView> {
-        val session = sessions.findByIdOrNull(sessionId)
-            ?: throw io.mszymanski.orknux.server.llm.LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        val session = visibility.requireReadable(sessionId)
         return watchers.findTop100BySessionIdOrderByCreatedAtDescIdDesc(sessionId).map { WatcherView.of(it, session.title) }
     }
 

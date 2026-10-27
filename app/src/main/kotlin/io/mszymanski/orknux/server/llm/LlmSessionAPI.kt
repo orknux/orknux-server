@@ -70,6 +70,10 @@ enum class LlmSessionEventOrder {
  * happens on the session's workspace rather than on an id the caller supplies -
  * otherwise anybody could read any transcript by naming a workspace they can
  * see.
+ *
+ * Except a chat's: the session a chat writes is its owner's and an
+ * installation administrator's, and to everybody else it is not there - see
+ * [SessionVisibility], which every query here asks.
  */
 @Controller
 class LlmSessionAPI(
@@ -90,6 +94,8 @@ class LlmSessionAPI(
     private val tasks: io.mszymanski.orknux.server.task.TaskRepository,
     /** What a session's model is writing this second; see [LlmSessionRecorder.writingNow]. */
     private val recorder: LlmSessionRecorder,
+    /** Whose chat a session is, and who else may read it. */
+    private val visibility: SessionVisibility,
 ) {
 
     @QueryMapping
@@ -149,16 +155,18 @@ class LlmSessionAPI(
         val asked = if (counted) room else room.withSort(sorted)
         val looking = search?.trim().orEmpty()
         val subagentsToo = includeSubagents == true
+        // Somebody else's chats are left out by the query, so the page and its total agree.
+        val r = visibility.reader()
         val found = when {
             asking == LlmSessionOrder.LINES && up ->
-                sessions.searchByLinesAscending(workspaceId, looking, subagentsToo, asked)
+                sessions.searchByLinesAscending(workspaceId, looking, subagentsToo, r.everyone, r.person, r.chat, asked)
             asking == LlmSessionOrder.LINES ->
-                sessions.searchByLinesDescending(workspaceId, looking, subagentsToo, asked)
+                sessions.searchByLinesDescending(workspaceId, looking, subagentsToo, r.everyone, r.person, r.chat, asked)
             asking == LlmSessionOrder.SUBAGENTS && up ->
-                sessions.searchBySubagentsAscending(workspaceId, looking, subagentsToo, asked)
+                sessions.searchBySubagentsAscending(workspaceId, looking, subagentsToo, r.everyone, r.person, r.chat, asked)
             asking == LlmSessionOrder.SUBAGENTS ->
-                sessions.searchBySubagentsDescending(workspaceId, looking, subagentsToo, asked)
-            else -> sessions.search(workspaceId, looking, subagentsToo, asked)
+                sessions.searchBySubagentsDescending(workspaceId, looking, subagentsToo, r.everyone, r.person, r.chat, asked)
+            else -> sessions.search(workspaceId, looking, subagentsToo, r.everyone, r.person, r.chat, asked)
         }
         val ids = found.content.mapNotNull { it.id }
         val counts = countsFor(ids)
@@ -217,8 +225,7 @@ class LlmSessionAPI(
     @QueryMapping
     @Transactional(readOnly = true)
     fun llmSession(@Argument id: Long): LlmSessionView? {
-        val session = sessions.findByIdOrNull(id) ?: return null
-        if (!access.canSee(session.workspaceId)) return null
+        val session = visibility.readable(id) ?: return null
         val unfinished = events.unfinished(id, Long.MAX_VALUE, PageRequest.of(0, 1)).isNotEmpty()
         val subagents = sessions.subagentCountsFor(listOf(id)).firstOrNull()?.total?.toInt() ?: 0
         val lit = active(session, unfinished, writtenInto = id in writtenInto(listOf(id)), window = settings.sessionsActiveWindowSeconds())
@@ -234,8 +241,7 @@ class LlmSessionAPI(
      */
     @QueryMapping
     fun llmSessionWriting(@Argument id: Long): SessionWritingView? {
-        val session = sessions.findByIdOrNull(id) ?: return null
-        if (!access.canSee(session.workspaceId)) return null
+        visibility.readable(id) ?: return null
         return recorder.writingNow(id)?.let {
             SessionWritingView(
                 agent = it.agent,
@@ -267,8 +273,7 @@ class LlmSessionAPI(
     fun sessionExecutions(
         @Argument sessionId: Long,
     ): List<io.mszymanski.orknux.workflow.execution.SessionExecutionLink> {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return executions.executionsForSession(sessionId)
     }
 
@@ -303,9 +308,8 @@ class LlmSessionAPI(
          */
         if (!settings.sessionsRemovable()) throw SessionsNotRemovableException()
 
-        val session = sessions.findByIdOrNull(id) ?: return false
-        if (!access.canSee(session.workspaceId)) return false
-        access.requireVisible(session.workspaceId)
+        // Somebody else's chat is one that, to this caller, is not there.
+        val session = visibility.readable(id) ?: return false
         events.deleteBySessionId(id)
         sessions.delete(session)
         return true
@@ -330,8 +334,7 @@ class LlmSessionAPI(
         @Argument order: LlmSessionEventOrder?,
         @Argument ascending: Boolean?,
     ): LlmSessionEventPageView {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
 
         /*
          * Newest first unless somebody asks otherwise.
@@ -411,18 +414,25 @@ class LlmSessionAPI(
     @QueryMapping
     @Transactional(readOnly = true)
     fun llmSessionFamily(@Argument id: Long): List<LlmSessionMemberView> {
-        val asked = sessions.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
-            ?: throw LlmSessionNotFoundException(id)
+        val asked = visibility.readable(id) ?: throw LlmSessionNotFoundException(id)
         val root = generateSequence(asked) { held -> held.parentSessionId?.let { sessions.findByIdOrNull(it) } }
             .take(FAMILY_DEPTH)
             .last()
-        val family = listOf(root) + descendants(requireNotNull(root.id), depth = 1).map { (child, _) -> child }
+        /*
+         * A family is one chat's or nobody's - the sessions asked from a chat
+         * are keyed under it - so a reader of one member reads them all. Asked
+         * again of each anyway, so a family is never the door to a session
+         * the rule would refuse by its own id.
+         */
+        val reader = visibility.reader()
+        val below = descendants(requireNotNull(root.id), depth = 1).filter { (child, _) -> visibility.mayRead(child, reader) }
+        val family = listOf(root) + below.map { (child, _) -> child }
         // The same rule the list applies, read once for the whole family rather
         // than once per member. Issue #448.
         val writing = writtenInto(family.mapNotNull { it.id })
         val window = settings.sessionsActiveWindowSeconds()
         return listOf(member(root, main = true, depth = 0, writtenInto = root.id in writing, window = window)) +
-            descendants(requireNotNull(root.id), depth = 1).map { (child, depth) ->
+            below.map { (child, depth) ->
                 member(child, main = false, depth = depth, writtenInto = child.id in writing, window = window)
             }
     }
@@ -530,8 +540,7 @@ class LlmSessionAPI(
     @QueryMapping
     @Transactional(readOnly = true)
     fun sessionScratchpads(@Argument sessionId: Long): List<SessionScratchpadView> {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return pads.list(sessionId).map { scratchpadView(it, sessionId) }
     }
 
@@ -542,8 +551,7 @@ class LlmSessionAPI(
     @QueryMapping
     @Transactional(readOnly = true)
     fun sessionScratchpad(@Argument sessionId: Long, @Argument name: String): SessionScratchpadContentView? {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         val pad = pads.find(sessionId, name) ?: return null
         return scratchpadContent(pad, sessionId)
     }
@@ -562,8 +570,7 @@ class LlmSessionAPI(
         @Argument description: String?,
         @Argument content: String?,
     ): SessionScratchpadContentView {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return when (val result = pads.create(sessionId, name, description, content.orEmpty())) {
             is ScratchpadResult.Ok -> scratchpadContent(result.pad, sessionId)
             is ScratchpadResult.No -> throw ScratchpadRefusedException(result.why)
@@ -581,8 +588,7 @@ class LlmSessionAPI(
         @Argument name: String,
         @Argument content: String,
     ): SessionScratchpadContentView {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return when (val result = pads.write(sessionId, name, content)) {
             is ScratchpadResult.Ok -> scratchpadContent(result.pad, sessionId)
             is ScratchpadResult.No -> throw ScratchpadRefusedException(result.why)
@@ -596,8 +602,7 @@ class LlmSessionAPI(
     @MutationMapping
     @Transactional
     fun deleteSessionScratchpad(@Argument sessionId: Long, @Argument name: String): Boolean {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return when (val result = pads.delete(sessionId, name)) {
             is ScratchpadResult.Ok -> true
             is ScratchpadResult.No -> throw ScratchpadRefusedException(result.why)

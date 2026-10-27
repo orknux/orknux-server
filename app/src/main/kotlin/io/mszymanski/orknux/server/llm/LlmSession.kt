@@ -438,6 +438,22 @@ class LlmSessionEvent(
         get() = "${content?.length ?: -1}/${result?.length ?: -1}/${millis ?: -1}"
 }
 
+/**
+ * What every list of a workspace's sessions is filtered by: the workspace, the
+ * subagent switch, the search - and who may read which, which is
+ * [SessionVisibility]'s rule in SQL so the page and its total agree.
+ */
+private const val SESSION_LIST_WHERE = """
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+          and ${SessionVisibility.READABLE_SQL}
+"""
+
 interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
 
     /** One model call's spend, added in one statement so two turns finishing at once cannot lose either. */
@@ -481,23 +497,11 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
     @Query(
         """
         select s from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         """,
         countQuery = """
         select count(s) from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         """,
     )
     /**
@@ -507,7 +511,15 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
      *   somebody scanning a workspace's conversations means by "sessions";
      *   the rest are reached from the conversation's own page. Issue #389.
      */
-    fun search(workspaceId: Long, search: String, includeSubagents: Boolean, pageable: Pageable): Page<LlmSession>
+    fun search(
+        workspaceId: Long,
+        search: String,
+        includeSubagents: Boolean,
+        everyone: Boolean,
+        person: String,
+        chat: String,
+        pageable: Pageable,
+    ): Page<LlmSession>
 
     /**
      * The same list, ordered by something no column of this table holds: how
@@ -526,120 +538,84 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
     @Query(
         """
         select s from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         order by (select count(e) from LlmSessionEvent e where e.sessionId = s.id) asc, s.id desc
         """,
         countQuery = """
         select count(s) from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         """,
     )
     fun searchByLinesAscending(
         workspaceId: Long,
         search: String,
         includeSubagents: Boolean,
+        everyone: Boolean,
+        person: String,
+        chat: String,
         pageable: Pageable,
     ): Page<LlmSession>
 
     @Query(
         """
         select s from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         order by (select count(e) from LlmSessionEvent e where e.sessionId = s.id) desc, s.id desc
         """,
         countQuery = """
         select count(s) from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         """,
     )
     fun searchByLinesDescending(
         workspaceId: Long,
         search: String,
         includeSubagents: Boolean,
+        everyone: Boolean,
+        person: String,
+        chat: String,
         pageable: Pageable,
     ): Page<LlmSession>
 
     @Query(
         """
         select s from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         order by (select count(c) from LlmSession c where c.parentSessionId = s.id) asc, s.id desc
         """,
         countQuery = """
         select count(s) from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         """,
     )
     fun searchBySubagentsAscending(
         workspaceId: Long,
         search: String,
         includeSubagents: Boolean,
+        everyone: Boolean,
+        person: String,
+        chat: String,
         pageable: Pageable,
     ): Page<LlmSession>
 
     @Query(
         """
         select s from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         order by (select count(c) from LlmSession c where c.parentSessionId = s.id) desc, s.id desc
         """,
         countQuery = """
         select count(s) from LlmSession s
-        where s.workspaceId = :workspaceId
-          and (:includeSubagents = true or s.parentSessionId is null)
-          and (
-            :search = ''
-            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
-            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
-          )
+        $SESSION_LIST_WHERE
         """,
     )
     fun searchBySubagentsDescending(
         workspaceId: Long,
         search: String,
         includeSubagents: Boolean,
+        everyone: Boolean,
+        person: String,
+        chat: String,
         pageable: Pageable,
     ): Page<LlmSession>
 

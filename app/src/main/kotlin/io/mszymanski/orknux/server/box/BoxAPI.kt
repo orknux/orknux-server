@@ -42,6 +42,8 @@ class BoxAPI(
     private val local: LocalBox,
     private val installationSettings: InstallationSettingsAPI,
     private val access: WorkspaceAccess,
+    /** Whose chat a session is; somebody else's is answered as not there. */
+    private val visibility: io.mszymanski.orknux.server.llm.SessionVisibility,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
     private val sessionLog: BoxSessionLog,
@@ -271,8 +273,7 @@ class BoxAPI(
     /** The ports a conversation's agents asked to expose, oldest first, with whether each answers. */
     @QueryMapping
     fun sessionBoxPorts(@Argument sessionId: Long): List<BoxPortView> {
-        val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return exposed.of(sessionId).map(::portView)
     }
 
@@ -321,8 +322,7 @@ class BoxAPI(
 
     @QueryMapping
     fun sessionBoxes(@Argument sessionId: Long): List<SessionBoxView> {
-        val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         // The family's, as the agents see them: a subagent works in the session its asker opened.
         return sessionRows.findByLlmSessionIdInOrderByCreatedAtDescIdDesc(family.of(sessionId)).map { row ->
             SessionBoxView.of(row, liveStatus(row), labelOf(row))
@@ -338,8 +338,7 @@ class BoxAPI(
      */
     @QueryMapping
     fun sessionBoxLog(@Argument sessionId: Long, @Argument sessionBoxId: Long, @Argument after: Int?): BoxLogView {
-        val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         val row = sessionRows.findByIdOrNull(sessionBoxId)?.takeIf { it.llmSessionId in family.of(sessionId) }
             ?: throw BoxNotFoundException(sessionBoxId.toString())
         val since = (after ?: 0).toLong().coerceAtLeast(0)
@@ -421,8 +420,7 @@ class BoxAPI(
     ): BoxOutputView = readOutput(sessionId, sessionBoxId, executionId, offset, limit).copy(shownLimit = settings.outputShownBytes())
 
     private fun readOutput(sessionId: Long, sessionBoxId: Long, executionId: String, offset: Int?, limit: Int?): BoxOutputView {
-        val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         val row = sessionRows.findByIdOrNull(sessionBoxId)?.takeIf { it.llmSessionId in family.of(sessionId) }
             ?: throw BoxNotFoundException(sessionBoxId.toString())
         val from = (offset ?: 0).coerceAtLeast(0).toLong()

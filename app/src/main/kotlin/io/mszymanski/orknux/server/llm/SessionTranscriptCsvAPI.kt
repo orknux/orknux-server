@@ -1,9 +1,7 @@
 package io.mszymanski.orknux.server.llm
 
-import io.mszymanski.orknux.server.security.WorkspaceAccess
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
-import org.springframework.data.repository.findByIdOrNull
 import org.springframework.http.ContentDisposition
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -29,9 +27,8 @@ import java.time.format.DateTimeFormatter
  */
 @RestController
 class SessionTranscriptCsvAPI(
-    private val sessions: LlmSessionRepository,
     private val events: LlmSessionEventRepository,
-    private val access: WorkspaceAccess,
+    private val visibility: SessionVisibility,
 ) {
 
     @GetMapping("/api/sessions/{id}/transcript.csv")
@@ -41,7 +38,8 @@ class SessionTranscriptCsvAPI(
         @RequestParam(required = false) search: String?,
         @RequestParam(required = false) kinds: List<LlmSessionEventKind>?,
     ): ResponseEntity<ByteArray> {
-        val session = sessions.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+        // Somebody else's chat is a session that is not there, as one in an unseen workspace is.
+        val session = visibility.readable(id)
             ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
 
         val wanted = search?.trim().orEmpty()

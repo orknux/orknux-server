@@ -185,6 +185,12 @@ class OrknuxTools(
     private val llmSessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
     private val llmEvents: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
     /**
+     * Whose chat a session is. A person's token reads their own chats; an
+     * agent with nobody behind it reads the chat it is answering in and no
+     * other.
+     */
+    private val sessionVisibility: io.mszymanski.orknux.server.llm.SessionVisibility,
+    /**
      * The workspace's own tools — the code an agent calls, not the tools in
      * this class. Read here for the same reason functions are: somebody at the
      * tool editor asking for help is asking about code that is stored, and a
@@ -1167,10 +1173,14 @@ class OrknuxTools(
     private fun sessionList(scope: OrknuxScope, arguments: String): String {
         val search = text(arguments, "search").orEmpty().trim()
         val limit = (number(arguments, "limit")?.toInt() ?: SOME_SESSIONS).coerceIn(1, MANY)
+        val reader = sessionVisibility.reader(scope.session)
         val found = llmSessions.search(
             scope.workspaceId,
             search,
             false,
+            reader.everyone,
+            reader.person,
+            reader.chat,
             PageRequest.of(0, limit, Sort.by(Sort.Order.desc("lastEventAt"), Sort.Order.desc("id"))),
         )
         return mapper.writeValueAsString(
@@ -1206,7 +1216,9 @@ class OrknuxTools(
             ?: return refuse("Which conversation? Give its id - orknux_sessions lists them.")
         // Another workspace's session is answered exactly as one that does not
         // exist, for the reason runs are: "not yours" confirms it is somebody's.
-        val held = llmSessions.findByIdOrNull(id)?.takeIf { it.workspaceId == scope.workspaceId }
+        // Somebody else's chat likewise.
+        val held = llmSessions.findByIdOrNull(id)
+            ?.takeIf { it.workspaceId == scope.workspaceId && sessionVisibility.mayRead(it, sessionVisibility.reader(scope.session)) }
             ?: return refuse("There is no conversation $id here")
 
         val after = number(arguments, "after") ?: 0L

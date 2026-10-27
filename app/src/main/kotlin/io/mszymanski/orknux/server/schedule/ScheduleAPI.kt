@@ -35,6 +35,8 @@ class ScheduleAPI(
     private val settings: ScheduleSettings,
     private val sessions: LlmSessionRepository,
     private val access: WorkspaceAccess,
+    /** Whose chat a session is; somebody else's is answered as not there. */
+    private val visibility: io.mszymanski.orknux.server.llm.SessionVisibility,
     private val auditRecorder: WorkspaceAuditRecorder,
 ) {
 
@@ -66,8 +68,7 @@ class ScheduleAPI(
     /** The schedules set in one session, every state, newest first; a hundred at most. */
     @QueryMapping
     fun sessionSchedules(@Argument sessionId: Long): List<ScheduleView> {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        val session = visibility.requireReadable(sessionId)
         return schedules.findTop100BySessionIdOrderByCreatedAtDescIdDesc(sessionId).map { ScheduleView.of(it, session.title) }
     }
 

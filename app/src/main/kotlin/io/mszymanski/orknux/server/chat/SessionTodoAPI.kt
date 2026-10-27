@@ -1,9 +1,5 @@
 package io.mszymanski.orknux.server.chat
 
-import io.mszymanski.orknux.server.llm.LlmSessionNotFoundException
-import io.mszymanski.orknux.server.llm.LlmSessionRepository
-import io.mszymanski.orknux.server.security.WorkspaceAccess
-import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.stereotype.Controller
@@ -19,16 +15,15 @@ import org.springframework.transaction.annotation.Transactional
  */
 @Controller
 class SessionTodoAPI(
-    private val sessions: LlmSessionRepository,
-    private val access: WorkspaceAccess,
+    /** Whose chat a session is; somebody else's is answered as not there. */
+    private val visibility: io.mszymanski.orknux.server.llm.SessionVisibility,
     private val todos: TodoTools,
 ) {
 
     @QueryMapping
     @Transactional(readOnly = true)
     fun sessionTodos(@Argument sessionId: Long): List<SessionTodoView> {
-        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
-        access.requireVisible(session.workspaceId)
+        visibility.requireReadable(sessionId)
         return todos.items(sessionId).map { SessionTodoView(it.id, it.text, it.note, it.done) }
     }
 }
