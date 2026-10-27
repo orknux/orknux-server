@@ -1,0 +1,68 @@
+# Admin workspaces: a workspace whose agents may read other workspaces, and a
+# few of the installation's admin pages, each switched here. Only installation
+# administrators see one, and only they switch it, in Admin > Workspaces.
+
+extend type Query {
+    "What a workspace may read as an admin workspace. Installation administrators only."
+    adminWorkspace(workspaceId: ID!): AdminWorkspaceSettings!
+}
+
+extend type Mutation {
+    """
+    Makes a workspace an admin workspace, or an ordinary one again, and sets
+    what it may read. Refused, naming them, while a role that is not the
+    administrator's opens it or somebody who is not an administrator
+    administers it. Installation administrators only.
+    """
+    setAdminWorkspace(workspaceId: ID!, input: AdminWorkspaceInput!): AdminWorkspaceSettings!
+}
+
+type AdminWorkspaceSettings {
+    workspaceId: ID!
+    "Whether the workspace is an admin workspace now."
+    enabled: Boolean!
+    "Every workspace, or only those in `reach`."
+    reachAll: Boolean!
+    "The chosen workspaces, read while `reachAll` is false."
+    reach: [ID!]!
+    "What its agents may read in the workspaces it reaches."
+    scopes: [AdminWorkspaceScope!]!
+    "Which of the installation's admin pages its agents may read, each a tool."
+    tools: [AdminWorkspaceTool!]!
+}
+
+input AdminWorkspaceInput {
+    enabled: Boolean!
+    reachAll: Boolean!
+    reach: [ID!]!
+    scopes: [AdminWorkspaceScope!]!
+    tools: [AdminWorkspaceTool!]!
+}
+
+"What an admin workspace may read in another workspace. Read only, every one."
+enum AdminWorkspaceScope {
+    "Agents' conversations."
+    SESSIONS
+    "People's chats."
+    CHATS
+    AGENTS
+    "The action, trigger and condition catalogue, and the functions behind it."
+    ACTIONS
+    WORKFLOWS
+    "Workflow runs and their steps."
+    RUNS
+    "Research and its reports."
+    REPORTS
+}
+
+"One of the installation's admin pages, read by an admin workspace's agents as a tool of its own."
+enum AdminWorkspaceTool {
+    REPORTS
+    DOCTOR
+    ROLES
+    MONITORING
+    TEMPLATES
+    PLUGINS
+    AUDIT
+    USERS
+}

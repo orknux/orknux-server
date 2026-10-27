@@ -40,6 +40,11 @@ class WorkspaceExceptionResolver : DataFetcherExceptionResolverAdapter() {
             // Somebody who is not a member, or who administers everywhere already.
             is WorkspaceMemberUnknownException,
             is WorkspaceMemberFixedException,
+            // An admin workspace somebody who is not an administrator could open,
+            // and a reach list naming nothing. Thrown by the role save as well.
+            is AdminWorkspaceOpenToOthersException,
+            is AdminWorkspaceMemberRefusedException,
+            is AdminWorkspaceReachUnknownException,
             // A workspace file that is not one, is newer than this reads, or
             // says something impossible: refused before anything is made. #590.
             is io.mszymanski.orknux.server.transfer.WorkspaceFileUnreadableException,

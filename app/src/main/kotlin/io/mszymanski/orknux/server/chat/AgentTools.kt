@@ -72,6 +72,8 @@ class AgentTools(
     private val pictureAddresses: io.mszymanski.orknux.server.embedded.PictureAddresses,
     /** Where a replaced artifact is said, as it is when a person replaces one on the page. */
     private val auditRecorder: io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder,
+    /** Reading other workspaces and the admin pages, for an admin workspace's agents alone. */
+    private val adminTools: io.mszymanski.orknux.server.workspace.AdminWorkspaceTools,
 ) {
 
     /**
@@ -280,6 +282,15 @@ class AgentTools(
 
         // Looking at a picture a key names. Issue #561.
         if (BuiltInTools.granted(agent, VIEW)) add(VIEW_TOOL)
+
+        /*
+         * Reading other workspaces and the installation's admin pages, where
+         * this agent's workspace is an admin workspace and only then: empty for
+         * every other agent, so an ordinary workspace is never told these
+         * exist. Core: they are few, and what they reach is the reason the
+         * workspace was made one.
+         */
+        addAll(adminTools.specsFor(agent))
     }
 
     /**
@@ -436,6 +447,14 @@ class AgentTools(
          */
         if (!BuiltInTools.granted(agent, call.name)) {
             mapper.writeValueAsString(mapOf("error" to "There is no tool called ${call.name}"))
+        } else if (adminTools.handles(call.name)) {
+            /*
+             * Decided by the tool itself, from the agent's workspace row as it
+             * is now: an agent outside an admin workspace that names one is
+             * told it does not exist, and one whose switch went off since the
+             * conversation's tools were fixed is told so.
+             */
+            adminTools.run(agent, call.name, call.arguments)
         } else if (orknux.handles(call.name)) {
             /*
              * orknux's own, and only for an agent granted them.

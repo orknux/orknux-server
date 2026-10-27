@@ -573,6 +573,20 @@ class Workspace(
      */
     @Column(name = "document_page_size", length = 10)
     var documentPageSize: String? = null,
+
+    /**
+     * Whether this is an admin workspace: one whose agents may read other
+     * workspaces, and a few installation-wide admin pages, as [AdminWorkspace]
+     * switches them.
+     *
+     * On the workspace row rather than only beside it, because the access check
+     * reads it on every call and already has this row in hand: an admin
+     * workspace is seen by installation administrators and nobody else
+     * ([io.mszymanski.orknux.server.security.WorkspaceAccess.canSee]). Only an
+     * installation administrator switches it, through [AdminWorkspaceAPI].
+     */
+    @Column(name = "admin_workspace", nullable = false)
+    var adminWorkspace: Boolean = false,
 )
 
 /**

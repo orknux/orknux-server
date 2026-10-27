@@ -401,6 +401,8 @@ class WorkspaceAPI(
         val opens = workspace.roles.mapNotNull { it.id }.toSet()
         val stranded = workspace.adminRoles.filter { it.id !in opens }
         if (stranded.isNotEmpty()) throw WorkspaceAdminRoleNotAssignedException(stranded.map { it.name }.sorted())
+        // An admin workspace is opened by administrators alone; see AdminWorkspaceAPI.
+        WorkspaceGuards.requireAdminRolesOnly(workspace)
 
         if (newName != previousName) {
             auditRecorder.record(

@@ -101,6 +101,15 @@ class WorkspaceAccess(
     fun canSee(workspace: Workspace): Boolean {
         if (workspace.id != null && workspace.id == ActingIn.workspace()) return true
         if (isAdmin()) return true
+        /*
+         * An admin workspace is installation administrators' and nobody else's,
+         * whatever roles it names. Its agents read other workspaces, so seeing
+         * it is seeing those; the roles on it are held to the administrator
+         * role by AdminWorkspaceAPI, and this is what holds when they are not -
+         * and what takes it away the moment somebody loses that role, since the
+         * question is asked again on every call.
+         */
+        if (workspace.adminWorkspace) return false
         if (workspace.roles.isEmpty() && workspace.adminRoles.isEmpty()) return false
         val held = heldRoles().mapNotNull { it.id }.toSet()
         // The administering set as well as the opening one. It is meant to be a

@@ -179,8 +179,11 @@ type Query {
     reads to see what an agent may do is complete; the round offers and
     withholds by the same names. The same for every workspace, because the
     tools are the server's. Issue #444.
+
+    Given a workspace that is an admin workspace, its admin tools are listed
+    too, since every agent there is offered them.
     """
-    builtInTools: [BuiltInTool!]!
+    builtInTools(workspaceId: ID): [BuiltInTool!]!
     """
     The libraries loaded into this installation, by name, with what imports them.
 
@@ -2483,6 +2486,8 @@ type Workspace {
     administered: Boolean!
     "Whether the caller may read this workspace's secrets back: administering it, or a role that reads secrets here."
     readsSecrets: Boolean!
+    "Whether this is an admin workspace, whose agents may read other workspaces. Only installation administrators see one."
+    adminWorkspace: Boolean!
     """
     The model used for the workspace's own small jobs — naming a chat from what
     was said. Null means those jobs do not happen.
@@ -7027,6 +7032,8 @@ enum BuiltInToolGovernance {
     BOX_ACCESS
     "Any secret or variable catalog granted."
     VARIABLE_CATALOGS
+    "The agent's workspace being an admin workspace, with this tool switched on in Admin > Workspaces."
+    ADMIN_WORKSPACE
 }
 
 """

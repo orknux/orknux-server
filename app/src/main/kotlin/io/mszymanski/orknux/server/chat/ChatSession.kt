@@ -248,6 +248,13 @@ interface ChatSessionRepository : JpaRepository<ChatSession, Long> {
 
     fun findByConversationId(conversationId: String): ChatSession?
 
+    /**
+     * Every chat in a workspace, whoever's, newest first - for an admin
+     * workspace that may read chats, and nothing else: a person's own chats
+     * are [sidebar].
+     */
+    fun findByWorkspaceIdOrderByIdDesc(workspaceId: Long, pageable: org.springframework.data.domain.Pageable): org.springframework.data.domain.Page<ChatSession>
+
     /** The chat recording into this LLM session, for something arriving at it; see `ChatWake`. */
     fun findFirstByLlmSessionId(llmSessionId: Long): ChatSession?
 

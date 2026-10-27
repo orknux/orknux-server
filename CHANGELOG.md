@@ -20,6 +20,7 @@ have failed.
 ### ✨ Added
 
 - **A session's transcript downloads as CSV.** Export CSV on the session page saves every line, oldest first, narrowed by the search and kinds the page is filtering with; a cell that starts like a spreadsheet formula is kept as text.
+- **Admin workspaces**, switched on in Admin → Workspaces → a workspace's settings: its agents may read other workspaces - sessions, chats, agents, actions, workflows, runs and reports, each a switch, every workspace or a chosen list - and the installation's Reports, Doctor, Roles, Monitoring, Templates, Plugins, Audit log and Users, each a tool of its own (the last three start off). Read only; no credential is ever handed across; only installation administrators see an admin workspace, and one cannot be switched on, or opened to a role without the Admin scope, while somebody who is not an administrator could open it. Not offered over MCP.
 
 ### 🔧 Changed
 

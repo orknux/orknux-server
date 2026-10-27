@@ -73,9 +73,13 @@ class RoleAPI(
         val taken = roles.findByName(name)
         if (taken != null && taken.id != role.id) throw RoleNameTakenException(name)
 
+        val scopes = scopesOf(input.scopes)
+        // A role opening an admin workspace keeps the Admin scope while it does; see AdminWorkspaceAPI.
+        io.mszymanski.orknux.server.workspace.WorkspaceGuards.requireStillAdministers(role, RoleScope.ADMIN in scopes, workspaces.findAll())
+
         role.name = name
         role.description = input.description?.trim()?.ifEmpty { null }
-        role.scopes = scopesOf(input.scopes)
+        role.scopes = scopes
         role.matches = matchesOf(input.matches)
         role.lastModifiedAt = OffsetDateTime.now()
         role.lastModifiedBy = currentUser()

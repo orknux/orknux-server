@@ -17,16 +17,30 @@ class BuiltInToolsAPI(
     private val builtIns: BuiltInTools,
     private val summaries: BuiltInToolSummaries,
     private val http: io.mszymanski.orknux.server.embedded.HttpToolPolicy,
+    private val adminTools: io.mszymanski.orknux.server.workspace.AdminWorkspaceTools,
+    private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
 ) {
 
     /** Read once: the built-ins and what the model is told about them are fixed for a release. */
     private val summaryByName: Map<String, String> by lazy { summaries.summaries() }
 
+    /**
+     * And, for a workspace that is an admin workspace, the admin tools its
+     * agents are offered - rows like the orknux_* ones, switched where the
+     * grant is, which for these is Admin > Workspaces. Nothing is added for a
+     * workspace the caller cannot see, which for an admin workspace is anybody
+     * but an installation administrator.
+     */
     @QueryMapping
-    fun builtInTools(): List<BuiltInTool> = builtIns.all()
+    fun builtInTools(@org.springframework.graphql.data.method.annotation.Argument workspaceId: Long?): List<BuiltInTool> {
+        val admin = workspaceId?.takeIf { access.canSee(it) }?.let { adminTools.namesFor(it) }.orEmpty()
+        return builtIns.all() + admin.map { BuiltInTool(it, BuiltInGovernance.ADMIN_WORKSPACE) }
+    }
 
     @SchemaMapping(typeName = "BuiltInTool")
-    fun summary(tool: BuiltInTool): String? = summaryByName[tool.name]
+    fun summary(tool: BuiltInTool): String? =
+        summaryByName[tool.name] ?: if (tool.governance == BuiltInGovernance.ADMIN_WORKSPACE) adminTools.summaryOf(tool.name) else null
+
 
     /**
      * Why no agent is offered it now, whatever it was granted. Issue #602: the

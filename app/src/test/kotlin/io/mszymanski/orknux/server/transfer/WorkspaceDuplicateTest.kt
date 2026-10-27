@@ -527,7 +527,8 @@ class WorkspaceDuplicateTest(
             .filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) && !it.isSynthetic }
             .map { it.name }.toSet()
         // Its id and its name are the copy's own; who may see it is a decision about people.
-        val left = setOf("id", "name", "roles", "adminRoles")
+        // A copy is never an admin workspace: what it may read is an administrator's decision, made on it.
+        val left = setOf("id", "name", "roles", "adminRoles", "adminWorkspace")
         // Carried by name and pointed at the copied models.
         val models = setOf("companionModelId", "transcriptionModelId", "speechModelId", "compactionModelId",
             "imageModelId", "quickChatModelId", "sessionCompactionModelId", "completionModelId")

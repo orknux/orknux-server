@@ -92,6 +92,14 @@ enum class BuiltInGovernance {
      * granted and asking for it. See [GrantRequestTools].
      */
     MAY_ASK_FOR_TOOLS,
+
+    /**
+     * Offered while the agent's workspace is an admin workspace and the tool
+     * is switched on there, in Admin > Workspaces: reading other workspaces
+     * and the installation's admin pages. Listed only for an admin
+     * workspace's agents; see [io.mszymanski.orknux.server.workspace.AdminWorkspaceTools].
+     */
+    ADMIN_WORKSPACE,
 }
 
 /** One of the server's own tools, and what switches it. */
