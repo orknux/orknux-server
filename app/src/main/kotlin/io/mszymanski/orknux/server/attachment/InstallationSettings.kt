@@ -137,6 +137,9 @@ object SettingNames {
 
     /** Whether a chat keeps the concealed tools' calls from an administrator too. */
     const val CONCEALED_CALLS_HIDDEN_IN_CHATS = "chat.concealed-calls.hidden"
+
+    /** Whether agents are offered flag_session and unflag_session at all. */
+    const val SESSION_FLAGGING_ENABLED = "session.flagging.enabled"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
 
     /** What the files in one session's scratchpads may come to. Issue #491. */
@@ -2213,6 +2216,25 @@ class InstallationSettings(
     @Transactional
     fun setConcealedCallsHiddenInChats(hidden: Boolean, by: String) {
         write(SettingNames.CONCEALED_CALLS_HIDDEN_IN_CHATS, hidden.toString(), by)
+    }
+
+    /**
+     * Whether agents flag conversations for the administrators at all.
+     *
+     * On by default, which is how flagging arrived. Off, a new conversation is
+     * not offered the two tools or told about them, and a conversation whose
+     * tools were fixed while it was on is refused in words when it calls one -
+     * see [io.mszymanski.orknux.server.flag.SessionFlagTools.shed]. The flags
+     * already raised stay where they are, on the report and the session pages.
+     */
+    fun sessionFlaggingEnabled(): Boolean {
+        val held = settings.findByIdOrNull(SettingNames.SESSION_FLAGGING_ENABLED) ?: return true
+        return held.value.toBooleanStrictOrNull() ?: true
+    }
+
+    @Transactional
+    fun setSessionFlaggingEnabled(enabled: Boolean, by: String) {
+        write(SettingNames.SESSION_FLAGGING_ENABLED, enabled.toString(), by)
     }
 
     fun pluginMaxSourceBytes(): Long = pluginMaxSourceKb() * 1024L

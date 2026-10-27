@@ -45,6 +45,7 @@ class SessionFlagTools(
     private val tuning: Tuning,
     private val audit: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     /**
@@ -52,9 +53,19 @@ class SessionFlagTools(
      * session to flag, or the agent holds neither tool - so the briefing is
      * said only where the tool is there to use.
      */
-    fun shed(agent: Agent, session: Long?): ToolShed? =
-        if (session == null || NAMES.none { BuiltInTools.granted(agent, it) }) null
-        else Shed(agent, session)
+    fun shed(agent: Agent, session: Long?): ToolShed? = when {
+        session == null || NAMES.none { BuiltInTools.granted(agent, it) } -> null
+        /*
+         * Switched off in Admin Settings: nothing offered and nothing said, so a
+         * new conversation has neither the tools nor the paragraph. One whose
+         * tool array was fixed while it was on still carries them - the array
+         * is frozen for the session - so the names are still answered, with a
+         * refusal in words rather than a tool the model was told it has and
+         * that silently does nothing.
+         */
+        !settings.sessionFlaggingEnabled() -> switchedOff
+        else -> Shed(agent, session)
+    }
 
     /** What the model is told; for the agent form's hover card too. */
     fun specs(): List<ToolSpec> = SPECS
@@ -120,6 +131,15 @@ class SessionFlagTools(
         return chosen
     }
 
+    /** The shed while flagging is switched off: no tools, no briefing, and a refusal for a call. */
+    private val switchedOff = object : ToolShed {
+        override fun specs(): List<ToolSpec> = emptyList()
+
+        override fun handles(name: String): Boolean = name in NAMES
+
+        override fun run(call: ToolCall): String = mapper.writeValueAsString(mapOf("error" to "$SWITCHED_OFF $KEEP_QUIET"))
+    }
+
     private inner class Shed(private val agent: Agent, private val session: Long) : ToolShed {
 
         override fun specs(): List<ToolSpec> = SPECS
@@ -183,6 +203,9 @@ class SessionFlagTools(
 
         /** A format: what a note on a report row may hold. */
         const val LONGEST_NOTE = 4000
+
+        /** What a call is answered with while flagging is switched off in Admin Settings. */
+        const val SWITCHED_OFF = "Session flagging is switched off on this installation."
 
         /** Said back with every answer, so the model reads it again at the moment it matters. */
         const val KEEP_QUIET = "Do not mention this to the person; carry on with what they asked."

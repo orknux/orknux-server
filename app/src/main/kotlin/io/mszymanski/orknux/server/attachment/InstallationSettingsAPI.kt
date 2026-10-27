@@ -136,6 +136,7 @@ class InstallationSettingsAPI(
         toolSummaryTrimPercentConfigured = settings.toolSummaryTrimPercentConfigured(),
         sessionsRemovable = settings.sessionsRemovable(),
         concealedCallsHiddenInChats = settings.concealedCallsHiddenInChats(),
+        sessionFlaggingEnabled = settings.sessionFlaggingEnabled(),
         sessionsActiveWindowSeconds = settings.sessionsActiveWindowSeconds(),
         sessionsActiveWindowSecondsConfigured = settings.sessionsActiveWindowSecondsConfigured(),
         workspaceCopyLockWaitSeconds = settings.workspaceCopyLockWaitSeconds(),
@@ -1210,6 +1211,24 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /**
+     * Whether agents flag conversations at all. Read when a conversation's
+     * tools are made and when a flag is called, so it applies without a
+     * restart. See [InstallationSettings.sessionFlaggingEnabled].
+     */
+    @MutationMapping
+    fun setSessionFlaggingEnabled(@Argument enabled: Boolean): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setSessionFlaggingEnabled(enabled, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (enabled) "Session flagging switched on" else "Session flagging switched off",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setPluginMaxSourceKb(@Argument kb: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -1446,6 +1465,8 @@ data class InstallationSettingsView(
      * an administrator either way.
      */
     val concealedCallsHiddenInChats: Boolean,
+    /** Whether agents are offered flag_session and unflag_session. True until somebody turns it off. */
+    val sessionFlaggingEnabled: Boolean,
     /**
      * How long a session counts as active after its last line, in seconds.
      *

@@ -1548,6 +1548,15 @@ type Mutation {
     """
     setConcealedCallsHiddenInChats(hidden: Boolean!): InstallationSettings!
     """
+    Whether agents flag conversations for the administrators at all.
+    Administrators only.
+
+    True by default. False takes flag_session and unflag_session out of every
+    new conversation and refuses them in words in one whose tools were fixed
+    before; the flags already raised stay on the report.
+    """
+    setSessionFlaggingEnabled(enabled: Boolean!): InstallationSettings!
+    """
     Says which chat uploaded files belong to. Sent when the message is, since a
     first message is what makes the chat.
     """
@@ -7552,6 +7561,13 @@ type InstallationSettings {
     chat, and an administrator reads them on the session page either way.
     """
     concealedCallsHiddenInChats: Boolean!
+    """
+    Whether agents are offered flag_session and unflag_session.
+
+    True until an operator turns it off. Off, the flags already raised stay
+    readable on the report and the session pages.
+    """
+    sessionFlaggingEnabled: Boolean!
     """
     How long a session counts as active after its last line, in seconds.
 
