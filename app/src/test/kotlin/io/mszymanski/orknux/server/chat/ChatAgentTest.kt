@@ -239,6 +239,8 @@ class ChatAgentTest(
         assertThat(said).contains("These are the tools you have")
         // And how its turn works, first: there is no later unless it makes one.
         assertThat(said).contains(AgentBriefing.HOW_YOU_RUN)
+        // And to read the conversation a request came from before asking what it means.
+        assertThat(said).contains(AgentBriefing.READ_BEFORE_ASKING)
         assertThat(requireNotNull(said).indexOf(AgentBriefing.HOW_YOU_RUN))
             .isLessThan(said.indexOf("These are the tools you have"))
         /*

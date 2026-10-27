@@ -138,6 +138,14 @@ class AgentBriefing(
             HOW_YOU_RUN
         }
         /*
+         * And to look before it asks. Mentioned in a Slack thread with "can you
+         * check this?", an agent asked what it should debug while the request
+         * was the message right above the mention: it took the words it was
+         * handed as everything there was. Said for every channel, because a
+         * chat, a task or a thread all have a before.
+         */
+        parts += READ_BEFORE_ASKING
+        /*
          * And to say what it is doing while it does it. A model on a long piece
          * of work thought for minutes and called tool after tool in silence:
          * what it writes beside a call reaches the person as it happens, its
@@ -693,6 +701,14 @@ class AgentBriefing(
                 "before you finish, or, as a last resort, end your turn with a wake-up, where one is " +
                 "offered, and say when you will be back. Where you can do none of these, say so plainly " +
                 "rather than promising."
+
+        /** What to do with a request that does not say enough; see [grants]. */
+        const val READ_BEFORE_ASKING =
+            "When a request is unclear or seems to point at something it does not contain - \"this\", " +
+                "\"check it\", a bare mention - read the conversation it came from before you ask: the earlier " +
+                "messages in this session and, where it arrived from a thread or channel you can read, the " +
+                "messages before it there. A short request usually refers to something said just before it. " +
+                "Ask only when that does not settle it, and say what you read."
 
         /** Saying what it is doing while it works; see [grants]. */
         /*

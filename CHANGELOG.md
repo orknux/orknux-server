@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **A session's transcript downloads as CSV.** Export CSV on the session page saves every line, oldest first, narrowed by the search and kinds the page is filtering with; a cell that starts like a spreadsheet formula is kept as text.
+
+### 🔧 Changed
+
+- **An agent reads the conversation before asking what a request means.** Handed something unclear - "check this", a bare mention in a Slack thread - it is told to read the earlier messages in its session and the thread it came from first, and to ask only when that does not settle it.
+
 ## 1.2.3
 
 ### ✨ Added
