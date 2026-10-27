@@ -113,7 +113,7 @@ class BasicToolsAlwaysTest(
         agent.maxTools = 10
         agents.save(agent)
 
-        jdbc.execute(migration())
+        migrations().forEach(jdbc::execute)
 
         val after = requireNotNull(agents.findByIdOrNull(id))
         assertThat(after.requiredTools.first()).isEqualTo(NoteTools.NOTE)
@@ -123,21 +123,33 @@ class BasicToolsAlwaysTest(
             .doesNotContainAnyElementsOf(BuiltInTools.STARTS_OFFERED)
         assertThat(tools.offeringFor(after).core.map { it.name }).contains(SkillTool.LIST.name, SkillTool.LOAD.name)
 
-        jdbc.execute(migration())
+        migrations().forEach(jdbc::execute)
         assertThat(requireNotNull(agents.findByIdOrNull(id)).requiredTools).doesNotHaveDuplicates()
     }
 
-    /** The names the migration writes out are startingAlways(), all of it and in its order, on both engines. */
+    /**
+     * The names the migrations write out are startingAlways(), all of it and in
+     * its order, on both engines: V600's, then each later migration's that gave
+     * the agents before it a built-in added since.
+     */
     @Test
     fun `the migration names exactly the built-ins a new agent starts Always`() {
-        listOf(POSTGRES, SQLITE).forEach { path ->
-            val written = Regex("[(]\\d+, '([A-Za-z0-9_]+)'[)]").findAll(read(path)).map { it.groupValues[1] }.toList()
-            assertThat(written).describedAs(path).containsExactlyElementsOf(BuiltInTools.startingAlways())
+        listOf(POSTGRES_ALL, SQLITE_ALL).forEach { paths ->
+            val written = paths.flatMap { path ->
+                Regex("[(]\\d+, '([A-Za-z0-9_]+)'[)]").findAll(read(path)).map { it.groupValues[1] }.toList()
+            }
+            assertThat(written).describedAs(paths.joinToString()).containsExactlyElementsOf(BuiltInTools.startingAlways())
         }
     }
 
-    private fun migration(): String =
-        read(if (isSqlite(jdbc.dataSource?.let { jdbcUrlOf(it) })) SQLITE else POSTGRES)
+    /**
+     * V600 and what came after it, as this engine runs them: of a later one,
+     * only its marking - the statement in V600's shape - since the rest of it
+     * has already run and made what it makes.
+     */
+    private fun migrations(): List<String> =
+        (if (isSqlite(jdbc.dataSource?.let { jdbcUrlOf(it) })) SQLITE_ALL else POSTGRES_ALL).map(::read)
+            .mapIndexed { at, sql -> if (at == 0) sql else sql.substring(sql.indexOf(MARKING)) }
 
     private fun read(path: String): String =
         ClassPathResource(path).inputStream.use { String(it.readAllBytes(), Charsets.UTF_8) }
@@ -152,5 +164,12 @@ class BasicToolsAlwaysTest(
     private companion object {
         const val POSTGRES = "db/migration/postgresql/V600__basic_tools_always.sql"
         const val SQLITE = "db/migration/sqlite/V280__basic_tools_always.sql"
+
+        /** V600, and the migrations since that mark a built-in added later Always: flag_session and unflag_session. */
+        val POSTGRES_ALL = listOf(POSTGRES, "db/migration/postgresql/V636__session_flag.sql")
+        val SQLITE_ALL = listOf(SQLITE, "db/migration/sqlite/V316__session_flag.sql")
+
+        /** Where the marking statement starts in a migration written in V600's shape. */
+        const val MARKING = "WITH basic_name"
     }
 }

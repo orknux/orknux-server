@@ -148,6 +148,9 @@ class SessionShedsTest(
             // Session ratings are on until an administrator turns them off.
             io.mszymanski.orknux.server.rating.RatingTools.RATE,
             io.mszymanski.orknux.server.rating.RatingTools.REMOVE,
+            // Flagging the conversation for the installation's administrators.
+            io.mszymanski.orknux.server.flag.SessionFlagTools.FLAG,
+            io.mszymanski.orknux.server.flag.SessionFlagTools.UNFLAG,
         )
 
         val offered = linkedMapOf(

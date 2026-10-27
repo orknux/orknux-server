@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.llm
 
+import io.mszymanski.orknux.server.security.WorkspaceAccess
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.http.ContentDisposition
@@ -29,6 +30,8 @@ import java.time.format.DateTimeFormatter
 class SessionTranscriptCsvAPI(
     private val events: LlmSessionEventRepository,
     private val visibility: SessionVisibility,
+    private val access: WorkspaceAccess,
+    private val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
     @GetMapping("/api/sessions/{id}/transcript.csv")
@@ -43,6 +46,9 @@ class SessionTranscriptCsvAPI(
             ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
 
         val wanted = search?.trim().orEmpty()
+        // The flag calls, for anybody who does not administer the installation. See ConcealedTools.
+        val reveal = access.isAdmin()
+        val hidden = io.mszymanski.orknux.server.flag.ConcealedTools.hiddenFrom(reveal)
         val sorted = Sort.by(Sort.Order.asc("at"), Sort.Order.asc("id"))
         val csv = StringBuilder()
         // A byte-order mark, so a spreadsheet opens the file as UTF-8 rather than guessing a code page.
@@ -51,7 +57,7 @@ class SessionTranscriptCsvAPI(
         var page = 0
         do {
             val asked = PageRequest.of(page++, CHUNK, sorted)
-            val found = if (kinds.isNullOrEmpty()) events.search(id, wanted, asked) else events.searchByKinds(id, kinds, wanted, asked)
+            val found = if (kinds.isNullOrEmpty()) events.search(id, wanted, hidden, asked) else events.searchByKinds(id, kinds, wanted, hidden, asked)
             found.content.forEach { event ->
                 row(
                     csv,
@@ -59,7 +65,14 @@ class SessionTranscriptCsvAPI(
                         event.at.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                         event.kind.name,
                         event.actor,
-                        event.content.orEmpty(),
+                        // A snapshot of the agent's setup, less the flag tools for whoever may not see them.
+                        event.content.orEmpty().let {
+                            if (event.kind == LlmSessionEventKind.AGENT_DETAILS && !reveal) {
+                                io.mszymanski.orknux.server.flag.ConcealedTools.scrubDetails(it, mapper)
+                            } else {
+                                it
+                            }
+                        },
                         event.result.orEmpty(),
                         event.millis?.toString().orEmpty(),
                     ),

@@ -893,6 +893,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
             or lower(coalesce(e.content, '')) like lower(concat('%', :search, '%'))
             or lower(e.actor) like lower(concat('%', :search, '%'))
           )
+          and (e.kind <> io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL or e.actor not in :hidden)
         """,
         countQuery = """
         select count(e) from LlmSessionEvent e
@@ -902,9 +903,15 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
             or lower(coalesce(e.content, '')) like lower(concat('%', :search, '%'))
             or lower(e.actor) like lower(concat('%', :search, '%'))
           )
+          and (e.kind <> io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL or e.actor not in :hidden)
         """,
     )
-    fun search(sessionId: Long, search: String, pageable: Pageable): Page<LlmSessionEvent>
+    /**
+     * @param hidden the tools whose calls are left out - see
+     *   [io.mszymanski.orknux.server.flag.ConcealedTools.hiddenFrom]; never
+     *   empty, since an empty `in` list is not one every database accepts.
+     */
+    fun search(sessionId: Long, search: String, hidden: Collection<String>, pageable: Pageable): Page<LlmSessionEvent>
 
     /**
      * The same, narrowed to some of the kinds.
@@ -924,6 +931,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
             or lower(coalesce(e.content, '')) like lower(concat('%', :search, '%'))
             or lower(e.actor) like lower(concat('%', :search, '%'))
           )
+          and (e.kind <> io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL or e.actor not in :hidden)
         """,
         countQuery = """
         select count(e) from LlmSessionEvent e
@@ -934,12 +942,14 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
             or lower(coalesce(e.content, '')) like lower(concat('%', :search, '%'))
             or lower(e.actor) like lower(concat('%', :search, '%'))
           )
+          and (e.kind <> io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL or e.actor not in :hidden)
         """,
     )
     fun searchByKinds(
         sessionId: Long,
         kinds: Collection<LlmSessionEventKind>,
         search: String,
+        hidden: Collection<String>,
         pageable: Pageable,
     ): Page<LlmSessionEvent>
 }

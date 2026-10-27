@@ -36,6 +36,7 @@ class SessionSheds(
     private val schedules: io.mszymanski.orknux.server.schedule.ScheduleTools,
     private val links: LinkTools,
     private val ratings: io.mszymanski.orknux.server.rating.RatingTools,
+    private val flags: io.mszymanski.orknux.server.flag.SessionFlagTools,
 ) {
 
     /**
@@ -63,6 +64,8 @@ class SessionSheds(
         schedules.shed(agent, session),
         // The rating the person gave the conversation, while ratings are on.
         ratings.shed(agent, session),
+        // Flagging this conversation for the installation's administrators, kept from the person.
+        flags.shed(agent, session),
     )
 
     /**

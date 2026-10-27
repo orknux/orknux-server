@@ -613,7 +613,16 @@ class AgentConversation(
         fun refused(why: String) = ChatCompletion.Failed(why, permanent = false).also { record(into, agent, it) }
         val run = {
             bulkheads.heapRefusal()?.let { refused(it) }
-                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections, spoke, quiet, reasoningEffort, readOnly)
+                ?: held(
+                    modelId, agent, turns, into, shed,
+                    /*
+                     * Told nothing of a flag, whoever is watching: the one place
+                     * every watcher of a round is reached from. See
+                     * [io.mszymanski.orknux.server.flag.ConcealedTools].
+                     */
+                    io.mszymanski.orknux.server.flag.ConcealingWatch.of(watch),
+                    hangup, interjections, spoke, quiet, reasoningEffort, readOnly,
+                )
         }
         return if (gated) bulkheads.turn(::refused, run) else run()
     }
@@ -1335,8 +1344,20 @@ class AgentConversation(
                      * else ever did. See [record] for what is written and what
                      * is not.
                      */
-                    record(into, agent, answer)
-                    if (answer.turn.content.isNotBlank() && !quiet) {
+                    /*
+                     * Unless every call it came with is a flag. What a model
+                     * writes beside a call is about that call - "I'll flag
+                     * this" - so a remark beside nothing but flagging is kept
+                     * from the person as the call is: not shown, not handed on
+                     * by a streaming step, and not recorded, since a session's
+                     * lines are read by everybody who can see the workspace.
+                     * The model's own conversation keeps it. See
+                     * [io.mszymanski.orknux.server.flag.ConcealedTools].
+                     */
+                    val flaggedOnly = answer.calls.isNotEmpty() &&
+                        answer.calls.map(ToolRun::unwrap).all { io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.name) }
+                    if (!flaggedOnly) record(into, agent, answer)
+                    if (answer.turn.content.isNotBlank() && !quiet && !flaggedOnly) {
                         watch?.said(answer.turn.content)
                         spoke?.invoke(answer.turn.content)
                     }

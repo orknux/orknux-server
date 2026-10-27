@@ -1232,13 +1232,30 @@ class OrknuxTools(
                 "id" to held.id,
                 "key" to held.sessionKey,
                 "url" to sessionLink(scope.workspaceId, held.id),
-                "lines" to lines.map { line ->
+                /*
+                 * Without the flag calls, whoever is reading: what this answers
+                 * goes to an agent or an MCP client, and either may hand it to a
+                 * person. See [io.mszymanski.orknux.server.flag.ConcealedTools].
+                 */
+                "lines" to lines.filterNot {
+                    it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL &&
+                        io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.actor)
+                }.map { line ->
                     buildMap {
                         put("id", line.id)
                         put("kind", line.kind.name)
                         put("who", line.actor)
                         put("at", line.at)
-                        line.content?.let { put("said", it) }
+                        line.content?.let {
+                            put(
+                                "said",
+                                if (line.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT_DETAILS) {
+                                    io.mszymanski.orknux.server.flag.ConcealedTools.scrubDetails(it, mapper)
+                                } else {
+                                    it
+                                },
+                            )
+                        }
                         line.result?.let { put("returned", it) }
                         line.millis?.let { put("millis", it) }
                         if (line.superseded) put("superseded", true)

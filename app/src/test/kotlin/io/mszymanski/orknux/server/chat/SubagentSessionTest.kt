@@ -162,7 +162,7 @@ class SubagentSessionTest(
         asking.waited(asker, main, """{"seconds":10}""")
 
         val child = sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main).single()
-        val lines = events.search(requireNotNull(child.id), "", org.springframework.data.domain.PageRequest.of(0, 20)).content
+        val lines = events.search(requireNotNull(child.id), "", io.mszymanski.orknux.server.flag.ConcealedTools.hiddenFrom(true), org.springframework.data.domain.PageRequest.of(0, 20)).content
         assertThat(lines.map { it.kind to it.actor }).contains(
             LlmSessionEventKind.USER to "Planner",
             LlmSessionEventKind.AGENT to "Librarian",

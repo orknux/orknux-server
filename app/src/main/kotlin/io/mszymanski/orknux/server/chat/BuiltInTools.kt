@@ -292,6 +292,16 @@ class BuiltInTools(
             FinishAnswerTools.FINISH,
             StepPictureTools.DRAW,
             StepPictureTools.LINK,
+            /*
+             * Flagging the conversation for the installation's administrators -
+             * a person probing for a weakness, a fault in the harness - and
+             * taking a flag back. On for every agent and Always, which V636
+             * marks on the agents that predate them: a flag is worth most where
+             * nobody thought to switch it on. Last, because V636 writes them
+             * after V600's list and BasicToolsAlwaysTest reads the two in order.
+             */
+            io.mszymanski.orknux.server.flag.SessionFlagTools.FLAG,
+            io.mszymanski.orknux.server.flag.SessionFlagTools.UNFLAG,
         )
 
         private val GRANTED_SET = GRANTED.toSet()

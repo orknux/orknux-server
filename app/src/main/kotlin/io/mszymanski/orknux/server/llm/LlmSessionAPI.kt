@@ -364,12 +364,14 @@ class LlmSessionAPI(
 
         val asked = PageRequest.of((page ?: 0).coerceAtLeast(0), (size ?: PAGE).coerceIn(1, BIGGEST_PAGE), sorted)
         val wanted = search?.trim().orEmpty()
+        // The flag calls, for anybody who does not administer the installation. See ConcealedTools.
+        val hidden = io.mszymanski.orknux.server.flag.ConcealedTools.hiddenFrom(access.isAdmin())
         // No kinds is no filter rather than a filter matching nothing: a page
         // that has cleared every checkbox is asking for everything.
         val found = if (kinds.isNullOrEmpty()) {
-            events.search(sessionId, wanted, asked)
+            events.search(sessionId, wanted, hidden, asked)
         } else {
-            events.searchByKinds(sessionId, kinds, wanted, asked)
+            events.searchByKinds(sessionId, kinds, wanted, hidden, asked)
         }
         return LlmSessionEventPageView(found.totalElements.toInt(), found.content.map(::describe))
     }
@@ -499,13 +501,21 @@ class LlmSessionAPI(
         session.agentDetails?.let(::agentDetailsOf)
 
     /**
+     * A snapshot as this reader may see it: whole for an installation
+     * administrator, and without the flag tools and the paragraph about them
+     * for everybody else. See [io.mszymanski.orknux.server.flag.ConcealedTools].
+     */
+    private fun seen(held: String): String =
+        if (access.isAdmin()) held else io.mszymanski.orknux.server.flag.ConcealedTools.scrubDetails(held, mapper)
+
+    /**
      * One snapshot, resolved into the shape the log draws. Shared by the
      * session's latest and the AGENT_DETAILS line, so the two cannot read the
      * same JSON two ways. Null where the record cannot be read. Issue #441.
      */
     private fun agentDetailsOf(held: String): SessionAgentDetailsView? =
         runCatching {
-            val node = mapper.readTree(held)
+            val node = mapper.readTree(seen(held))
             SessionAgentDetailsView(
                 agent = node.path("agent").stringValue().orEmpty(),
                 // Absent from every line written before #454, which is what the
@@ -630,7 +640,7 @@ class LlmSessionAPI(
         id = requireNotNull(event.id),
         kind = event.kind,
         actor = event.actor,
-        content = event.content,
+        content = event.content?.let { if (event.kind == LlmSessionEventKind.AGENT_DETAILS) seen(it) else it },
         result = event.result,
         millis = event.millis,
         at = event.at.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),

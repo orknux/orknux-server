@@ -125,7 +125,8 @@ class ChatAPI(
     fun chatMessages(@Argument id: Long): List<ChatMessageView> {
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
-        return chats.messages(session).map {
+        // An administrator reads the flag calls too; everybody else reads the chat without them.
+        return chats.messages(session, reveal = access.isAdmin()).map {
             ChatMessageView(
                 it.role,
                 it.content,

@@ -163,6 +163,11 @@ enum class Tunable(
         "The most rows one admin workspace read answers",
         "An agent asking for more is given this many; the two defaults above are held to it too.",
     ),
+    SESSION_FLAGS_MOST(
+        "session.flags.most", 10, 1, 1000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "The most flags one conversation may hold open",
+        "An agent flags the conversation it is in with flag_session for Admin > Reports > Flags. Past this many open flags, another is refused until one is cleared.",
+    ),
     TOOL_SEARCHES_AT_ONCE(
         "tools.searches.at.once", 8, 1, null, TuningSection.AGENTS, TuningUnit.ITEMS,
         "How many names or searches one tool_find call may carry",

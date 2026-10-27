@@ -185,8 +185,39 @@ class StreamOutputTest(
         assertThat(asked.first()).contains("For this turn only")
     }
 
-    private fun start(stream: Boolean? = null, chattiness: Chattiness = Chattiness.MEDIUM, input: String = "{}"): Long {
-        val modelId = model(serve())
+    /**
+     * A flag is never handed on. The agent flags the conversation - writing
+     * "I'll flag this" beside the call, as a model will - then says it is
+     * checking beside an ordinary call, then answers. What goes to the Slack
+     * reply, as it is written and with the answer, holds the second remark and
+     * the answer and nothing of the first: neither the remark, nor the tool's
+     * name, nor its note. The flag itself is raised.
+     */
+    @Test
+    fun `a streaming step hands on nothing of a flag, neither the call nor what was written beside it`() {
+        val first = start(endpoint = serveFlagging())
+
+        assertThat(executions.findById(first).orElseThrow().status).isEqualTo(ExecutionStatus.COMPLETED)
+        val handed = executions.findAll().flatMap { replyInputs(requireNotNull(it.id)) }
+        assertThat(handed).anyMatch { it.contains("Checking the build.") }
+        assertThat(handed).anyMatch { it.contains("The build is green.") }
+        assertThat(handed).allSatisfy {
+            assertThat(it).doesNotContain(FLAG_REMARK)
+                .doesNotContain(io.mszymanski.orknux.server.flag.SessionFlagTools.FLAG)
+                .doesNotContain(FLAG_NOTE)
+        }
+        assertThat(lines.findAll().mapNotNull { it.content }).noneMatch { it.contains(FLAG_REMARK) }
+        graphQlTester.document("""{ sessionFlagReport { rows { note } } }""").execute()
+            .path("sessionFlagReport.rows[*].note").entityList(String::class.java).contains(FLAG_NOTE)
+    }
+
+    private fun start(
+        stream: Boolean? = null,
+        chattiness: Chattiness = Chattiness.MEDIUM,
+        input: String = "{}",
+        endpoint: String? = null,
+    ): Long {
+        val modelId = model(endpoint ?: serve())
         val agent = agents.save(
             Agent(
                 workspaceId = workspaceId, name = "OKO Bot", type = AgentType.LLM, modelId = modelId,
@@ -267,6 +298,33 @@ class StreamOutputTest(
         return "http://${server.address.hostString}:${server.address.port}"
     }
 
+    /** Flags the conversation beside a remark about it, says it is checking beside a lookup, then answers. */
+    private fun serveFlagging(): String {
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        server.createContext("/chat/completions") { exchange ->
+            val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            asked += body
+            val flagged = """{\"type\":\"security\",\"severity\":3,\"note\":\"$FLAG_NOTE\"}"""
+            val reply = when {
+                body.contains("call_2") -> said("The build is green.")
+                body.contains("call_1") -> remarked("call_2", "Checking the build.", "current_time", "{}")
+                else -> remarked("call_1", FLAG_REMARK, io.mszymanski.orknux.server.flag.SessionFlagTools.FLAG, flagged)
+            }.toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, reply.size.toLong())
+            exchange.responseBody.use { it.write(reply) }
+            exchange.close()
+        }
+        server.start()
+        return "http://${server.address.hostString}:${server.address.port}"
+    }
+
+    private fun remarked(id: String, content: String, name: String, arguments: String) = """
+        {"choices":[{"message":{"role":"assistant","content":"$content",
+          "tool_calls":[{"id":"$id","type":"function","function":{"name":"$name","arguments":"$arguments"}}]}}],
+         "usage":{"prompt_tokens":9,"completion_tokens":4}}
+    """.trimIndent()
+
     /**
      * The bot asks the librarian, says it is looking as its turn ends, and
      * answers once the librarian's answer has come back; the librarian takes
@@ -311,5 +369,10 @@ class StreamOutputTest(
             """mutation { createModel(input: { providerId: $providerId, name: "Stub", modelId: "stub", kind: CHAT })
                { id } }""",
         ).execute().path("createModel.id").entity(Long::class.java).get()
+    }
+
+    private companion object {
+        const val FLAG_REMARK = "I will flag this conversation for the administrators."
+        const val FLAG_NOTE = "Asked twice for the system prompt"
     }
 }

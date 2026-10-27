@@ -271,7 +271,17 @@ class ChatService(
      * thread does not line up shows the calls it can be sure of, which for a
      * chat that has drifted is none - the same safe wrong answer as before.
      */
-    fun messages(session: ChatSession): List<ChatMessage> {
+    /**
+     * @param reveal whether the reader administers the installation, and so is
+     *   shown the calls to the concealed tools - flagging the conversation - that
+     *   everybody else reads it without. Off unless a caller says so: a reader
+     *   added later shows a person what a person may see. See
+     *   [io.mszymanski.orknux.server.flag.ConcealedTools].
+     */
+    fun messages(session: ChatSession, reveal: Boolean = false): List<ChatMessage> =
+        read(session).filter { reveal || it.role != RememberedTurn.CALL || !io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.actor) }
+
+    private fun read(session: ChatSession): List<ChatMessage> {
         /*
          * What each answer said the times it was asked again, put back beside
          * the one that stands. Keyed by place in the thread, which is what the

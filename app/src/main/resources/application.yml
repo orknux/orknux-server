@@ -926,6 +926,8 @@ orknux:
     admin.workspace.rows.default: ${ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_DEFAULT:20}
     admin.workspace.page.rows.default: ${ORKNUX_TUNING_ADMIN_WORKSPACE_PAGE_ROWS_DEFAULT:50}
     admin.workspace.rows.most: ${ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_MOST:100}
+    # How many flags an agent may hold open on one conversation, for Admin > Reports > Flags.
+    session.flags.most: ${ORKNUX_TUNING_SESSION_FLAGS_MOST:10}
     tools.searches.at.once: ${ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE:8}
     tool.result.window.percent: ${ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT:10}
     # One character a token: an SVG measured 1.3 on Qwen, so two let a 10% share take 15%.

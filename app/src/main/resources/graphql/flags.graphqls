@@ -1,0 +1,107 @@
+# Admin > Reports > Flags: what agents flagged about the conversations they were
+# in, through flag_session - a person probing the product for a weakness, or a
+# fault in the harness or the installation's setup. Installation administrators
+# only, everywhere.
+
+extend type Query {
+    """
+    The flags over a period, a page at a time, newest first; the counts and the
+    days cover every flag the filter matches. The search is over the notes.
+    Administrators.
+    """
+    sessionFlagReport(filter: SessionFlagFilter, page: Int, size: Int, order: SessionFlagOrder, ascending: Boolean): SessionFlagReport!
+    "The flags one session carries, oldest first, open and cleared. Administrators."
+    sessionFlags(sessionId: ID!): [SessionFlag!]!
+}
+
+extend type Mutation {
+    "Clears an open flag, keeping it on the report as cleared by whoever did. Administrators."
+    clearSessionFlag(id: ID!): SessionFlag!
+}
+
+"What a flag is about."
+enum SessionFlagType {
+    "The person appeared to be probing the product for a weakness."
+    SECURITY
+    "The agent found a fault in the harness or in the installation's setup."
+    TECHNICAL_ISSUE
+}
+
+"Whether a flag still stands."
+enum SessionFlagState {
+    OPEN
+    CLEARED
+}
+
+"The columns the flags report sorts by."
+enum SessionFlagOrder {
+    FLAGGED_AT
+    WORKSPACE
+    SESSION
+    AGENT
+    TYPE
+    SEVERITY
+    NOTE
+    STATE
+    CLEARED_BY
+}
+
+input SessionFlagFilter {
+    "The first day counted, as YYYY-MM-DD; the last 30 days when left out."
+    from: String
+    "The last day counted, as YYYY-MM-DD, inclusive; today when left out."
+    to: String
+    workspaceId: ID
+    type: SessionFlagType
+    "The lowest severity counted, from 0."
+    severityFrom: Int
+    "The highest severity counted, up to 5."
+    severityTo: Int
+    state: SessionFlagState
+    "Over the notes."
+    search: String
+}
+
+type SessionFlagReport {
+    total: Int!
+    "How many of them still stand."
+    open: Int!
+    security: Int!
+    technical: Int!
+    "The highest severity among them; null where there are none."
+    highest: Int
+    "Every day of the period, oldest first, quiet days included."
+    days: [SessionFlagDay!]!
+    rows: [SessionFlag!]!
+}
+
+"One day of the flags chart."
+type SessionFlagDay {
+    "YYYY-MM-DD."
+    day: String!
+    security: Int!
+    technical: Int!
+    "How many flags had each severity, from 0 to 5."
+    severities: [Int!]!
+}
+
+type SessionFlag {
+    id: ID!
+    "When it was raised."
+    at: String!
+    workspaceId: ID!
+    "Null for a workspace that has been removed."
+    workspaceName: String
+    sessionId: ID!
+    "Null for a session that has been removed."
+    sessionTitle: String
+    agentName: String!
+    type: SessionFlagType!
+    "From 0, harmless, to 5."
+    severity: Int!
+    note: String!
+    state: SessionFlagState!
+    clearedAt: String
+    "The agent's name where it took its own back, the administrator's otherwise."
+    clearedBy: String
+}
