@@ -163,6 +163,10 @@ class AdminWorkspaceTest(
                 val error = errors.single()
                 assertThat(error.message).contains("ops cannot be an admin workspace").contains("take backend off it first")
                 assertThat(error.extensions["code"]).isEqualTo("AdminWorkspaceOpenToOthers")
+                // One list for a translation, so only a role in the way leaves no empty slot for people.
+                @Suppress("UNCHECKED_CAST")
+                val arguments = error.extensions["arguments"] as Map<String, Any?>
+                assertThat(arguments["blocking"] as List<*>).containsExactly("backend")
             }
         assertThat(workspaces.findByIdOrNull(opsId)?.adminWorkspace).isFalse()
 

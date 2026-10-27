@@ -156,7 +156,13 @@ class AdminWorkspaceOpenToOthersException(val name: String, val roles: List<Stri
         append(". Its agents read other workspaces, so whoever can open it could read them too.")
     },
 ), Refusal {
-    override val arguments get() = mapOf("name" to name, "roles" to roles, "people" to people)
+    /*
+     * And the two lists as one, for a translation: a sentence with a slot for
+     * roles and a slot for people read "(roles: ; people: Bob)" when only one
+     * of them was in the way, and a catalogue entry has no way to leave out
+     * an empty slot.
+     */
+    override val arguments get() = mapOf("name" to name, "roles" to roles, "people" to people, "blocking" to roles + people)
 }
 
 /**
