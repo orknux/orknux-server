@@ -242,6 +242,8 @@ class SecretMigrationTest(
     @Test
     fun `the sweep covers every field the converter encrypts`() {
         assertThat(columns.all.map { it.toString() }).containsExactlyInAnyOrder(
+            // The installation's own mail server, set in Admin Settings -> Mail, V635.
+            "installation_mail.password",
             // What a session's model was sent, kept to send again exactly; a
             // call's arguments are in it unredacted, which is why it is sealed.
             // V349.
