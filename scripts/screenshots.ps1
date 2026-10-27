@@ -314,6 +314,7 @@ try {
             -e "ORKNUX_DEMO_ENDPOINT=$Endpoint" -e "ORKNUX_DEMO_MODEL=$Model" `
             -e "ORKNUX_DEMO_IMAGE_ENDPOINT=http://localhost:$DrawPort" `
             -e "ORKNUX_DEMO_PICTURE_ENDPOINT=$PictureEndpoint" -e "ORKNUX_DEMO_TYPE=$ProviderType" `
+            -e "ORKNUX_DEMO_MANUAL=1" `
             ui node scripts/seed-demo.mjs
     }
 
