@@ -205,7 +205,18 @@ class WireframeDocument(private val mapper: ObjectMapper) {
             y = number(node, "y", at, 0),
             // A box is at least a pixel each way, or it cannot be seen, selected or found again.
             w = if (type.box) w.coerceAtLeast(1) else w,
-            h = if (type.box) h.coerceAtLeast(1) else h,
+            /*
+             * A note at least as tall as its words. A note is read, and one
+             * drawn shorter than what is written in it showed the start of a
+             * sentence and hid the rest - which is how a mockup's notes came
+             * out of a model, and out of a person dragging one smaller. Grown,
+             * never shrunk: a taller note is somebody's choice.
+             */
+            h = when {
+                type == WireframeElementType.NOTE -> maxOf(h.coerceAtLeast(1), WireframeNotes.heightFor(words, w.coerceAtLeast(1)))
+                type.box -> h.coerceAtLeast(1)
+                else -> h
+            },
             text = words?.takeIf { it.isNotEmpty() },
             props = props(node.path("props"), id ?: "${at + 1}", lenient),
         )
@@ -328,4 +339,48 @@ class WireframeChangedException(val name: String) :
 class WireframeAnswerFailedException(val reason: String) :
     RuntimeException("The model could not answer: $reason"), Refusal {
     override val arguments get() = mapOf("reason" to reason)
+}
+
+/**
+ * How tall a sticky note has to be for its words, as every renderer draws one:
+ * 13px type, 10px padding all round, lines about 1.4 of the type apart, words
+ * wrapped at the width. An estimate on the generous side - a character is taken
+ * as 0.6 of the type, wider than most - because a note a line too tall reads
+ * fine and one a line too short hides the end of what it says. The editor
+ * holds the same numbers in `wireframeNotes.ts`.
+ */
+object WireframeNotes {
+    const val TYPE = 13.0
+    const val PADDING = 10
+    const val LINE = 1.4
+    const val CHARACTER = 0.6
+
+    fun heightFor(text: String?, width: Int): Int {
+        if (text.isNullOrBlank()) return 0
+        val perLine = ((width - 2 * PADDING) / (TYPE * CHARACTER)).toInt().coerceAtLeast(1)
+        val lines = text.split('\n').sumOf { paragraph -> linesOf(paragraph, perLine) }
+        return kotlin.math.ceil(lines * TYPE * LINE + 2 * PADDING + 2).toInt()
+    }
+
+    private fun linesOf(paragraph: String, perLine: Int): Int {
+        if (paragraph.isBlank()) return 1
+        var lines = 1
+        var used = 0
+        paragraph.trim().split(Regex("\\s+")).forEach { word ->
+            // A word longer than a line breaks across lines, as overflow-wrap: anywhere does.
+            val length = word.length
+            when {
+                used == 0 -> {
+                    lines += (length - 1) / perLine
+                    used = (length - 1) % perLine + 1
+                }
+                used + 1 + length <= perLine -> used += 1 + length
+                else -> {
+                    lines += 1 + (length - 1) / perLine
+                    used = (length - 1) % perLine + 1
+                }
+            }
+        }
+        return lines
+    }
 }
