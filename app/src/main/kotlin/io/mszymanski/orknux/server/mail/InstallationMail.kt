@@ -24,11 +24,14 @@ import org.springframework.stereotype.Component
  * a credential a workspace administrator can read in the path of getting into
  * anybody's account.
  *
- * So it is configuration rather than a stored connection: an operator's setting,
- * beside the database URL and the LDAP bind, encrypted by nothing here because
- * it is never in the database. Empty means this installation cannot send its own
- * mail, which is a supported state - it simply cannot offer a password reset,
- * and says so in the log rather than falling back to somebody else's server.
+ * So it is installation configuration rather than a stored connection: an
+ * operator's setting, beside the database URL and the LDAP bind. These
+ * properties are the environment's half; Admin Settings -> Mail can store one
+ * as well ([StoredInstallationMail], its password encrypted like every stored
+ * credential), and a stored one wins - this is what is used when it holds
+ * nothing. Empty in both means this installation cannot send its own mail,
+ * which is a supported state - it simply cannot offer a password reset, and
+ * says so in the log rather than falling back to somebody else's server.
  */
 @ConfigurationProperties(prefix = "orknux.mail")
 data class InstallationMailProperties(
@@ -63,6 +66,7 @@ data class InstallationMailProperties(
 @EnableConfigurationProperties(InstallationMailProperties::class)
 class InstallationMail(
     private val properties: InstallationMailProperties,
+    private val settings: InstallationMailSettings,
     private val transport: MailTransport,
 ) {
 
@@ -72,6 +76,18 @@ class InstallationMail(
     val configured: Boolean
         get() = server() != null
 
+    /** Which of the two is in force now: a stored server wins over the environment's. */
+    fun source(): InstallationMailSource = when {
+        settings.stored() != null -> InstallationMailSource.STORED
+        environment() != null -> InstallationMailSource.ENVIRONMENT
+        else -> InstallationMailSource.NONE
+    }
+
+    /**
+     * Sends [message] through the server in force at this moment. Read on every
+     * send rather than once, so a server set or cleared in Admin Settings is
+     * what the next mail goes through, without a restart.
+     */
     fun send(message: MailMessage): MailDelivery {
         val server = server()
             ?: return MailDelivery.NotPossible("this installation has no mail server configured")
@@ -91,7 +107,23 @@ class InstallationMail(
         }
     }
 
-    private fun server(): SmtpServer? {
+    /** The server in force: the stored one, else the environment's, else none. */
+    fun server(): SmtpServer? = settings.stored()?.let(::serverOf) ?: environment()
+
+    private fun serverOf(stored: StoredInstallationMail): SmtpServer {
+        val user = stored.username?.trim()?.ifEmpty { null }
+        return SmtpServer(
+            host = stored.host.trim(),
+            port = stored.port ?: stored.security.defaultPort,
+            username = user,
+            password = user?.let { stored.password?.trim()?.ifEmpty { null } },
+            from = stored.from.trim(),
+            security = stored.security,
+        )
+    }
+
+    /** What ORKNUX_MAIL_* describe, or null where they name no host and from address. */
+    fun environment(): SmtpServer? {
         val host = properties.host.trim().ifEmpty { return null }
         val from = properties.from.trim().ifEmpty { return null }
         val user = properties.username.trim().ifEmpty { null }
@@ -107,4 +139,16 @@ class InstallationMail(
             security = properties.security,
         )
     }
+}
+
+/** Where the server the installation sends through comes from. */
+enum class InstallationMailSource {
+    /** Admin Settings -> Mail holds one, and it wins. */
+    STORED,
+
+    /** ORKNUX_MAIL_*, because Admin Settings holds nothing. */
+    ENVIRONMENT,
+
+    /** Neither: this installation sends no mail of its own. */
+    NONE,
 }

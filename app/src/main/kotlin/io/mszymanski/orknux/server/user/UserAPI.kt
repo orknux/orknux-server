@@ -391,7 +391,8 @@ class UserAPI(
 
     private fun editor(): String = SecurityContextHolder.getContext().authentication?.name ?: "system"
 
-    private companion object {
+    /** Internal so the installation's mail settings check a from address by the same rule. */
+    internal companion object {
         /** As long as an address is allowed to be, and the column that holds it. */
         const val LONGEST_EMAIL = 320
 

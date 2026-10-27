@@ -170,12 +170,13 @@ has the rest.
 
 **Resetting a forgotten password** - a link mailed to the account's address, good
 once and for an hour, internal users only: a directory or OIDC password belongs
-to the provider. Off until the mail server below and `ORKNUX_BASE_URL` are set;
-the log says what is missing.
+to the provider. Off until a mail server and `ORKNUX_BASE_URL` are set; the
+log says what is missing. The variables below are the fallback when **Admin ->
+Settings -> Mail** is empty.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_MAIL_HOST` | The relay for the server's own mail, not a workspace's. Empty: no reset or issue mail. | *none* | **Yes** to send mail |
+| `ORKNUX_MAIL_HOST` | The relay for the server's own mail. Empty: no reset or issue mail. | *none* | **Yes** to send mail |
 | `ORKNUX_MAIL_FROM` | What the mail is from. | *none* | **Yes** to send mail |
 | `ORKNUX_MAIL_PORT` | Empty takes what the security below usually listens on: 587, 465 or 25. | *by security* | No |
 | `ORKNUX_MAIL_USERNAME` | Empty sends without authenticating. | *none* | No |
@@ -288,9 +289,8 @@ must be signed with the release key this image carries. **On by default.**
 | `ORKNUX_SLACK_RETRY_FAILED_SECONDS` | How long a connection Slack refused is left alone; a new token or Reconnect clears it. | `300` | No |
 | `ORKNUX_SLACK_QUIET_PERIOD` | How long a socket may be silent before a ping; unanswered, it is reopened. `0` is off. | `10m` | No |
 
-**A workspace's mail is not configured here.** The `ORKNUX_MAIL_*` variables
-above are the installation's own relay; mail a *workflow* sends is a connection
-like any other, on the workspace's form.
+**A workspace's mail is not configured here.** `ORKNUX_MAIL_*` is the
+installation's own relay; a *workflow*'s mail is a workspace connection.
 
 **A proxy is a rule, not an environment variable.** Rules on **Admin ->
 Networking** match the request URL and carry every outbound HTTP call; an

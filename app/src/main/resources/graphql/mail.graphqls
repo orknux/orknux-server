@@ -1,0 +1,63 @@
+# The installation's own mail server: what password resets and issue news go out
+# through. Admin -> Settings -> Mail sets it; ORKNUX_MAIL_* is what it falls back
+# to. Never a workspace's connection.
+
+extend type Query {
+    "The mail server in force and where it comes from. Never carries a password. Administrators only."
+    installationMail: InstallationMail!
+}
+
+extend type Mutation {
+    "Stores a mail server, which wins over ORKNUX_MAIL_*. A password left empty keeps the stored one. Administrators only."
+    setInstallationMail(input: InstallationMailInput!): InstallationMail!
+    "Forgets the stored mail server, so ORKNUX_MAIL_* is used again. Administrators only."
+    clearInstallationMail: InstallationMail!
+    "Sends a test mail through the server in force, to an address or to the caller's own. Administrators only."
+    sendInstallationTestMail(to: String): InstallationMailTest!
+}
+
+"Where the server the installation sends its own mail through comes from."
+enum InstallationMailSource {
+    "Admin Settings holds one, and it wins."
+    STORED
+    "ORKNUX_MAIL_*, because Admin Settings holds nothing."
+    ENVIRONMENT
+    "Neither: the installation sends no mail of its own."
+    NONE
+}
+
+type InstallationMail {
+    source: InstallationMailSource!
+    host: String
+    "Null where the security's usual port is used."
+    port: Int
+    username: String
+    from: String
+    security: MailSecurity
+    "Whether a password is set; the password itself is never returned."
+    passwordSet: Boolean!
+    "Who stored it; null unless the source is STORED."
+    updatedBy: String
+    "When it was stored, ISO-8601; null unless the source is STORED."
+    updatedAt: String
+}
+
+input InstallationMailInput {
+    host: String!
+    "Empty takes the security's usual port: 587, 465 or 25."
+    port: Int
+    "Empty sends without authenticating."
+    username: String
+    "Empty keeps the stored password."
+    password: String
+    from: String!
+    security: MailSecurity!
+}
+
+"What a test mail came to."
+type InstallationMailTest {
+    sent: Boolean!
+    to: String!
+    "Sent to the address, or what the mail server said."
+    message: String!
+}

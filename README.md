@@ -687,6 +687,10 @@ who belongs to no workspace at all. The base URL is configured rather than read
 off the `Host` header because that header is written by whoever is calling, and
 the link in question opens an account.
 
+The relay is set in **Admin -> Settings -> Mail** too, its password encrypted
+like every stored credential; the `ORKNUX_MAIL_*` values are the fallback when
+that holds nothing, and its Test sends a mail through whichever is in force.
+
 Everybody who signs in through a directory or a provider is recorded:
 `UserDetection` writes an `EXTERNAL` row the first time somebody arrives, which
 is what makes an issue assignable to a person without the application
