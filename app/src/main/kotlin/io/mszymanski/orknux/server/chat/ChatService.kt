@@ -279,7 +279,7 @@ class ChatService(
      *   [io.mszymanski.orknux.server.flag.ConcealedTools].
      */
     fun messages(session: ChatSession, reveal: Boolean = false): List<ChatMessage> =
-        read(session).filter { reveal || it.role != RememberedTurn.CALL || !io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.actor) }
+        read(session).filter { reveal || it.role != RememberedTurn.CALL || !io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.actor, it.content) }
 
     private fun read(session: ChatSession): List<ChatMessage> {
         /*

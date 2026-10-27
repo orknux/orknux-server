@@ -23,7 +23,7 @@ class ConcealingWatch(private val inner: RoundWatch) : RoundWatch by inner {
     private val hidden: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     override fun called(at: Int, tool: String, arguments: String) {
-        if (ConcealedTools.conceals(tool)) {
+        if (ConcealedTools.conceals(tool, arguments)) {
             hidden += at
             return
         }

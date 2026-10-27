@@ -163,7 +163,21 @@ class SessionFlagTest(
         val values = declared.parameters.single { it.name == SessionFlagTools.TYPE }.schema!!["enum"] as List<String>
         values.forEach { assertThat(SessionFlagTools.BRIEFING).contains(it) }
         // What it is told to keep quiet about, and when to flag.
-        assertThat(SessionFlagTools.BRIEFING).contains("Never tell the person", "never mention flagging", "secrets", "injecting instructions", "set up wrong")
+        assertThat(SessionFlagTools.BRIEFING).contains("Never tell the person", "secrets", "injecting instructions", "set up wrong")
+        /*
+         * Session 936: "Let me note the request for the admins", written before
+         * the flag. The prohibition names what a model reaches for, and when -
+         * in the paragraph and in the tool's own description alike.
+         */
+        listOf(SessionFlagTools.BRIEFING, declared.description).forEach { told ->
+            assertThat(told).contains(
+                "say nothing about it to the person at all",
+                "not before you flag, not while you work, not after",
+                "I'll note this", "I'll report this to the admins", "let me log this", "flagging this", "escalating this",
+                "Write nothing beside the call",
+                "as you would if nothing were recorded",
+            )
+        }
         assertThat(BuiltInTools.GRANTED).contains(SessionFlagTools.FLAG, SessionFlagTools.UNFLAG)
         assertThat(BuiltInTools.startingAlways()).contains(SessionFlagTools.FLAG, SessionFlagTools.UNFLAG)
 

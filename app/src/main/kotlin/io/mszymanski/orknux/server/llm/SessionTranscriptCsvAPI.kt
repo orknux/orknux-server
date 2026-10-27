@@ -49,6 +49,7 @@ class SessionTranscriptCsvAPI(
         // The flag calls, for anybody who does not administer the installation. See ConcealedTools.
         val reveal = access.isAdmin()
         val hidden = io.mszymanski.orknux.server.flag.ConcealedTools.hiddenFrom(reveal)
+        val hiddenRows = io.mszymanski.orknux.server.flag.ConcealedTools.hiddenRows(reveal, id, events)
         val sorted = Sort.by(Sort.Order.asc("at"), Sort.Order.asc("id"))
         val csv = StringBuilder()
         // A byte-order mark, so a spreadsheet opens the file as UTF-8 rather than guessing a code page.
@@ -57,7 +58,7 @@ class SessionTranscriptCsvAPI(
         var page = 0
         do {
             val asked = PageRequest.of(page++, CHUNK, sorted)
-            val found = if (kinds.isNullOrEmpty()) events.search(id, wanted, hidden, asked) else events.searchByKinds(id, kinds, wanted, hidden, asked)
+            val found = if (kinds.isNullOrEmpty()) events.search(id, wanted, hidden, hiddenRows, asked) else events.searchByKinds(id, kinds, wanted, hidden, hiddenRows, asked)
             found.content.forEach { event ->
                 row(
                     csv,

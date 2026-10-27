@@ -13,6 +13,7 @@ import io.mszymanski.orknux.server.chat.ChatService
 import io.mszymanski.orknux.server.chat.ChatSessionRepository
 import io.mszymanski.orknux.server.chat.RoundWatch
 import io.mszymanski.orknux.server.chat.SessionSheds
+import io.mszymanski.orknux.server.chat.ToolSearchTools
 import io.mszymanski.orknux.server.llm.LlmSessionEventKind
 import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
@@ -108,8 +109,18 @@ class SessionFlagConcealedTest(
      * Everything he can read of it has the lookup and not the flag.
      */
     @Test
-    fun `a chat read by somebody who does not administer the installation has no flag in it, anywhere`() {
-        val agentId = requireNotNull(agents.save(Agent(workspaceId = workspaceId, name = "Guard", type = AgentType.LLM, modelId = model(serve()))).id)
+    fun `a chat read by somebody who does not administer the installation has no flag in it, anywhere`() = chatConcealed(loadFirst = false)
+
+    /**
+     * Session 936: the model loaded the flag with tool_load first, and wrote
+     * the sentence announcing it beside the load. A call that names the flag
+     * is kept at every door the flag itself is, and so is that sentence.
+     */
+    @Test
+    fun `a tool_load naming the flag is kept at every door as the flag is, with what was written beside it`() = chatConcealed(loadFirst = true)
+
+    private fun chatConcealed(loadFirst: Boolean) {
+        val agentId = requireNotNull(agents.save(Agent(workspaceId = workspaceId, name = "Guard", type = AgentType.LLM, modelId = model(serve(loadFirst)))).id)
 
         val chatId = asBob {
             val id = graphQlTester.document("""mutation { startChat(input: { workspaceId: $workspaceId, title: "Probe" }) { id } }""")
@@ -137,10 +148,13 @@ class SessionFlagConcealedTest(
         /* ---- the session's transcript, on its page ---- */
         val transcript = "{ llmSessionEvents(sessionId: $session, size: 100) { totalElements content { kind actor content } } }"
         val bobs = asBob { graphQlTester.document(transcript).execute().path("llmSessionEvents.content").entityList(Map::class.java).get() }
-        assertThat(bobs.map { it["actor"] }).contains(LOOKUP).doesNotContain(SessionFlagTools.FLAG)
-        assertThat(bobs.mapNotNull { it["content"] as String? }).noneMatch { it.contains(NOTE) || it.contains(REMARK) || it.contains(SessionFlagTools.BRIEFING) }
+        assertThat(bobs.map { it["actor"] }).contains(LOOKUP).doesNotContain(SessionFlagTools.FLAG, ToolSearchTools.FIND)
+        assertThat(bobs.mapNotNull { it["content"] as String? }).noneMatch {
+            it.contains(NOTE) || it.contains(REMARK) || it.contains(SessionFlagTools.BRIEFING) || it.contains("\"" + SessionFlagTools.FLAG)
+        }
         val alices = graphQlTester.document(transcript).execute().path("llmSessionEvents.content").entityList(Map::class.java).get()
         assertThat(alices.map { it["actor"] }).contains(LOOKUP, SessionFlagTools.FLAG)
+        if (loadFirst) assertThat(alices.map { it["actor"] }).contains(ToolSearchTools.FIND)
         // Filtered by kind too, which is the other query.
         val calls = "{ llmSessionEvents(sessionId: $session, kinds: [TOOL], size: 100) { content { actor } } }"
         assertThat(asBob { graphQlTester.document(calls).execute().path("llmSessionEvents.content[*].actor").entityList(String::class.java).get() })
@@ -165,12 +179,12 @@ class SessionFlagConcealedTest(
 
         /* ---- the transcript as a file ---- */
         val bobsFile = asBob { String(requireNotNull(csv.download(session, null, null).body), StandardCharsets.UTF_8) }
-        assertThat(bobsFile).contains(LOOKUP).doesNotContain(SessionFlagTools.FLAG).doesNotContain(NOTE)
+        assertThat(bobsFile).contains(LOOKUP).doesNotContain(SessionFlagTools.FLAG).doesNotContain(NOTE).doesNotContain(ToolSearchTools.FIND)
         assertThat(String(requireNotNull(csv.download(session, null, null).body), StandardCharsets.UTF_8)).contains(SessionFlagTools.FLAG)
 
         /* ---- orknux_session, which an agent or an MCP client reads and may hand to a person ---- */
         val read = orknux.run(OrknuxScope(workspaceId = workspaceId), "orknux_session", """{"id":$session,"limit":100}""")
-        assertThat(read).contains(LOOKUP).doesNotContain(SessionFlagTools.FLAG).doesNotContain(NOTE)
+        assertThat(read).contains(LOOKUP).doesNotContain(SessionFlagTools.FLAG).doesNotContain(NOTE).doesNotContain(ToolSearchTools.FIND)
 
         /* ---- and nothing said beside it was kept anywhere ---- */
         assertThat(events.findAll().filter { it.sessionId == session }.mapNotNull { it.content }).noneMatch { it.contains(REMARK) }
@@ -184,8 +198,14 @@ class SessionFlagConcealedTest(
      * handed on either.
      */
     @Test
-    fun `a round watched live is told nothing of a flag, and hands nothing of it on`() {
-        val agent = agents.save(Agent(workspaceId = workspaceId, name = "Guard", type = AgentType.LLM, modelId = model(serve())))
+    fun `a round watched live is told nothing of a flag, and hands nothing of it on`() = liveConcealed(loadFirst = false)
+
+    /** The same with the flag loaded first, and the load announced beside it, as session 936 did. */
+    @Test
+    fun `a round watched live is told nothing of a tool_load naming the flag, and hands nothing of it on`() = liveConcealed(loadFirst = true)
+
+    private fun liveConcealed(loadFirst: Boolean) {
+        val agent = agents.save(Agent(workspaceId = workspaceId, name = "Guard", type = AgentType.LLM, modelId = model(serve(loadFirst))))
         val session = recorder.open(workspaceId, "test", "live-${System.nanoTime()}")
         val seen = CopyOnWriteArrayList<String>()
         val watch = object : RoundWatch {
@@ -205,9 +225,43 @@ class SessionFlagConcealedTest(
         assertThat(flags.findAll().map { it.sessionId }).containsExactly(session)
         assertThat(seen.filter { it.startsWith("called:") }).singleElement().satisfies({ assertThat(it).startsWith("called:$LOOKUP") })
         assertThat(seen.filter { it.startsWith("returned:") }).hasSize(1)
-        assertThat(seen).noneMatch { it.contains(SessionFlagTools.FLAG) || it.contains(NOTE) || it.contains(REMARK) || it.contains("flagged") }
+        assertThat(seen).noneMatch {
+            it.contains(SessionFlagTools.FLAG) || it.contains(NOTE) || it.contains(REMARK) || it.contains("flagged") || it.contains(ToolSearchTools.FIND)
+        }
         assertThat(seen).contains("said:$ASIDE")
         assertThat(spoken).containsExactly(ASIDE)
+    }
+
+    /** Which calls are kept: a flag's, and any that finds, describes, loads or runs one by name - and nothing else. */
+    @Test
+    fun `a call that reaches a concealed tool by name is concealed as the tool is`() {
+        listOf(
+            ToolSearchTools.FIND to """{"names":["${SessionFlagTools.FLAG}"]}""",
+            ToolSearchTools.FIND to """{"names":"[\"${SessionFlagTools.UNFLAG}\"]"}""",
+            ToolSearchTools.DESCRIBE to """{"names":["${LOOKUP}","${SessionFlagTools.FLAG}"]}""",
+            ToolSearchTools.SEARCH to """{"queries":["${SessionFlagTools.FLAG}"]}""",
+            io.mszymanski.orknux.server.chat.ToolRun.NAME to """{"name":"${SessionFlagTools.FLAG}","arguments":{}}""",
+            SessionFlagTools.FLAG to "{}",
+        ).forEach { (tool, arguments) -> assertThat(ConcealedTools.conceals(tool, arguments)).describedAs("$tool $arguments").isTrue() }
+        listOf(
+            ToolSearchTools.FIND to """{"names":["$LOOKUP"]}""",
+            ToolSearchTools.SEARCH to """{"queries":["flag"]}""",
+            ToolSearchTools.FIND to """{"names":["no_${SessionFlagTools.FLAG}s"]}""",
+            LOOKUP to """{"note":"${SessionFlagTools.FLAG}"}""",
+        ).forEach { (tool, arguments) -> assertThat(ConcealedTools.conceals(tool, arguments)).describedAs("$tool $arguments").isFalse() }
+
+        val seen = mutableListOf<String>()
+        val watch = ConcealingWatch(
+            object : RoundWatch {
+                override fun called(at: Int, tool: String, arguments: String) { seen += "called:$at:$tool" }
+                override fun returned(at: Int, result: String, failed: Boolean) { seen += "returned:$at" }
+            },
+        )
+        watch.called(0, ToolSearchTools.FIND, """{"names":["${SessionFlagTools.FLAG}"]}""")
+        watch.returned(0, "Loaded 1 of the 1 that matched.", failed = false)
+        watch.called(1, ToolSearchTools.FIND, """{"names":["$LOOKUP"]}""")
+        watch.returned(1, "Loaded 1 of the 1 that matched.", failed = false)
+        assertThat(seen).containsExactly("called:1:${ToolSearchTools.FIND}", "returned:1")
     }
 
     /** The other thing a watcher is told while a call is written: its name. */
@@ -240,7 +294,7 @@ class SessionFlagConcealedTest(
      * its own, then answers. Plain JSON, which a streaming request accepts as
      * a provider that does not stream.
      */
-    private fun serve(): String {
+    private fun serve(loadFirst: Boolean = false): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/chat/completions") { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
@@ -249,6 +303,8 @@ class SessionFlagConcealedTest(
                 !body.contains("\"tools\"") -> said("Probe")
                 body.contains("call_2") -> said(ANSWER)
                 body.contains("call_1") -> remarked("call_2", ASIDE, LOOKUP, "{}")
+                loadFirst && !body.contains("call_0") ->
+                    remarked("call_0", REMARK, ToolSearchTools.FIND, """{\"names\":[\"${SessionFlagTools.FLAG}\"]}""")
                 else -> remarked("call_1", REMARK, SessionFlagTools.FLAG, """{\"type\":\"security\",\"severity\":4,\"note\":\"$NOTE\"}""")
             }.toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")

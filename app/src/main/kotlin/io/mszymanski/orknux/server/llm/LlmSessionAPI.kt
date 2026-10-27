@@ -366,12 +366,13 @@ class LlmSessionAPI(
         val wanted = search?.trim().orEmpty()
         // The flag calls, for anybody who does not administer the installation. See ConcealedTools.
         val hidden = io.mszymanski.orknux.server.flag.ConcealedTools.hiddenFrom(access.isAdmin())
+        val hiddenRows = io.mszymanski.orknux.server.flag.ConcealedTools.hiddenRows(access.isAdmin(), sessionId, events)
         // No kinds is no filter rather than a filter matching nothing: a page
         // that has cleared every checkbox is asking for everything.
         val found = if (kinds.isNullOrEmpty()) {
-            events.search(sessionId, wanted, hidden, asked)
+            events.search(sessionId, wanted, hidden, hiddenRows, asked)
         } else {
-            events.searchByKinds(sessionId, kinds, wanted, hidden, asked)
+            events.searchByKinds(sessionId, kinds, wanted, hidden, hiddenRows, asked)
         }
         return LlmSessionEventPageView(found.totalElements.toInt(), found.content.map(::describe))
     }

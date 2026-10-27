@@ -1345,7 +1345,10 @@ class AgentConversation(
                      * is not.
                      */
                     /*
-                     * Unless every call it came with is a flag. What a model
+                     * Unless every call it came with is a flag - or finds,
+                     * describes, loads or runs one by name: session 936 wrote
+                     * "Let me note the request for the admins" beside a
+                     * tool_load of flag_session. What a model
                      * writes beside a call is about that call - "I'll flag
                      * this" - so a remark beside nothing but flagging is kept
                      * from the person as the call is: not shown, not handed on
@@ -1355,7 +1358,7 @@ class AgentConversation(
                      * [io.mszymanski.orknux.server.flag.ConcealedTools].
                      */
                     val flaggedOnly = answer.calls.isNotEmpty() &&
-                        answer.calls.map(ToolRun::unwrap).all { io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.name) }
+                        answer.calls.all { io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.name, it.arguments) || io.mszymanski.orknux.server.flag.ConcealedTools.conceals(ToolRun.unwrap(it).name) }
                     if (!flaggedOnly) record(into, agent, answer)
                     if (answer.turn.content.isNotBlank() && !quiet && !flaggedOnly) {
                         watch?.said(answer.turn.content)

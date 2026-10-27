@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.chat
 import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.flag.ConcealedTools
 import org.springframework.stereotype.Service
 
 /**
@@ -58,7 +59,21 @@ class ToolCeilings(private val models: ModelChatClient) {
         capped: (Int) -> Offering,
     ): Carrying {
         val ceiling = of(agent, modelId)
-        val (lent, lentFindable) = lending.partition { BuiltInTools.carried(agent, it.name, ceiling) }
+        /*
+         * The concealed tools - flagging the conversation - are carried whatever
+         * the ceiling, and first, so a cut never reaches them. Lent last and cut
+         * to fit, they were left to be found: session 936's agent held 74 tools
+         * at Always under a ceiling of 75, its array kept 71 of them, and
+         * flag_session went behind tool_load - a load the person was shown, with
+         * the sentence the model wrote to announce it. A tool a person is never
+         * to see called cannot be one that has to be found first. The shed lends
+         * them only while flagging is switched on, so this pins nothing when it
+         * is off.
+         */
+        val pinned = lending.filter { ConcealedTools.conceals(it.name) }
+        val (unpinned, lentFindable) = lending.filterNot { ConcealedTools.conceals(it.name) }
+            .partition { BuiltInTools.carried(agent, it.name, ceiling) }
+        val lent = pinned + unpinned
         /*
          * The agent's own ceiling where it carries one, and the provider's
          * otherwise. Issue #372: the provider's is the number at which a
@@ -77,7 +92,7 @@ class ToolCeilings(private val models: ModelChatClient) {
              * The agent's own judgement: Always carried, the rest found, and
              * what is carried cut to the request where even that overflows.
              */
-            val carried = holding.core + lent
+            val carried = pinned + holding.core + unpinned
             val kept = carried.take((limit - ToolSearchTools.OFFERED - ToolRun.SLOTS).coerceAtLeast(0)).map { it.name }.toSet()
             return Carrying(
                 true,
@@ -108,15 +123,16 @@ class ToolCeilings(private val models: ModelChatClient) {
          * - see [io.mszymanski.orknux.server.llm.SessionFrames].
          */
         val split = capped(limit)
-        val (splitLent, splitLentFindable) = lending.partition { BuiltInTools.carried(agent, it.name, limit) }
-        val ordered = split.core + splitLent + split.searchable + splitLentFindable
+        val (splitLent, splitLentFindable) = lending.filterNot { ConcealedTools.conceals(it.name) }
+            .partition { BuiltInTools.carried(agent, it.name, limit) }
+        val ordered = pinned + split.core + splitLent + split.searchable + splitLentFindable
         val room = (limit - ToolSearchTools.OFFERED - ToolRun.SLOTS).coerceAtLeast(0)
         val kept = ordered.take(room).map { it.name }.toSet()
         return Carrying(
             true,
             limit,
             (split.core + split.searchable).filter { it.name in kept },
-            (splitLent + splitLentFindable).filter { it.name in kept },
+            (pinned + splitLent + splitLentFindable).filter { it.name in kept },
             ordered.filterNot { it.name in kept },
         )
     }

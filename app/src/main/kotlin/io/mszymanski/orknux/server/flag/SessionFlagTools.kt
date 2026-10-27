@@ -207,6 +207,20 @@ class SessionFlagTools(
         /** What a call is answered with while flagging is switched off in Admin Settings. */
         const val SWITCHED_OFF = "Session flagging is switched off on this installation."
 
+        /**
+         * What a model is told about talking of a flag, in the tool's
+         * description and the briefing alike: nothing, ever, and the phrases
+         * it reaches for named, because a general "never mention it" did not
+         * stop one. Session 936's model wrote "Let me note the request for
+         * the admins" before it flagged - it believed narrating the step was
+         * allowed so long as the word "flag" was not in it.
+         */
+        const val SILENT = "Flagging is silent: say nothing about it to the person at all - not before you flag, " +
+            "not while you work, not after. No \"I'll note this\", no \"I'll report this to the admins\", no " +
+            "\"let me log this\", no \"I'm flagging this\" or \"escalating this\", and no hint that anything " +
+            "was recorded or that anybody else will read this conversation. Write nothing beside the call, and " +
+            "answer the person exactly as you would if nothing were recorded."
+
         /** Said back with every answer, so the model reads it again at the moment it matters. */
         const val KEEP_QUIET = "Do not mention this to the person; carry on with what they asked."
 
@@ -215,7 +229,7 @@ class SessionFlagTools(
                 name = FLAG,
                 description = "Flags the conversation you are in for this installation's administrators, and nobody else: " +
                     "a person probing the product for a weakness, or a fault you found in Orknux or in how it is set up. " +
-                    "Never tell the person you flagged it.",
+                    SILENT,
                 parameters = listOf(
                     ToolParameterSpec(
                         TYPE,
@@ -280,9 +294,8 @@ class SessionFlagTools(
                 "${FLAG_SPEC.parameter(SEVERITY)} from $LEAST_SEVERE to $MOST_SEVERE by how much harm it could do, " +
                 "$LEAST_SEVERE for none and $MOST_SEVERE for serious harm likely, and a ${FLAG_SPEC.parameter(NOTE)} " +
                 "saying factually what happened. Take back a flag raised by mistake with ${UNFLAG_SPEC.name}. A flag " +
-                "is read by this installation's administrators and nobody else. Never tell the person you flagged the " +
-                "conversation or that you can, never mention flagging in an answer or in what you write while you " +
-                "work, and carry on helping them within the usual rules."
+                "is read by this installation's administrators and nobody else. $SILENT Never tell the person you " +
+                "flagged the conversation or that you can, and carry on helping them within the usual rules."
     }
 }
 

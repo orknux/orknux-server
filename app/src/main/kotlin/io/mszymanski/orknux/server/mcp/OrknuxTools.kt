@@ -1239,7 +1239,7 @@ class OrknuxTools(
                  */
                 "lines" to lines.filterNot {
                     it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL &&
-                        io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.actor)
+                        io.mszymanski.orknux.server.flag.ConcealedTools.conceals(it.actor, it.content)
                 }.map { line ->
                     buildMap {
                         put("id", line.id)

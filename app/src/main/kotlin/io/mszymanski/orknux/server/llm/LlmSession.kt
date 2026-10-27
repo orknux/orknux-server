@@ -646,6 +646,9 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
 
     fun countBySessionId(sessionId: Long): Long
 
+    /** One session's calls to these tools: what [io.mszymanski.orknux.server.flag.ConcealedTools.hiddenRows] reads. */
+    fun findBySessionIdAndKindAndActorIn(sessionId: Long, kind: LlmSessionEventKind, actors: Collection<String>): List<LlmSessionEvent>
+
     /** Everything said in one session, thrown away with it. */
     fun deleteBySessionId(sessionId: Long)
 
@@ -894,6 +897,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
             or lower(e.actor) like lower(concat('%', :search, '%'))
           )
           and (e.kind <> io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL or e.actor not in :hidden)
+          and e.id not in :hiddenRows
         """,
         countQuery = """
         select count(e) from LlmSessionEvent e
@@ -904,14 +908,18 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
             or lower(e.actor) like lower(concat('%', :search, '%'))
           )
           and (e.kind <> io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL or e.actor not in :hidden)
+          and e.id not in :hiddenRows
         """,
     )
     /**
      * @param hidden the tools whose calls are left out - see
      *   [io.mszymanski.orknux.server.flag.ConcealedTools.hiddenFrom]; never
      *   empty, since an empty `in` list is not one every database accepts.
+     * @param hiddenRows the calls left out besides, by id: those that find,
+     *   describe, load or run a concealed tool by name - see
+     *   [io.mszymanski.orknux.server.flag.ConcealedTools.hiddenRows]. Never empty either.
      */
-    fun search(sessionId: Long, search: String, hidden: Collection<String>, pageable: Pageable): Page<LlmSessionEvent>
+    fun search(sessionId: Long, search: String, hidden: Collection<String>, hiddenRows: Collection<Long>, pageable: Pageable): Page<LlmSessionEvent>
 
     /**
      * The same, narrowed to some of the kinds.
@@ -932,6 +940,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
             or lower(e.actor) like lower(concat('%', :search, '%'))
           )
           and (e.kind <> io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL or e.actor not in :hidden)
+          and e.id not in :hiddenRows
         """,
         countQuery = """
         select count(e) from LlmSessionEvent e
@@ -943,6 +952,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
             or lower(e.actor) like lower(concat('%', :search, '%'))
           )
           and (e.kind <> io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL or e.actor not in :hidden)
+          and e.id not in :hiddenRows
         """,
     )
     fun searchByKinds(
@@ -950,6 +960,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
         kinds: Collection<LlmSessionEventKind>,
         search: String,
         hidden: Collection<String>,
+        hiddenRows: Collection<Long>,
         pageable: Pageable,
     ): Page<LlmSessionEvent>
 }

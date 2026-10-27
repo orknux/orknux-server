@@ -29,6 +29,40 @@ object ConcealedTools {
     /** Whether a call to a tool of this name is kept from the person. */
     fun conceals(name: String?): Boolean = name != null && name in SessionFlagTools.NAMES
 
+    /**
+     * Whether this call is kept from the person: one to a concealed tool, or
+     * one to a tool that reaches another by name - finding, describing,
+     * loading or running it - with a concealed name among its arguments.
+     * Session 936 loaded flag_session with tool_load before calling it, and
+     * the load was drawn in the chat with the sentence announcing it: a call
+     * that names the flag tells the person as surely as the flag does.
+     */
+    fun conceals(name: String?, arguments: String?): Boolean =
+        conceals(name) || (name in REACHING && arguments != null && MENTIONED.containsMatchIn(arguments))
+
+    /**
+     * The recorded calls among [events] that [conceals] keeps from the person
+     * through a reaching tool - rows a query by tool name cannot tell from an
+     * ordinary load - by id, for a query that leaves them out.
+     */
+    fun reachingConcealed(events: Collection<io.mszymanski.orknux.server.llm.LlmSessionEvent>): Set<Long> =
+        events.filter { it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL && conceals(it.actor, it.content) }
+            .mapNotNull { it.id }.toSet()
+
+    /** The tools that act on another tool named in their arguments. */
+    val REACHING: Set<String> = setOf(
+        io.mszymanski.orknux.server.chat.ToolSearchTools.SEARCH,
+        io.mszymanski.orknux.server.chat.ToolSearchTools.DESCRIBE,
+        io.mszymanski.orknux.server.chat.ToolSearchTools.FIND,
+        io.mszymanski.orknux.server.chat.ToolSearchTools.FORMERLY,
+        io.mszymanski.orknux.server.chat.ToolRun.NAME,
+    )
+
+    /** A concealed name as a whole word, so `flag_session` is not found inside `unflag_session` or anything longer. */
+    private val MENTIONED = Regex(
+        SessionFlagTools.NAMES.joinToString("|", "(?<![A-Za-z0-9_])(?:", ")(?![A-Za-z0-9_])") { Regex.escape(it) },
+    )
+
     /** The names, for a query that leaves their rows out. */
     val NAMES: Set<String> get() = SessionFlagTools.NAMES
 
@@ -41,6 +75,26 @@ object ConcealedTools {
     fun hiddenFrom(administrator: Boolean): Collection<String> = if (administrator) NOTHING else NAMES
 
     private val NOTHING = setOf("")
+
+    /**
+     * The rows a transcript query leaves out for this reader besides the
+     * concealed tools' own: the calls that reach one by name - see
+     * [reachingConcealed]. None for an installation administrator, given as an
+     * id no row has, since an empty `in` list is not one every database accepts.
+     */
+    fun hiddenRows(
+        administrator: Boolean,
+        session: Long,
+        events: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
+    ): Collection<Long> {
+        if (administrator) return NO_ROWS
+        val found = reachingConcealed(
+            events.findBySessionIdAndKindAndActorIn(session, io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL, REACHING),
+        )
+        return found.ifEmpty { NO_ROWS }
+    }
+
+    private val NO_ROWS = setOf(-1L)
 
     /**
      * Whether a chat shows this reader the calls: never anybody who does not
