@@ -2403,13 +2403,13 @@ type Mutation {
     """
     importModels(workspaceId: ID!, content: String!): ModelImport!
     "Publishes the chosen models, under their providers and without any key, as a template every workspace's Models page offers. Administrators."
-    publishModelTemplate(workspaceId: ID!, modelIds: [ID!]!, name: String!, description: String): ComponentTemplate!
+    publishModelTemplate(workspaceId: ID!, modelIds: [ID!]!, name: String!, description: String, replace: Boolean = false): ComponentTemplate!
     "A template of models read into this workspace, as importing its file would."
     useModelTemplate(workspaceId: ID!, id: ID!): ModelImport!
     "Publishes one connection, without its credentials, as a template every workspace's Integrations page offers. Administrators."
-    saveConnectionAsTemplate(workspaceId: ID!, id: ID!, name: String!, description: String): ComponentTemplate!
+    saveConnectionAsTemplate(workspaceId: ID!, id: ID!, name: String!, description: String, replace: Boolean = false): ComponentTemplate!
     "Publishes one MCP server, without its credential, as a template every workspace's Integrations page offers. Administrators."
-    saveMcpServerAsTemplate(workspaceId: ID!, id: ID!, name: String!, description: String): ComponentTemplate!
+    saveMcpServerAsTemplate(workspaceId: ID!, id: ID!, name: String!, description: String, replace: Boolean = false): ComponentTemplate!
     "A template of connections and MCP servers read into this workspace; a name already here is left alone."
     useIntegrationTemplate(workspaceId: ID!, id: ID!): IntegrationImport!
     """
@@ -9754,6 +9754,12 @@ input ComponentTemplateInput {
     itself.
     """
     envelope: String
+    """
+    Publishing under the name of a template already here replaces that
+    template's file and description when true; refused as TemplateNameTaken when
+    not, so the interface can ask first. Ignored by an update.
+    """
+    replace: Boolean = false
 }
 
 "What a role lets somebody do, beyond the workspaces it is assigned to."

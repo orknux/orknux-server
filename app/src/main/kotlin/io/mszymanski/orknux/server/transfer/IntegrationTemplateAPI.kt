@@ -107,6 +107,7 @@ class IntegrationTemplateAPI(
         @Argument id: Long,
         @Argument name: String,
         @Argument description: String?,
+        @Argument replace: Boolean?,
     ): ComponentTemplateView {
         access.requireAdmin()
         access.requireVisible(workspaceId)
@@ -117,8 +118,9 @@ class IntegrationTemplateAPI(
         // An inherited connection reads its credential from the installation's default, which a template names rather than carries.
         connectionNode(held, inherits, held.connectionId == null && connectionHadCredential(held), root.putArray("connections").addObject())
         root.putArray("mcpServers")
-        val made = templates.create(name, description, mapper.writeValueAsString(root))
-        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Template ${made.name} added from connection ${held.name}")
+        val replacing = replace == true && templates.taken(name)
+        val made = templates.create(name, description, mapper.writeValueAsString(root), replace == true)
+        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Template ${made.name} ${if (replacing) "replaced" else "added"} from connection ${held.name}")
         return made
     }
 
@@ -130,6 +132,7 @@ class IntegrationTemplateAPI(
         @Argument id: Long,
         @Argument name: String,
         @Argument description: String?,
+        @Argument replace: Boolean?,
     ): ComponentTemplateView {
         access.requireAdmin()
         access.requireVisible(workspaceId)
@@ -138,8 +141,9 @@ class IntegrationTemplateAPI(
         val root = fileRoot()
         root.putArray("connections")
         mcpServerNode(held, held.secretVariableId != null || !held.secret.isNullOrBlank(), root.putArray("mcpServers").addObject())
-        val made = templates.create(name, description, mapper.writeValueAsString(root))
-        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Template ${made.name} added from MCP Server ${held.name}")
+        val replacing = replace == true && templates.taken(name)
+        val made = templates.create(name, description, mapper.writeValueAsString(root), replace == true)
+        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Template ${made.name} ${if (replacing) "replaced" else "added"} from MCP Server ${held.name}")
         return made
     }
 

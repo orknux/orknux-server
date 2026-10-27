@@ -44,7 +44,13 @@ class SeededResearchAgents(
     /** @return the names of those taken away in [workspaceId]. */
     fun retire(workspaceId: Long): List<String> =
         agents.findByWorkspaceId(workspaceId, Pageable.unpaged()).content
-            .filter { agent -> SEEDED.any { it.name == agent.name && it.description == agent.description } }
+                        /*
+             * By the description's first sentence, which every version made
+             * them with; the sentence after it, about which model the agent
+             * thinks with, was reworded between versions, and matching it whole
+             * found none of the agents an installation actually had.
+             */
+            .filter { agent -> SEEDED.any { it.name == agent.name && agent.description?.startsWith(firstSentence(it.description)) == true } }
             .mapNotNull { agent ->
                 val id = agent.id ?: return@mapNotNull null
                 if (revisions.idsNewestFirst(ComponentRevisionKind.AGENT, id).isNotEmpty()) return@mapNotNull null
@@ -67,6 +73,8 @@ class SeededResearchAgents(
             }
 
     private companion object {
+        fun firstSentence(description: String): String = description.substringBefore(". ") + "."
+
         const val ACTOR = "Orknux"
         val SEEDED = listOf(ResearchModes.PLANNER, ResearchModes.WRITER, ResearchModes.REVIEWER)
     }

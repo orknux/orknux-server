@@ -48,6 +48,8 @@ class ComponentTemplateAPITest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val workflows: io.mszymanski.orknux.server.workflow.WorkflowRepository,
+    @Autowired val actions: io.mszymanski.orknux.server.action.WorkflowActionRepository,
 ) {
 
     private var from: Long = 0
@@ -56,6 +58,9 @@ class ComponentTemplateAPITest(
     @BeforeEach
     fun reset() {
         templates.deleteAll()
+        // What points at a function first, or SQLite refuses the delete wherever an earlier class left a workflow.
+        workflows.deleteAll()
+        actions.deleteAll()
         conditions.deleteAll()
         functions.deleteAll()
         objects.deleteAll()
@@ -194,6 +199,35 @@ class ComponentTemplateAPITest(
             assertThat(errors.single().message).contains("already has a template called lookup")
         }
         assertThat(templates.count()).isEqualTo(1)
+    }
+
+    /**
+     * Publishing again under a template's name brings it up to date, once the
+     * publisher says so: refused with a code the interface asks on, then
+     * replacing the file and keeping the row.
+     */
+    @Test
+    fun `publishing under a taken name replaces the template when told to, and only then`() {
+        val toolId = createTool(from, "lookup")
+        val templateId = createTemplate("Lookup", "First words", export(from, "TOOL", toolId))
+        val skillId = createSkill(from, "Triage", "Support")
+        val newer = export(from, "SKILL", skillId)
+
+        graphQlTester.document(
+            """mutation { createComponentTemplate(input: { name: "lookup", envelope: ${quote(newer)} }) { id } }""",
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors.single().extensions["code"]).isEqualTo("TemplateNameTaken")
+        }
+        assertThat(templates.findById(templateId).get().description).isEqualTo("First words")
+
+        graphQlTester.document(
+            """mutation { createComponentTemplate(input: { name: "lookup", description: "Newer", envelope: ${quote(newer)}, replace: true }) {
+                 id kinds description } }""",
+        ).execute().path("createComponentTemplate.id").entity(String::class.java).isEqualTo(templateId.toString())
+            .path("createComponentTemplate.kinds").entityList(String::class.java).containsExactly("SKILL")
+        assertThat(templates.count()).isEqualTo(1)
+        assertThat(templates.findById(templateId).get().description).isEqualTo("Newer")
+        assertThat(audit.findAll().map { it.message }).anyMatch { it.startsWith("Template Lookup replaced") }
     }
 
     @Test

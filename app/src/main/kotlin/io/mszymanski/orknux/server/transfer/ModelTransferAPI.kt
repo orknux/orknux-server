@@ -146,12 +146,18 @@ class ModelTransferAPI(
         @Argument modelIds: List<Long>,
         @Argument name: String,
         @Argument description: String?,
+        @Argument replace: Boolean?,
     ): ComponentTemplateView {
         access.requireAdmin()
         access.requireVisible(workspaceId)
         val (root, count) = modelsFile(workspaceId, modelIds.toSet())
-        val made = templates.create(name, description, mapper.writeValueAsString(root))
-        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Template ${made.name} added, holding $count model${if (count == 1) "" else "s"}")
+        val replacing = replace == true && templates.taken(name)
+        val made = templates.create(name, description, mapper.writeValueAsString(root), replace == true)
+        audit.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Template ${made.name} ${if (replacing) "replaced" else "added"}, holding $count model${if (count == 1) "" else "s"}",
+        )
         return made
     }
 

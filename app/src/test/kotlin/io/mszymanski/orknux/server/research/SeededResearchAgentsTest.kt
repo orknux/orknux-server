@@ -58,6 +58,15 @@ class SeededResearchAgentsTest(
             .anyMatch { it.startsWith("Agent Research planner deleted") }
     }
 
+    /** The wording an earlier version gave them, which is what installations hold. */
+    @Test
+    fun `the three as an earlier version worded them are taken away too`() {
+        val id = workspace()
+        made(id, ResearchModes.PLANNER, "Plans a research: breaks its question into search queries. Thinks with the model each research is started with.")
+
+        assertThat(retirement.retire(id)).containsExactly("Research planner")
+    }
+
     @Test
     fun `one somebody made theirs stays`() {
         val id = workspace()

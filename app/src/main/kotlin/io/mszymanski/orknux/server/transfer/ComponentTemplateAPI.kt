@@ -94,11 +94,12 @@ class ComponentTemplateAPI(
     @MutationMapping
     fun createComponentTemplate(@Argument input: ComponentTemplateInput): ComponentTemplateView {
         access.requireAdmin()
-        val created = templates.create(input.name, input.description, requireEnvelope(input.envelope))
+        val replacing = input.replace == true && templates.taken(input.name)
+        val created = templates.create(input.name, input.description, requireEnvelope(input.envelope), input.replace == true)
         auditRecorder.record(
             null,
             WorkspaceAuditCategory.WORKSPACE,
-            "Template ${created.name} added, holding ${created.componentCount} " +
+            "Template ${created.name} ${if (replacing) "replaced" else "added"}, holding ${created.componentCount} " +
                 if (created.componentCount == 1) "component" else "components",
         )
         return created
@@ -129,11 +130,12 @@ class ComponentTemplateAPI(
         access.requireAdmin()
         access.requireVisible(workspaceId)
         val envelope = exporter.export(workspaceId, kind, id, depth ?: ExportDepth.DEEP)
-        val created = templates.create(input.name, input.description, envelope)
+        val replacing = input.replace == true && templates.taken(input.name)
+        val created = templates.create(input.name, input.description, envelope, input.replace == true)
         auditRecorder.record(
             null,
             WorkspaceAuditCategory.WORKSPACE,
-            "Template ${created.name} added from ${kind.indefinite}",
+            "Template ${created.name} ${if (replacing) "replaced" else "added"} from ${kind.indefinite}",
         )
         return created
     }
@@ -207,6 +209,8 @@ data class ComponentTemplateInput(
     val name: String,
     val description: String? = null,
     val envelope: String? = null,
+    /** Publishing under a template's name replaces it, where this says so; refused otherwise. */
+    val replace: Boolean? = null,
 )
 
 @Component
@@ -218,12 +222,7 @@ class ComponentTemplateExceptionResolver : DataFetcherExceptionResolverAdapter()
             is TemplateNameTakenException, is TemplateNameInvalidException -> ErrorType.BAD_REQUEST
             else -> return null
         }
-
-        return GraphQLError.newError()
-            .errorType(errorType)
-            .message(exception.message)
-            .path(environment.executionStepInfo.path)
-            .location(environment.field.sourceLocation)
-            .build()
+        // Through refused(), so a taken name carries the code the interface asks on before replacing.
+        return io.mszymanski.orknux.server.graphql.refused(exception, errorType, environment)
     }
 }

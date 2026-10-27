@@ -77,6 +77,9 @@ class ComponentTemplateService(
 
     fun template(id: Long): ComponentTemplateView? = templates.findByIdOrNull(id)?.let(::view)
 
+    /** Whether a publish under [name] would replace a template, for the audit to say which it did. */
+    fun taken(name: String): Boolean = templates.findByNameIgnoreCase(name.trim()) != null
+
     /** The stored file itself, for the download on the template's own page. */
     fun envelopeOf(id: Long): String = held(id).envelope
 
@@ -88,16 +91,29 @@ class ComponentTemplateService(
      * a rename is right when a file is being unpacked into somebody's workspace
      * and wrong when somebody is typing a name into a box, where the only honest
      * answer is to say the name is taken and let them pick another.
+     *
+     * Or [replace] it: publishing again under a template's name is how somebody
+     * brings it up to date from the thing it was made from, and is refused
+     * until they say so - the interface asks first. The row is kept, so its id,
+     * its first author and its date stay; its file and description are the new
+     * ones.
      */
     @Transactional
-    fun create(name: String, description: String?, envelope: String): ComponentTemplateView {
+    fun create(name: String, description: String?, envelope: String, replace: Boolean = false): ComponentTemplateView {
         val cleanName = cleanName(name)
         // Before the row, so a file that cannot be read never becomes a template
         // somebody finds out about by clicking Use on it. A models file was
         // checked by whoever wrote it, which is this installation.
         // An integrations file is read whole by its own reader, which refuses what this installation cannot hold.
         if (ofIntegrations(envelope)) readIntegrationsFile(mapper, envelope) else if (!ofModels(envelope)) importer.describe(envelope)
-        if (templates.findByNameIgnoreCase(cleanName) != null) throw TemplateNameTakenException(cleanName)
+        templates.findByNameIgnoreCase(cleanName)?.let { taken ->
+            if (!replace) throw TemplateNameTakenException(cleanName)
+            taken.description = description?.trim()?.ifEmpty { null }
+            taken.envelope = envelope
+            taken.lastModifiedAt = OffsetDateTime.now()
+            taken.lastModifiedBy = currentUser()
+            return view(templates.save(taken))
+        }
 
         val now = OffsetDateTime.now()
         val who = currentUser()
@@ -311,7 +327,10 @@ data class ComponentTemplateView(
 
 class TemplateNotFoundException(id: Long) : RuntimeException("There is no template with id $id")
 
-class TemplateNameTakenException(name: String) :
-    RuntimeException("This installation already has a template called $name")
+class TemplateNameTakenException(val name: String) :
+    RuntimeException("This installation already has a template called $name; publish again replacing it to bring it up to date"),
+    io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("name" to name)
+}
 
 class TemplateNameInvalidException(says: String) : RuntimeException(says)
