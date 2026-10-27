@@ -324,7 +324,7 @@ class SlackPluginHost(
                 held.isTextual -> held.asString().trim().toLongOrNull()
                 else -> null
             }
-        } ?: return refusal("the first argument has to be a Slack connection")
+        } ?: return refusal(noConnection(given.get(0)))
         val channel = given.get(1)?.takeIf { it.isTextual }?.asString()
             ?: return refusal("the second argument has to be a channel")
         val threadTs = given.get(2)?.takeIf { it.isTextual }?.asString()
@@ -383,7 +383,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection, a channel and some text")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val channel = given.get(1)?.takeIf { it.isTextual }?.asString()
             ?: return refusal("the second argument has to be a channel")
         val text = given.get(2)?.takeIf { it.isTextual }?.asString()
@@ -410,7 +410,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection, a channel, a message and an emoji")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val channel = given.get(1)?.takeIf { it.isTextual }?.asString()
             ?: return refusal("the second argument has to be a channel")
         val ts = given.get(2)?.takeIf { it.isTextual }?.asString()
@@ -436,7 +436,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection and a message link")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val link = given.get(1)?.takeIf { it.isTextual }?.asString()
             ?: return refusal("the second argument has to be a message link")
 
@@ -465,7 +465,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection and a user id")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val userId = given.get(1)?.takeIf { it.isTextual }?.asString()
             ?: return refusal("the second argument has to be a user id")
 
@@ -496,7 +496,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection and a name")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val name = given.get(1)?.takeIf { it.isTextual }?.asString()
             ?: return refusal("the second argument has to be a name")
 
@@ -521,7 +521,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection and a query")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val query = given.get(1)?.takeIf { it.isTextual }?.asString()
             ?: return refusal("the second argument has to be a query")
         val limit = given.get(2)?.takeIf { it.isNumber }?.asInt()
@@ -570,7 +570,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection and what was typed")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val typed = given.get(1)?.takeIf { it.isTextual }?.asString() ?: ""
         val kind = given.get(2)?.takeIf { it.isTextual }?.asString()?.let { asked ->
             SlackTargetKind.entries.firstOrNull { it.name.equals(asked, ignoreCase = true) }
@@ -618,7 +618,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection and a file")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val file = given.get(1)
         fun text(field: String): String? =
             file.path(field).takeIf { it.isTextual }?.asString()?.takeIf { it.isNotEmpty() }
@@ -685,7 +685,7 @@ class SlackPluginHost(
             return refusal("that call takes a connection and what to read")
         }
         val connectionId = connectionOf(given.get(0))
-            ?: return refusal("the first argument has to be a Slack connection")
+            ?: return refusal(noConnection(given.get(0)))
         val asked = given.get(1)
         fun text(field: String): String? =
             asked.path(field).takeIf { it.isTextual }?.asString()?.takeIf { it.isNotEmpty() }
@@ -743,6 +743,28 @@ class SlackPluginHost(
             held.isNumber -> held.asLong()
             held.isTextual -> held.asString().trim().toLongOrNull()
             else -> null
+        }
+    }
+
+    /*
+     * Why the first argument names no Slack, said so that the next call can
+     * be right. "The first argument has to be a Slack connection" was all a
+     * model was told when it had written "id1", or when it left the
+     * connection out on a plugin with no Slack of its own: neither said what
+     * to pass instead, and the agent searched elsewhere and gave up. Said
+     * here rather than in the plugin, so every installed version of it says it.
+     */
+    private fun noConnection(given: tools.jackson.databind.JsonNode?): String {
+        val said = given?.takeUnless { it.isNull || it.isMissingNode }
+            ?.let { if (it.isTextual) it.asString().trim() else it.toString() }
+            .orEmpty()
+        return if (said.isEmpty()) {
+            "no Slack connection was given, and the Slack plugin has none set up: pass the id of one of the " +
+                "Slack connections you have been granted, or set the Slack plugin's own Slack on this " +
+                "workspace's Plugins page"
+        } else {
+            "${said.take(40)} is not a Slack connection: pass the id of one of the Slack connections you have " +
+                "been granted, or leave it out to use the one set up on the Slack plugin"
         }
     }
 
