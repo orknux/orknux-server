@@ -64,6 +64,8 @@ type ErrorSubject {
     count: Int!
     "When it last failed."
     last: String!
+    "The workspaces it failed in, by name, A to Z."
+    workspaces: [String!]!
 }
 
 type ErrorRecord {

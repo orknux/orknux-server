@@ -51,7 +51,16 @@ class ErrorReportAPI(
         // What failed most often, over every source the other filters match.
         val often = all
             .groupBy { it.source to it.subject }
-            .map { (key, rows) -> ErrorSubjectView(key.first, key.second, rows.size, rows.maxOf { it.at }.format(ISO)) }
+            .map { (key, rows) ->
+                ErrorSubjectView(
+                    key.first,
+                    key.second,
+                    rows.size,
+                    rows.maxOf { it.at }.format(ISO),
+                    // Where it failed: a workflow or a model can fail in several workspaces at once.
+                    workspaces = rows.mapNotNull { names[it.workspaceId] }.distinct().sortedBy { it.lowercase() },
+                )
+            }
             .sortedWith(compareByDescending<ErrorSubjectView> { it.count }.thenBy { it.subject.lowercase() })
             .take(TOP_SUBJECTS)
         // Every day of the period, a quiet one included, so the chart's gaps are days and not missing bars.
@@ -136,7 +145,13 @@ data class ErrorDayView(val day: String, val runs: Int, val agents: Int, val mod
 
 data class ErrorCountView(val source: ErrorSource, val count: Int)
 
-data class ErrorSubjectView(val source: ErrorSource, val subject: String, val count: Int, val last: String)
+data class ErrorSubjectView(
+    val source: ErrorSource,
+    val subject: String,
+    val count: Int,
+    val last: String,
+    val workspaces: List<String> = emptyList(),
+)
 
 data class ErrorRecordView(
     val id: Long,

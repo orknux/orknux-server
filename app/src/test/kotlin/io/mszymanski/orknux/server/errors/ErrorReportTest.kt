@@ -51,13 +51,18 @@ class ErrorReportTest(
         errors.record(workspace, ErrorSource.AGENT, "Support", "The provider timed out.")
 
         val report = """query { errorReport(filter: { workspaceId: $workspace }) {
-              total counts { source count } often { source subject count } rows { source subject executionId message } } }"""
+              total counts { source count } often { source subject count workspaces } rows { source subject executionId message workspaceName } } }"""
         graphQlTester.document(report).execute()
             .path("errorReport.total").entity(Int::class.java).isEqualTo(3)
             .path("errorReport.counts[?(@.source == 'RUN')].count").entityList(Int::class.java).containsExactly(1)
             .path("errorReport.counts[?(@.source == 'AGENT')].count").entityList(Int::class.java).containsExactly(2)
             .path("errorReport.often[0].subject").entity(String::class.java).isEqualTo("Support")
             .path("errorReport.often[0].count").entity(Int::class.java).isEqualTo(2)
+            // Where it failed, by name - the same name each of its rows carries.
+            .path("errorReport.often[0].workspaces").entityList(String::class.java).hasSize(1)
+            .path("errorReport.rows[0].workspaceName").entity(String::class.java).satisfies({ name ->
+                org.assertj.core.api.Assertions.assertThat(name).isNotBlank()
+            })
 
         graphQlTester.document("""query { errorReport(filter: { workspaceId: $workspace }, source: RUN) { total rows { subject executionId message } } }""")
             .execute()
