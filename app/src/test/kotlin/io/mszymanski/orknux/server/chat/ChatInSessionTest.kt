@@ -522,6 +522,27 @@ class ChatInSessionTest(
      * bound to a session it may not write into looks like a continuation and is
      * not one.
      */
+    /**
+     * Which chats say they are shared with the workspace: only one continuing
+     * a session it was opened from. Every chat keeps a session of its own
+     * under the chat prefix, so being bound to a session is not the test - a
+     * private chat bound to its own was labelled shared.
+     */
+    @Test
+    fun `only a chat continuing another session is said to share it`() {
+        val shared = startChat(session("issue", "shared-${System.nanoTime()}"))
+        val own = startChat(null)
+        val held = requireNotNull(chats.findByIdOrNull(own))
+        held.llmSessionId = recorder.open(workspaceId, "chat", held.conversationId)
+        chats.save(held)
+
+        fun said(id: Long) = graphQlTester.document("query { chatSession(id: $id) { sharedSession } }")
+            .execute().path("chatSession.sharedSession").entity(Boolean::class.java).get()
+        assertThat(said(shared)).isTrue()
+        assertThat(said(own)).isFalse()
+        assertThat(said(startChat(null))).isFalse()
+    }
+
     @Test
     fun `a session from another workspace cannot be continued here`() {
         val elsewhere = requireNotNull(workspaces.save(Workspace(name = "frontend")).id)

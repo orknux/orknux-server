@@ -383,6 +383,7 @@ class ChatAPI(
             agentId = session.agentId,
             agentName = session.agentId?.let(names::agent),
             llmSessionId = session.llmSessionId,
+            sharedSession = chats.sharesSession(session),
             createdAt = session.createdAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             lastMessageAt = session.lastMessageAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             spentInputTokens = session.spentInputTokens,
@@ -467,6 +468,8 @@ data class ChatSessionView(
     val agentName: String?,
     /** The LLM session this chat is continuing, or null for one continuing none. */
     val llmSessionId: Long?,
+    /** Whether that session is a shared one it was continued from, not the chat's own. */
+    val sharedSession: Boolean = false,
     val createdAt: String,
     val lastMessageAt: String?,
     /**

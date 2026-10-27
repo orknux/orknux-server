@@ -4558,6 +4558,8 @@ type ChatSession {
     agentName: String
     "The LLM session this chat is continuing, or null for one continuing none."
     llmSessionId: ID
+    "Whether that session is one this chat was continued from, which the whole workspace reads, rather than the chat's own private one."
+    sharedSession: Boolean!
     "ISO-8601 offset date-times. `lastMessageAt` is null until something is said."
     createdAt: String!
     lastMessageAt: String

@@ -445,6 +445,13 @@ class ChatService(
 
     private fun sentAtOf(line: RememberedTurn): String? = line.at?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
+    /**
+     * Whether this chat writes into a session other than its own - one it was
+     * continued from, which the whole workspace reads - rather than the
+     * private session every chat has under [CHAT_PREFIX].
+     */
+    fun sharesSession(session: ChatSession): Boolean = session.llmSessionId != null && !ownSession(session)
+
     private fun ownSession(session: ChatSession): Boolean {
         val id = session.llmSessionId ?: return false
         val mine = runCatching { LlmSessionKey.of(CHAT_PREFIX, session.conversationId) }.getOrNull() ?: return false
