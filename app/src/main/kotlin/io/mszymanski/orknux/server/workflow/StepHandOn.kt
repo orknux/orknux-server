@@ -43,13 +43,7 @@ class StepHandOn(
             return false
         }
         if (step.outputObjectId != null) {
-            session?.let {
-                sessions.note(
-                    it,
-                    if (partial) "This was not handed on as it was written: ${step.name} answers in a fixed shape, so it goes on with that answer."
-                    else "This answer went no further: ${step.name} answers in a fixed shape, and prose is not it.",
-                )
-            }
+            if (!partial) session?.let { sessions.note(it, "This answer went no further: ${step.name} answers in a fixed shape, and prose is not it.") }
             return false
         }
         val service = runs.getObject()
@@ -76,19 +70,18 @@ class StepHandOn(
             session?.let { sessions.note(it, "This was handed on past ${step.name} in run #${carried.id}.") }
             true
         } catch (refused: RuntimeException) {
-            log.warn("Session {} could not hand {} on past {}: {}", session, if (partial) "a message" else "its answer", step.nodeKey, refused.message)
             /*
              * A message said while working that cannot go on stays with the
-             * step's answer, and arrives with it - which on a Slack thread is
-             * minutes later, after a subagent has answered. It used to be kept
-             * silently, so a message that came late left nothing saying why.
+             * step's answer, and is not noted: a step with nothing after it
+             * refuses every one, and a note per message filled its session
+             * with lines saying so. The log keeps it, at debug, for whoever
+             * is looking for why a message came late.
              */
-            session?.let {
-                sessions.note(
-                    it,
-                    if (partial) "This was not handed on as it was written (${refused.message}); it goes on with ${step.name}'s answer."
-                    else "This went no further: ${refused.message}.",
-                )
+            if (partial) {
+                log.debug("Session {} kept a message for {}'s answer: {}", session, step.nodeKey, refused.message)
+            } else {
+                log.warn("Session {} could not hand its answer on past {}: {}", session, step.nodeKey, refused.message)
+                session?.let { sessions.note(it, "This went no further: ${refused.message}.") }
             }
             false
         }
