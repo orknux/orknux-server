@@ -491,7 +491,11 @@ class ToolAndSkillAPITest(
             .path("updateAgent.tools").entityList(String::class.java).get()
             .let { held ->
                 assertThat(held).containsAll(tools)
-                assertThat(held).containsAll(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED - io.mszymanski.orknux.server.chat.BuiltInTools.OPTIONAL)
+                // Less the flag tools, kept off an agent's list until Admin Settings lets them be changed.
+                assertThat(held).containsAll(
+                    io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED - io.mszymanski.orknux.server.chat.BuiltInTools.OPTIONAL -
+                        setOf(io.mszymanski.orknux.server.flag.SessionFlagTools.FLAG, io.mszymanski.orknux.server.flag.SessionFlagTools.UNFLAG),
+                )
             }
     }
 

@@ -161,10 +161,13 @@ class SessionShedsTest(
             "subagent" to offeredBy { subagent(agentId, modelId) },
         )
 
+        // The flag tools are pinned to the front of every request, so no tool ceiling can cut them.
+        val flagTools = setOf(io.mszymanski.orknux.server.flag.SessionFlagTools.FLAG, io.mszymanski.orknux.server.flag.SessionFlagTools.UNFLAG)
+        val inOrder = shared.filter { it in flagTools } + shared.filterNot { it in flagTools }
         offered.forEach { (door, names) ->
             assertThat(names.filter { it in shared })
                 .describedAs("the session's tools a %s lends, in the order every door lends them", door)
-                .containsExactlyElementsOf(shared)
+                .containsExactlyElementsOf(inOrder)
         }
 
         // And what is each door's own.
