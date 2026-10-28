@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.2.4
 
 ### ✨ Added
 
@@ -28,12 +28,18 @@ have failed.
 - **Whether an administrator sees the flag calls in a chat is a switch**, Admin → Settings → Sessions → Hide concealed tool calls in chats. On by default: `flag_session` and `unflag_session`, and what the agent writes beside a round that only flags, are not shown in any chat to anybody, administrators included, live or after a reload. Off, an administrator sees them in chats again; nobody else ever does. The session page, its CSV and Admin → Reports → Flags show them to an administrator either way.
 - **Session flagging can be switched off**, Admin → Settings → Sessions → Session flagging. On by default, so nothing changes until somebody turns it off. Off, new conversations are not offered `flag_session` and `unflag_session` and the agent is not told about flagging; a conversation that already holds the tools is refused if it calls one, and nothing is recorded. Flags already raised stay on Admin → Reports → Flags and the session pages, and the report says flagging is off.
 - **The flag tools are kept off agents' Tools lists unless an administrator lets them be changed**, Admin → Settings → Sessions → Flag tools on agents' Tools lists. Off by default: `flag_session` and `unflag_session` are not listed on an agent's Tools list and every agent holds them at Always - a save from any door that marks them otherwise is put back. On, they are listed like any other built-in and their mark can be changed per agent; switching it off again puts every agent back to Always on both.
+- **Admin → Workspaces says each workspace's type**, Admin or Standard, in a column of its own.
+- **Admin → Templates shows when each template was published and last changed**, in two sortable columns, with the exact time and who on hover.
+- **Every report on Admin → Reports says what it shows** in a (?) beside its name, and the Errors report's most-often table names the workspaces each error failed in.
+- **A chat continued from a session is labelled Workspace shared** beside its title, and Continue in chat says before it opens one that the whole workspace can read what is said in it.
 
 ### 🔧 Changed
 
 - **An agent reads the conversation before asking what a request means.** Handed something unclear - "check this", a bare mention in a Slack thread - it is told to read the earlier messages in its session and the thread it came from first, and to ask only when that does not settle it.
 - **The numbers under Admin Settings → Limits have no upper limit, except shares of a whole and ranges a format takes** - an opacity or a share of the model's window, a speech speed, an MP3's bitrate and sample rate, a GIF's frame rate, the blur's radius, the widest picture the renderer draws, and the research retry policy workflow nodes share. Every other number takes anything from its floor up, the page says only "At least ..." for it, and the server does its sums on them in a way the largest number cannot wrap or exhaust. The research start form and a workspace's own follow-up questions and review rounds lost their ceiling of 10 with it.
 - **One tool search loads 20 findable tools at once rather than 8** (`ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE`). An installation that set its own number keeps it.
+- **An admin workspace's chosen workspaces are a list**: each with a remove button, and a select with Add for the rest; the card names the roles in the way as soon as Admin workspace is ticked, and shows a refusal in the card rather than at the foot of the page.
+- **Save as a template warns as soon as the name is taken**, in amber, and Replace template replaces it in one press.
 
 ### 🐛 Fixed
 
