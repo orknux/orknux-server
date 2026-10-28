@@ -529,6 +529,14 @@ type Query {
     ): FunctionPage!
     function(id: ID!): Function
     """
+    How the code at the caret in the function editor might go on, from the
+    workspace's completion model: only the code that would follow `before`,
+    a line or a few. `after` is what follows the caret. Asked about the code
+    in the editor, saved or not. Null where there is nothing to suggest - no
+    completion model, or none in time. Nothing is written.
+    """
+    functionCompletion(workspaceId: ID!, functionId: ID, name: String, before: String!, after: String): String
+    """
     What starts a workspace's workflows.
 
     `order` is a column of the list - NAME, TYPE, ACTION, STATUS - and anything
@@ -2367,6 +2375,13 @@ type Mutation {
     updateFunction(id: ID!, input: UpdateFunctionInput!): Function!
     "Parses the source and says where it broke; the editor's Validate."
     validateFunctionSource(workspaceId: ID!, source: String!): FunctionValidation!
+    """
+    Asks a chat model about the function in the editor - `code` as it stands
+    there, saved or not, and `functionId` where it has been saved - with the
+    conversation so far, oldest first. Nothing is saved: a rewrite it offers
+    comes back as `suggestion`, for the editor to show beside the code.
+    """
+    askFunction(workspaceId: ID!, functionId: ID, name: String, code: String!, modelId: ID!, messages: [FunctionChatTurnInput!]!): FunctionAnswer!
     """
     Runs the stored function with the arguments given, and says what came back.
 
@@ -8316,6 +8331,29 @@ type FunctionPage {
     size: Int!
     totalElements: Int!
     totalPages: Int!
+}
+
+"What the function editor's chat said, and the rewrite it offered, if any."
+type FunctionAnswer {
+    answer: String!
+    suggestion: FunctionCodeSuggestion
+}
+
+"A rewrite of the code in the function editor, shown beside it for Accept and Reject. Nothing is saved."
+type FunctionCodeSuggestion {
+    "The whole new code."
+    code: String!
+    "One line on what it changes."
+    note: String
+}
+
+"One turn of the function editor's conversation."
+input FunctionChatTurnInput {
+    "user or assistant."
+    role: String!
+    content: String!
+    "Files uploaded to the attachments endpoint and sent with this turn."
+    attachmentIds: [ID!]
 }
 
 "What parsing the source found; valid with no message when it parsed."

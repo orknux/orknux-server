@@ -20,10 +20,12 @@ have failed.
 ### ✨ Added
 
 - **Sheets in Design**, after Documents: spreadsheets with tabs, formulas worked out on the server (Excel's function names, across tabs), errors shown with their reason, copy and paste with Excel, column widths, live editing with others, a chat beside the grid that fills the sheet in, import from .xlsx, .xls, .ods and .csv, and export as .xlsx or a tab as .csv. Two new limits, `ORKNUX_TUNING_SHEET_CELLS_MOST` (50,000 filled cells) and `ORKNUX_TUNING_SHEET_IMPORT_MB` (25).
+- **Auto-completion in the function editor**: the workspace's completion model suggests how the code at the caret goes on, a line or a few, drawn grey for Tab to take. On by default, switched beside the wand and remembered per person; it needs a completion model chosen in the workspace's settings.
 - **Agents and MCP clients work in sheets** with `orknux_sheets`, `orknux_sheet`, `orknux_create_sheet`, `orknux_write_sheet_cells` and `orknux_change_sheet_tabs`; each answer says what the cells written now show, and which came to an error.
 
 ### 🔧 Changed
 
+- **The function editor takes the whole window**, as the Design editors do: the details down the left, the code in the middle, and a chat down the right that reads the code as it stands - saved or not - and offers changes with Accept and Reject. The floating Ask AI is not shown on it, and the wand asks the chat instead; on a function not created yet, Accept puts the change in the editor. The columns stack below 1100px wide rather than 1300px.
 - **Agents with Orknux access get the five sheet tools marked Always** on upgrade, as the wireframe and diagram tools were; an agent that hid one keeps it hidden.
 
 ## 1.2.5

@@ -69,6 +69,13 @@ class FunctionAPI(
     private val caller: FunctionCaller,
     private val mapper: ObjectMapper,
     private val dependants: ComponentDependants,
+    /** The editor's chat: a model reading the code and offering a change. Lazy: it reaches the orknux_* surface, which reaches agents. */
+    @param:org.springframework.context.annotation.Lazy private val chat: FunctionChat,
+    /** The editor's inline suggestion, from the workspace's completion model. */
+    private val sentences: io.mszymanski.orknux.server.chat.ChatSentences,
+    /** What a chat turn's files say, for the model. */
+    private val files: io.mszymanski.orknux.server.attachment.EditorChatFiles,
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning = io.mszymanski.orknux.server.tuning.Tuning.DEFAULTS,
 ) {
 
     /**
@@ -423,6 +430,57 @@ class FunctionAPI(
      * It answers rather than throws, because a syntax error is what the button
      * is for, not a failed request.
      */
+    /**
+     * How the code at the caret might go on, from the workspace's completion
+     * model: the editor's inline suggestion. Null where there is nothing to
+     * suggest. Asked about the code in the editor, saved or not; a function
+     * not saved yet is keyed on the person writing it, so their requests
+     * replace one another and nobody else's.
+     */
+    @QueryMapping
+    fun functionCompletion(
+        @Argument workspaceId: Long,
+        @Argument functionId: Long?,
+        @Argument name: String?,
+        @Argument before: String,
+        @Argument after: String?,
+    ): String? {
+        requireWorkspaceAccess(workspaceId)
+        val held = functionId?.let { id -> functions.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId && readable(it) } }
+        val room = tuning[io.mszymanski.orknux.server.tuning.Tunable.DOCUMENT_COMPLETION_CONTEXT_CHARACTERS]
+        val key = held?.id?.toString() ?: "new-$workspaceId-${currentUser()}"
+        return sentences.inCode(workspaceId, key, held?.name ?: name.orEmpty(), before.takeLast(room), after.orEmpty().take(room / 4))
+    }
+
+    /**
+     * Asks a chat model about the function in the editor, and answers with
+     * what it said and the rewrite it offered, if it offered one. Nothing is
+     * saved: a rewrite is shown beside the code for the person to accept, and
+     * accepting is the editor's own save.
+     */
+    @MutationMapping
+    fun askFunction(
+        @Argument workspaceId: Long,
+        @Argument functionId: Long?,
+        @Argument name: String?,
+        @Argument code: String,
+        @Argument modelId: Long,
+        @Argument messages: List<FunctionChatTurnInput>,
+    ): FunctionAnswerView {
+        requireWorkspaceAccess(workspaceId)
+        val held = functionId?.let { id ->
+            functions.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId && readable(it) } ?: throw FunctionNotFoundException(id)
+        }
+        val asker = currentUser()
+        val turns = files.turns(workspaceId, asker, messages.map { io.mszymanski.orknux.server.attachment.EditorChatTurn(it.role, it.content, it.attachmentIds.orEmpty()) })
+        if (turns.none { it.role == "user" }) throw FunctionAnswerFailedException("there is nothing to answer")
+        val answered = chat.answer(workspaceId, held?.id, held?.name ?: name.orEmpty(), code, modelId, turns, asker)
+        return FunctionAnswerView(
+            answer = answered.answer,
+            suggestion = answered.suggestion?.let { FunctionCodeSuggestionView(it.code, it.note) },
+        )
+    }
+
     @MutationMapping
     fun validateFunctionSource(@Argument workspaceId: Long, @Argument source: String): FunctionValidationView {
         requireWorkspaceAccess(workspaceId)
@@ -1364,3 +1422,17 @@ data class FunctionPage(
         totalPages = page.totalPages,
     )
 }
+
+/** What the function editor's chat said, and the rewrite it offered. */
+data class FunctionAnswerView(val answer: String, val suggestion: FunctionCodeSuggestionView?)
+
+/** A rewrite of the code in the editor, for Accept and Reject; nothing saved. */
+data class FunctionCodeSuggestionView(val code: String, val note: String?)
+
+/** One turn of the function editor's conversation, which the editor keeps and sends up whole each time. */
+data class FunctionChatTurnInput @com.fasterxml.jackson.annotation.JsonCreator constructor(
+    @com.fasterxml.jackson.annotation.JsonProperty("role") val role: String,
+    @com.fasterxml.jackson.annotation.JsonProperty("content") val content: String,
+    /** Files uploaded through the attachments endpoint, sent with this turn. */
+    @com.fasterxml.jackson.annotation.JsonProperty("attachmentIds") val attachmentIds: List<Long>? = null,
+)

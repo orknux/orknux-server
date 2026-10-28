@@ -29,6 +29,7 @@ import io.mszymanski.orknux.server.action.FunctionNameTakenException
 import io.mszymanski.orknux.server.action.FunctionNotFoundException
 import io.mszymanski.orknux.server.action.FunctionParamInvalidException
 import io.mszymanski.orknux.server.action.FunctionCodeIncompleteException
+import io.mszymanski.orknux.server.action.FunctionAnswerFailedException
 import io.mszymanski.orknux.server.action.FunctionDescriptionTooLongException
 import io.mszymanski.orknux.server.action.FunctionPluginNameHeldException
 import io.mszymanski.orknux.server.action.FunctionPluginNeedsNoWorkspaceException
@@ -201,6 +202,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is FunctionPluginNeedsNoWorkspaceException,
             is FunctionArgumentInvalidException,
             is FunctionCodeIncompleteException,
+            is FunctionAnswerFailedException,
             is FunctionObjectRequiredException,
             is RoleNameTakenException,
             is RoleNameInvalidException,

@@ -71,11 +71,36 @@ class ChatSentences(
     }
 
     /**
+     * What would follow the caret in a function's code: the function editor's
+     * inline suggestion, asked of the same completion model under the same
+     * time limit and token cap, and hung up by a newer request for the same
+     * function as a document's is. Unlike prose it may run to a few lines -
+     * the rest of a statement, or a short block - since that is what code
+     * completion is for.
+     *
+     * @param key what a newer request replaces this one under: the function, or the person writing a new one.
+     */
+    fun inCode(workspaceId: Long, key: String, name: String, before: String, after: String): String? {
+        if (before.isBlank()) return null
+        val context = buildString {
+            append("The function is called ").append(name.ifBlank { "(not named yet)" })
+            append(" and is TypeScript, run in the Orknux sandbox.\n\nThe code before the caret:\n").append(before)
+            if (after.isNotBlank()) append("\n\nThe code after the caret, which must not be repeated:\n").append(after)
+        }
+        val said = ask(workspaceId, "function-completion:$key", CODE_INSTRUCTION, context) ?: return null
+        return codeCleaned(before, said)
+    }
+
+    /**
      * One ask of the workspace's completion model: [instruction] and
      * [context], answered with the words that follow [typed], cleaned. A newer
      * ask under the same [key] hangs this one up.
      */
-    private fun continuation(workspaceId: Long, key: String, instruction: String, context: String, typed: String): String? {
+    private fun continuation(workspaceId: Long, key: String, instruction: String, context: String, typed: String): String? =
+        ask(workspaceId, key, instruction, context)?.let { cleaned(typed, it) }
+
+    /** The model's answer as it said it, or null where there is none to use. */
+    private fun ask(workspaceId: Long, key: String, instruction: String, context: String): String? {
         val workspace = workspaces.findByIdOrNull(workspaceId) ?: return null
         val modelId = workspace.completionModelId ?: return null
 
@@ -114,7 +139,7 @@ class ChatSentences(
             asking.end(key, hangup)
         }
         return when (answer) {
-            is ChatCompletion.Answered -> cleaned(typed, answer.content)
+            is ChatCompletion.Answered -> answer.content
             is ChatCompletion.CalledTools -> null
             is ChatCompletion.Failed -> {
                 if (!hangup.hungUp) log.debug("No completion for {}: {}", key, answer.reason)
@@ -174,6 +199,28 @@ class ChatSentences(
     }
 
     /**
+     * Only the new code, at most [CODE_LINES] lines of it.
+     *
+     * A model asked to continue code wraps it in a fence as often as not, and
+     * repeats the line the caret is on; both are taken off. Unlike prose its
+     * leading whitespace and line breaks are kept, since they are indentation
+     * and they are the code. Nothing but whitespace is no suggestion.
+     */
+    internal fun codeCleaned(before: String, said: String): String? {
+        var text = said.replace("\r", "")
+        val fenced = Regex("^\\s*```[A-Za-z0-9_+-]*\\n?([\\s\\S]*?)\\n?```\\s*$").matchEntire(text)
+        if (fenced != null) text = fenced.groupValues[1]
+        val line = before.substringAfterLast('\n')
+        if (line.isNotBlank()) {
+            val head = text.trimStart(' ', '\t')
+            if (head.startsWith(line.trimStart())) text = head.removePrefix(line.trimStart())
+        }
+        val lines = text.split('\n')
+        text = lines.take(CODE_LINES).joinToString("\n").trimEnd()
+        return text.takeIf { it.isNotBlank() }
+    }
+
+    /**
      * The longest end of [typed] that [said] starts with, where that end is
      * whole words and more than one of them; null where there is none. A
      * single word is left alone: "to" ending the message and "to the station"
@@ -206,6 +253,17 @@ class ChatSentences(
                 "sentence, suggest the short sentence they would most likely write next. If they stopped in the " +
                 "middle of a word, begin with the rest of that word; otherwise begin with a space. Reply with " +
                 "nothing only when nothing sensible could follow."
+
+        /** How much code one suggestion may be: the rest of a statement or a short block, never a whole function. */
+        const val CODE_LINES = 8
+
+        /** The same ask, of somebody writing a function's code. */
+        const val CODE_INSTRUCTION =
+            "You complete code at the caret, as an editor's inline suggestion. Reply with only the code that comes " +
+                "next - the rest of the line, or at most a few lines that finish the statement or block being written - " +
+                "never repeat the code before the caret, never repeat the code after it, never explain, no Markdown " +
+                "fences. Keep the indentation and style of the code around it. If they stopped in the middle of a " +
+                "word, begin with the rest of that word. Reply with nothing when nothing sensible could follow."
 
         /** The same ask, of somebody writing a document rather than a message. */
         const val DOCUMENT_INSTRUCTION =
