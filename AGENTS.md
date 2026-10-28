@@ -1,7 +1,8 @@
 # Working in orknux-server
 
 Notes for anyone — human or agent — changing this repository. See
-[README.md](README.md) for what the service is and how to run it.
+[README.md](README.md) for what the service is, and
+[docs/reference.md](docs/reference.md) for how it is run, built and put together.
 
 ## The name
 
@@ -302,7 +303,7 @@ every start it is in effect. Never set them in a deployment.
   retry count, a cap on work - anything somebody running this might want
   different - is an entry in `tuning/Tunable.kt` (a module declares a
   `ConnectionKnob` or `ExecutionKnob` and the app lists it), read through
-  `Tuning`, with a line in `application.yml` and a README row. Admin Settings
+  `Tuning`, with a line in `application.yml` and a row in `docs/reference.md`. Admin Settings
   draws it under Limits by itself. `TunablesTest` holds the halves together. A
   format - a column's length, a protocol constant - stays in the code.
 - **What arrives is published, not called.** `modules/connection` opens the
@@ -583,7 +584,7 @@ an upgrade reads the one on Docker Hub, so that gap was the whole of the problem
 Two things follow from it. **Docker Hub takes 25,000 bytes and the action
 truncates silently past that**, so the build fails when the file is over - the
 check is in the `build` job, before the suite, and it says how many bytes to
-lose. Shorten it or move a section into `README.md` and link, but do not let it
+lose. Shorten it or move a section into `docs/reference.md` and link, but do not let it
 be cut, because the end of the file is where the least-known settings are. And
 **the token needs read, write and delete scope**: updating a description is not
 a push, and a token scoped only to push works perfectly for the image and
