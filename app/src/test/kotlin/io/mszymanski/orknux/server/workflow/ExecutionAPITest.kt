@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.server.llm.LlmSession
+import io.mszymanski.orknux.server.llm.LlmSessionRepository
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import io.mszymanski.orknux.workflow.execution.ExecutionLogRepository
@@ -40,6 +42,7 @@ class ExecutionAPITest(
     @Autowired val nodes: WorkflowNodeRepository,
     @Autowired val edges: WorkflowEdgeRepository,
     @Autowired val workspaces: WorkspaceRepository,
+    @Autowired val sessions: LlmSessionRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -413,6 +416,39 @@ class ExecutionAPITest(
         graphQlTester.document("""query { executionWorkflows(workspaceId: $workspaceId) { workflowId } }""")
             .execute()
             .path("executionWorkflows").entityList(Long::class.java).hasSize(0)
+    }
+
+    @Test
+    fun `a run's cost adds up its steps' sessions and the agents they asked`() {
+        val id = start().id
+        val agentSession = sessions.save(
+            LlmSession(workspaceId = workspaceId, sessionKey = "cost-${System.nanoTime()}").apply { spentCost = java.math.BigDecimal("0.0125") },
+        )
+        val asked = sessions.save(
+            LlmSession(workspaceId = workspaceId, sessionKey = "cost-asked-${System.nanoTime()}", parentSessionId = agentSession.id)
+                .apply { spentCost = java.math.BigDecimal("0.0075"); spentPartlyUnpriced = true },
+        )
+        try {
+            val step = requireNotNull(steps.findByExecutionIdAndNodeKey(id, "fetch"))
+            step.sessionId = agentSession.id
+            steps.save(step)
+
+            graphQlTester.document("query { execution(id: $id) { cost { amount partlyUnpriced sessions } } }").execute()
+                .path("execution.cost.amount").entity(String::class.java).isEqualTo("0.02")
+                .path("execution.cost.partlyUnpriced").entity(Boolean::class.java).isEqualTo(true)
+                .path("execution.cost.sessions").entity(Int::class.java).isEqualTo(2)
+        } finally {
+            sessions.deleteAll(listOf(asked, agentSession))
+        }
+    }
+
+    @Test
+    fun `a run that called no model costs nothing`() {
+        val id = start().id
+
+        graphQlTester.document("query { execution(id: $id) { cost { amount partlyUnpriced sessions } } }").execute()
+            .path("execution.cost.amount").valueIsNull()
+            .path("execution.cost.sessions").entity(Int::class.java).isEqualTo(0)
     }
 
     private fun start() = runs.startExecution(

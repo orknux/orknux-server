@@ -6445,6 +6445,18 @@ type ExecutionDetail {
     version: RanVersion
     "What each step was handed for its parameters, worked out from what it received; workspace variables left as written."
     parameters: [StepParameter!]!
+    "What its model calls cost: every step's session, the agents those asked, and every run a WORKFLOW node called."
+    cost: RunCost!
+}
+
+"What a run's model calls cost, in dollars."
+type RunCost {
+    "A decimal; null when nothing priced was spent."
+    amount: String
+    "Some call's model had no price, so amount is part of the whole."
+    partlyUnpriced: Boolean!
+    "How many sessions it was added up over."
+    sessions: Int!
 }
 
 "One thing a run said out loud, as the run graph plays it."

@@ -54,6 +54,8 @@ class WorkflowExecutionAPI(
     /** What each step was told to pass, read back for the run page. */
     private val stepRows: io.mszymanski.orknux.workflow.execution.ExecutionStepRepository,
     private val expressions: NodeExpressions,
+    /** Where each step's model calls were added up as they were made. */
+    private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
 ) {
 
     /**
@@ -164,6 +166,36 @@ class WorkflowExecutionAPI(
             source = connectionFired(run.trigger, run.firedTriggerId)?.let { sourcesOf(listOf(it))[it] },
             version = versionOf(run),
             parameters = parametersOf(run),
+        )
+    }
+
+    /**
+     * What the run's model calls cost: the spend every step's session kept,
+     * the sessions those agents asked in turn, and the same for every run a
+     * WORKFLOW node called. Read off the sessions rather than the usage
+     * report, which is written only while an administrator has tracking on.
+     * A session two steps shared is counted once.
+     */
+    @org.springframework.graphql.data.method.annotation.SchemaMapping(typeName = "ExecutionDetail", field = "cost")
+    fun cost(run: RunDetailView): RunCostView {
+        val sessionIds = mutableSetOf<Long>()
+        val seenRuns = mutableSetOf(run.id)
+        var steps = run.steps
+        while (steps.isNotEmpty()) {
+            steps.mapNotNullTo(sessionIds) { it.sessionId }
+            val children = steps.mapNotNull { it.childExecutionId }.filter { seenRuns.add(it) }
+            steps = children.flatMap { runs.execution(it)?.steps.orEmpty() }
+        }
+        var level: Collection<Long> = sessionIds.toList()
+        while (level.isNotEmpty()) {
+            level = sessions.findByParentSessionIdInOrderByIdAsc(level).mapNotNull { it.id }.filter { sessionIds.add(it) }
+        }
+        val spent = sessions.findAllById(sessionIds)
+        val total = spent.fold(java.math.BigDecimal.ZERO) { sum, one -> sum + one.spentCost }
+        return RunCostView(
+            amount = total.takeIf { it.signum() > 0 }?.stripTrailingZeros()?.toPlainString(),
+            partlyUnpriced = spent.any { it.spentPartlyUnpriced },
+            sessions = spent.size,
         )
     }
 
@@ -411,6 +443,16 @@ class WorkflowExecutionAPI(
  * is needed to draw and name it. [nodeKey] is which step drew it, so the graph
  * shows each picture under the node that made it. Issue #333.
  */
+/** What a run's model calls cost, in dollars as the models' prices are kept. */
+data class RunCostView(
+    /** Null when nothing priced was spent. */
+    val amount: String?,
+    /** Some call's model had no price, so [amount] is part of the whole. */
+    val partlyUnpriced: Boolean,
+    /** How many sessions it was added up over. */
+    val sessions: Int,
+)
+
 data class ExecutionPictureView(
     val id: Long,
     val nodeKey: String,
