@@ -1,0 +1,88 @@
+# Sheets: spreadsheets kept in the Design perspective beside its documents and
+# wireframes, filled in by hand in the editor and by a chat model through the
+# orknux_* sheet tools. Anybody who can see the workspace.
+#
+# A workbook is JSON: {"tabs": [{"name", "cells": {"A1": "what was typed"},
+# "widths": {"A": 160}}]}. A cell holds what was typed into it - a number, text,
+# TRUE or FALSE, or a formula starting with "=" - and its value is worked out by
+# the server, so the editor, the tools and the .xlsx export share one engine.
+
+extend type Query {
+    "A workspace's sheets, the one worked on last first."
+    sheets(workspaceId: ID!): [Sheet!]!
+    "One sheet; null where there is none."
+    sheet(id: ID!): Sheet
+    """
+    The values of a workbook as the editor holds it, which need not be saved:
+    checked as a save is, worked out, and written nowhere. JSON, as Sheet.values.
+    """
+    sheetValues(workspaceId: ID!, workbook: String!): String!
+}
+
+extend type Mutation {
+    "Makes a sheet, with one empty tab or holding `workbook`."
+    createSheet(workspaceId: ID!, name: String!, workbook: String): Sheet!
+    renameSheet(id: ID!, name: String!): Sheet!
+    """
+    Writes a whole workbook over the one held. With `revision`, refused when the
+    sheet has been saved since that revision - by somebody else or by a model.
+    """
+    saveSheet(id: ID!, workbook: String!, revision: Int,
+        "The open editor saving it, as it named itself on the live channel; its saves are announced to the others as its own, and audited once per visit."
+        viewer: String): Sheet!
+    deleteSheet(id: ID!): Boolean!
+    """
+    Makes a sheet from a file: .xlsx, .xls, .ods or .csv, `file` base64 or a data
+    URL. Every tab is kept with its values and formulas; formatting is not.
+    Named after the file where `name` is left out.
+    """
+    importSheet(workspaceId: ID!, filename: String!, file: String!, name: String): Sheet!
+    """
+    Asks a chat model to work in the sheet: the conversation so far, oldest
+    first, ending with what is asked now. Whatever it writes is saved as it goes.
+    """
+    askSheet(id: ID!, modelId: ID!, messages: [SheetChatTurnInput!]!): SheetAnswer!
+}
+
+"A sheet and its workbook."
+type Sheet {
+    id: ID!
+    workspaceId: ID!
+    name: String!
+    "The workbook, as JSON: {\"tabs\": [{name, cells: {\"A1\": \"...\"}, widths: {\"A\": 160}}]}."
+    workbook: String!
+    tabCount: Int!
+    "How many cells hold anything, across every tab."
+    cellCount: Int!
+    """
+    What every filled cell comes to, as JSON: {"tabs": [{"name", "values":
+    {"A1": {"t": "n" | "s" | "b" | "e", "v": the value, "f": as shown}}}]}. t is a
+    number, text, a boolean or an error such as #DIV/0!. Worked out when asked.
+    """
+    values: String!
+    "Counts the saves; what saveSheet is checked against."
+    revision: Int!
+    createdBy: String!
+    "ISO-8601."
+    createdAt: String!
+    updatedBy: String!
+    "ISO-8601."
+    updatedAt: String!
+}
+
+"What a model said, and the sheet as it stands after it."
+type SheetAnswer {
+    answer: String!
+    "Whether it saved anything."
+    changed: Boolean!
+    sheet: Sheet!
+}
+
+"One turn of the editor's conversation."
+input SheetChatTurnInput {
+    "user or assistant."
+    role: String!
+    content: String!
+    "Files uploaded to the attachments endpoint and sent with this turn: pictures go to the model as pictures, other files as their text."
+    attachmentIds: [ID!]
+}

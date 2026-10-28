@@ -15,6 +15,17 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **Sheets in Design**, after Documents: spreadsheets with tabs, formulas worked out on the server (Excel's function names, across tabs), errors shown with their reason, copy and paste with Excel, column widths, live editing with others, a chat beside the grid that fills the sheet in, import from .xlsx, .xls, .ods and .csv, and export as .xlsx or a tab as .csv. Two new limits, `ORKNUX_TUNING_SHEET_CELLS_MOST` (50,000 filled cells) and `ORKNUX_TUNING_SHEET_IMPORT_MB` (25).
+- **Agents and MCP clients work in sheets** with `orknux_sheets`, `orknux_sheet`, `orknux_create_sheet`, `orknux_write_sheet_cells` and `orknux_change_sheet_tabs`; each answer says what the cells written now show, and which came to an error.
+
+### 🔧 Changed
+
+- **Agents with Orknux access get the five sheet tools marked Always** on upgrade, as the wireframe and diagram tools were; an agent that hid one keeps it hidden.
+
 ## 1.2.5
 
 ### ✨ Added

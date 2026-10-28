@@ -20,7 +20,7 @@ import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
 import org.springframework.security.test.context.support.WithMockUser
 
 /**
- * Several people in one diagram, document or wireframe editor, which saves as
+ * Several people in one diagram, document, wireframe or sheet editor, which saves as
  * it is edited. Issue #683, on the rooms the workflow editor has had since #645.
  *
  * The save is guarded by the revision it was made from, now claimed in the
@@ -48,7 +48,7 @@ class LiveEditorsTest(
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "together ${System.nanoTime()}")).id)
     }
 
-    /** One of the three editors: how to make one, save it, and what its refusal is called. */
+    /** One of the editors: how to make one, save it, and what its refusal is called. */
     private inner class Editor(val kind: LiveKind, val saving: String, val refused: String, val body: (String) -> String) {
         val id: Long = when (kind) {
             LiveKind.DIAGRAM -> graphQlTester.document("""mutation { createDiagram(workspaceId: $workspaceId, name: "Shared") { id } }""")
@@ -57,6 +57,8 @@ class LiveEditorsTest(
                 .execute().path("createWireframe.id").entity(Long::class.java).get()
             LiveKind.DOCUMENT -> graphQlTester.document("""mutation { createDocument(workspaceId: $workspaceId, name: "Shared") { id } }""")
                 .execute().path("createDocument.id").entity(Long::class.java).get()
+            LiveKind.SHEET -> graphQlTester.document("""mutation { createSheet(workspaceId: $workspaceId, name: "Shared") { id } }""")
+                .execute().path("createSheet.id").entity(Long::class.java).get()
             LiveKind.WORKFLOW -> error("not here")
         }
         val key = LiveRooms.Key(kind, id)
@@ -68,7 +70,11 @@ class LiveEditorsTest(
         fun revision(): Int = graphQlTester.document("""{ ${kind.path}(id: $id) { revision } }""")
             .execute().path("${kind.path}.revision").entity(Int::class.java).get()
 
-        private fun field() = if (kind == LiveKind.DOCUMENT) "content" else "document"
+        private fun field() = when (kind) {
+            LiveKind.DOCUMENT -> "content"
+            LiveKind.SHEET -> "workbook"
+            else -> "document"
+        }
     }
 
     private fun editors() = listOf(
@@ -77,6 +83,7 @@ class LiveEditorsTest(
         Editor(LiveKind.DOCUMENT, "saveDocument", "DocumentChanged") {
             """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"$it"}]}]}"""
         },
+        Editor(LiveKind.SHEET, "saveSheet", "SheetChanged") { """{"tabs":[{"name":"Sheet1","cells":{"A1":"$it"}}]}""" },
     )
 
     @Test

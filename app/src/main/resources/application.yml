@@ -995,6 +995,8 @@ orknux:
     wireframe.elements.most: ${ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST:2000}
     wireframe.html.inline.characters: ${ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS:100000}
     wireframe.picture.pixels: ${ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS:1600}
+    sheet.cells.most: ${ORKNUX_TUNING_SHEET_CELLS_MOST:50000}
+    sheet.import.mb: ${ORKNUX_TUNING_SHEET_IMPORT_MB:25}
     document.characters.most: ${ORKNUX_TUNING_DOCUMENT_CHARACTERS_MOST:2000000}
     document.markdown.inline.characters: ${ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS:100000}
     document.marks.carry.characters: ${ORKNUX_TUNING_DOCUMENT_MARKS_CARRY_CHARACTERS:20000}

@@ -22,6 +22,7 @@ enum class LiveKind(val path: String) {
     DIAGRAM("diagram"),
     DOCUMENT("document"),
     WIREFRAME("wireframe"),
+    SHEET("sheet"),
     ;
 
     companion object {

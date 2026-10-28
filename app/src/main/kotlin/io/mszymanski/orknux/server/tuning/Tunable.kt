@@ -449,6 +449,22 @@ enum class Tunable(
         "The picture put in a chat beside the wireframe's link; a wider drawing is scaled down to this.",
     ),
     /*
+     * Counted in filled cells because that is what the server works out on
+     * every edit: each one is a cell POI builds and, for a formula, evaluates,
+     * and the editor waits on that answer to draw its values. Empty cells are
+     * not kept, so a sparse sheet reaching far across costs nothing.
+     */
+    SHEET_CELLS_MOST(
+        "sheet.cells.most", 50_000, 100, null, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many filled cells one sheet may hold",
+        "A save or an import, from the editor or from a model writing in it, that would leave more is refused and says how many there were.",
+    ),
+    SHEET_IMPORT_MB(
+        "sheet.import.mb", 25, 1, null, TuningSection.MEDIA, TuningUnit.MB,
+        "How large a file a sheet is made from",
+        "A larger .xlsx, .xls, .ods or .csv is refused by Import, which says how large it was.",
+    ),
+    /*
      * Diagrams, in Explore. The notes are where a diagram keeps what its boxes
      * cannot say, and are what an agent reads a node for - long enough for a
      * paragraph or two by default, held to a number so one node cannot hold a

@@ -230,6 +230,8 @@ class OrknuxTools(
     private val documentTools: DocumentTools,
     /** Searching, reading, drawing and exporting diagrams; see [DiagramTools]. */
     private val diagramTools: DiagramTools,
+    /** Reading and filling in sheets; see [SheetTools]. */
+    private val sheetTools: SheetTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
     private val newsTools: NewsTools,
     private val web: WebProperties,
@@ -306,7 +308,7 @@ class OrknuxTools(
 
     /** What to offer, which depends on whether this caller may start anything. */
     fun specs(scope: OrknuxScope): List<ToolSpec> =
-        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + documentTools.specs(scope) + manualTools.specs()
+        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + documentTools.specs(scope) + sheetTools.specs(scope) + manualTools.specs()
 
     /**
      * The orknux_* tools an agent starts with hidden, which its owner turns on
@@ -1063,6 +1065,8 @@ class OrknuxTools(
                 access.actingIn(scope.workspaceId, scope.actor) { documentTools.run(scope, name, arguments) }
             } else if (diagramTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { diagramTools.run(scope, name, arguments) }
+            } else if (sheetTools.handles(name)) {
+                access.actingIn(scope.workspaceId, scope.actor) { sheetTools.run(scope, name, arguments) }
             } else {
                 refuse("There is no tool called $name")
             }

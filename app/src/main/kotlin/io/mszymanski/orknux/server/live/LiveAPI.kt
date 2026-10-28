@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.live
 
 import io.mszymanski.orknux.server.design.DesignDocumentRepository
+import io.mszymanski.orknux.server.design.SheetRepository
 import io.mszymanski.orknux.server.design.WireframeRepository
 import io.mszymanski.orknux.server.diagram.DiagramRepository
 import io.mszymanski.orknux.server.security.WorkspaceAccess
@@ -40,6 +41,7 @@ class LiveAPI(
     private val diagrams: DiagramRepository,
     private val documents: DesignDocumentRepository,
     private val wireframes: WireframeRepository,
+    private val sheets: SheetRepository,
     private val rooms: LiveRooms,
     private val readers: ReaderWatch,
     private val mapper: ObjectMapper,
@@ -100,6 +102,7 @@ class LiveAPI(
             LiveKind.DIAGRAM -> diagrams.findByIdOrNull(key.id)?.let { it.workspaceId to it.revision }
             LiveKind.DOCUMENT -> documents.findByIdOrNull(key.id)?.let { it.workspaceId to it.revision }
             LiveKind.WIREFRAME -> wireframes.findByIdOrNull(key.id)?.let { it.workspaceId to it.revision }
+            LiveKind.SHEET -> sheets.findByIdOrNull(key.id)?.let { it.workspaceId to it.revision }
             LiveKind.WORKFLOW -> null
         } ?: throw LiveItemNotFoundException(key.kind.path, key.id)
         access.requireVisible(workspaceId)

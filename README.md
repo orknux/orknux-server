@@ -530,6 +530,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST` | How many elements one wireframe may hold, in items. | `2000` |
 | `ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS` | How long a wireframe's HTML may be and still be handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS` | How wide the picture of a wireframe an agent drew may be, in pixels. | `1600` |
+| `ORKNUX_TUNING_SHEET_CELLS_MOST` | How many filled cells one sheet may hold, in items. | `50000` |
+| `ORKNUX_TUNING_SHEET_IMPORT_MB` | How large a file a sheet is made from, in MB. | `25` |
 | `ORKNUX_TUNING_DOCUMENT_CHARACTERS_MOST` | How long one document's stored content may be, in characters. | `2000000` |
 | `ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS` | How much of a document's Markdown is handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_DOCUMENT_MARKS_CARRY_CHARACTERS` | How much rewritten text keeps its colours and highlights, in characters. | `20000` |

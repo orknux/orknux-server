@@ -28,6 +28,15 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is WireframeChangedException,
             is WireframeAnswerFailedException,
             -> ErrorType.BAD_REQUEST
+            is SheetNotFoundException -> ErrorType.NOT_FOUND
+            is SheetNameInvalidException,
+            is SheetWorkbookInvalidException,
+            is SheetTooLargeException,
+            is SheetChangedException,
+            is SheetAnswerFailedException,
+            is SheetImportRefusedException,
+            is SheetFormatUnknownException,
+            -> ErrorType.BAD_REQUEST
             is DocumentNotFoundException, is DocumentCatalogNotFoundException -> ErrorType.NOT_FOUND
             is DocumentNameInvalidException,
             is DocumentPageSizeInvalidException,

@@ -110,6 +110,8 @@ class OfferedToolsFoundTest(
             "wireframe mockup" to "orknux_create_wireframe",
             "start research" to "orknux_start_research",
             "create diagram" to "orknux_create_diagram",
+            "make a spreadsheet" to "orknux_create_sheet",
+            "write cells in a sheet" to "orknux_write_sheet_cells",
             "append document section" to "orknux_append_document_section",
             "insert into document" to "orknux_insert_into_document",
             "orknux manual" to "orknux_manual",
