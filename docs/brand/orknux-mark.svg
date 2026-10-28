@@ -8,8 +8,8 @@
   -->
   <defs>
     <linearGradient id="orknuxMoss" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#668A6B"/>
-      <stop offset="100%" stop-color="#4A6B52"/>
+      <stop offset="0%" stop-color="#5D89C9"/>
+      <stop offset="100%" stop-color="#3E6399"/>
     </linearGradient>
     <mask id="orknuxVoid">
       <rect width="200" height="200" fill="#fff"/>
@@ -21,8 +21,8 @@
         fill="url(#orknuxMoss)" mask="url(#orknuxVoid)"/>
 
   <path d="M81 125 L112 129 L121 96 Z"
-        fill="none" stroke="#5F8467" stroke-width="8" stroke-linejoin="round"/>
-  <circle cx="81" cy="125" r="11" fill="#5F8467"/>
-  <circle cx="112" cy="129" r="11" fill="#5F8467"/>
-  <circle cx="121" cy="96" r="11" fill="#5F8467"/>
+        fill="none" stroke="#4F7FC4" stroke-width="8" stroke-linejoin="round"/>
+  <circle cx="81" cy="125" r="11" fill="#4F7FC4"/>
+  <circle cx="112" cy="129" r="11" fill="#4F7FC4"/>
+  <circle cx="121" cy="96" r="11" fill="#4F7FC4"/>
 </svg>

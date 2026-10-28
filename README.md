@@ -12,7 +12,7 @@ models, behind your sign-in, on one server.
 [![CI](https://github.com/orknux/orknux-server/actions/workflows/ci.yml/badge.svg)](https://github.com/orknux/orknux-server/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/orknux/orknux-server?label=release&sort=semver)](https://github.com/orknux/orknux-server/releases/latest)
 [![Docker](https://img.shields.io/docker/v/orknux/orknux-server?label=docker&sort=semver)](https://hub.docker.com/r/orknux/orknux-server)
-[![Licence](https://img.shields.io/badge/licence-AGPL--3.0-5F8467)](LICENSE)
+[![Licence](https://img.shields.io/badge/licence-AGPL--3.0-4F7FC4)](LICENSE)
 
 [**orknux.io**](https://orknux.io) · [Manual](https://orknux.io/docs) ·
 [Marketplace](https://orknux.io/market) · [Download](https://github.com/orknux/orknux-server/releases/latest) ·
