@@ -18,6 +18,8 @@ const path = require('node:path');
 const START_AGAIN = 75;
 const PREFERRED_PORT = 8080;
 const READY_TIMEOUT_MS = 180_000;
+/** How often the start asks whether the server answers: a refused connection costs nothing, and every tick waited is time the window stays on the splash. */
+const READY_POLL_MS = 100;
 const STOP_GRACE_MS = 15_000;
 
 /**
@@ -66,6 +68,30 @@ function status(url) {
     request.on('timeout', () => request.destroy());
     request.on('error', () => resolve(null));
   });
+}
+
+/** Left in the data directory while the server runs a release rather than the shipped jar. */
+const RAN_RELEASE = 'ran-release';
+/** ReleaseLauncher's BLIND_MARKER: written in the release directory when it could not read the release table. */
+const LAUNCHER_BLIND = 'launcher-could-not-read-releases';
+
+/**
+ * Whether ReleaseLauncher has anything to decide before this start.
+ *
+ * Asking it is a second JVM start, a second or more before the server's own,
+ * and on an ordinary start its answer is always the shipped jar. It has a
+ * choice to make only after the server exited - 75 to follow a release an
+ * administrator activated or rolled back, anything else to count against the
+ * release that crashed - when the last start ran a release, so that one keeps
+ * running, under a pin, or when it could not read the release table last time
+ * and has to clear its marker. A release chosen while none of those held is
+ * still reached: the server restarts itself with 75 when the release it should
+ * run is not the one running (ServerReleases.started).
+ *
+ * @param {{ afterExit: boolean, ranRelease: boolean, blind: boolean, pinned: boolean }} state
+ */
+function launcherNeeded({ afterExit, ranRelease, blind, pinned }) {
+  return afterExit || ranRelease || blind || pinned;
 }
 
 /**
@@ -217,6 +243,7 @@ class Server {
     };
     this.apply(prepared, network);
     this.temp = prepared.temp;
+    this.ranRelease = path.join(data, RAN_RELEASE);
 
     this.loop();
     await this.ready(`${url}/api/auth/method`);
@@ -248,7 +275,7 @@ class Server {
     while (Date.now() - started < READY_TIMEOUT_MS) {
       if (this.child === null && !this.restarting) throw new Error('The server stopped before it was ready.');
       if ((await status(probe)) === 200) return;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
     }
     throw new Error(`The server did not answer within ${READY_TIMEOUT_MS / 1000} seconds.`);
   }
@@ -258,8 +285,18 @@ class Server {
    * shipped jar where it answers nothing usable. Asked before every start, as
    * the script asks, with what the previous start ended in.
    */
-  choose(lastExit, lastJar) {
+  choose(lastExit, lastJar, afterExit) {
     if (!this.selfUpdate) return Promise.resolve(this.imageJar);
+    const asked = launcherNeeded({
+      afterExit,
+      ranRelease: fs.existsSync(this.ranRelease),
+      blind: fs.existsSync(path.join(this.env.ORKNUX_RELEASE_DIR, LAUNCHER_BLIND)),
+      pinned: (this.env.ORKNUX_RELEASE_PIN ?? '').trim() !== '',
+    });
+    if (!asked) {
+      this.log.note('no release to consider; running the shipped jar');
+      return Promise.resolve(this.imageJar);
+    }
     return new Promise((resolve) => {
       execFile(
         this.java,
@@ -294,11 +331,14 @@ class Server {
   async loop() {
     let lastExit = null;
     let lastJar = null;
+    let afterExit = false;
     for (;;) {
       this.restarting = true;
-      const jar = await this.choose(lastExit, lastJar);
+      const jar = await this.choose(lastExit, lastJar, afterExit);
       this.restarting = false;
       if (this.stopping) return;
+      this.noteRelease(jar !== this.imageJar);
+      afterExit = true;
       this.log.note(`starting ${jar} on port ${this.port}`);
       const code = await this.run(jar);
       if (this.stopping) return;
@@ -324,6 +364,16 @@ class Server {
       lastJar = jar;
       this.restarting = true;
       this.log.note(`release ${jar} exited with ${code}; choosing a jar`);
+    }
+  }
+
+  /** Remembers, across quitting the app, whether a release is what runs. */
+  noteRelease(running) {
+    try {
+      if (running) fs.writeFileSync(this.ranRelease, '');
+      else fs.rmSync(this.ranRelease, { force: true });
+    } catch (failure) {
+      this.log.note(`could not note which jar runs: ${failure.message}`);
     }
   }
 
@@ -391,4 +441,4 @@ class Server {
   }
 }
 
-module.exports = { Server, launchOf, restoreTimes, uploadLimitOf };
+module.exports = { Server, launchOf, launcherNeeded, restoreTimes, uploadLimitOf };
