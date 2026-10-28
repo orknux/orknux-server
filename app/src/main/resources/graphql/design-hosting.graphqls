@@ -1,0 +1,22 @@
+# A picture drawn in Design hosted as an artifact: a SAVED-n on the Artifacts
+# page, at an address of its own, that always serves the picture as it is saved
+# in Design - it shares the picture's file rather than holding a copy. Anybody
+# who can see the workspace, as the Artifacts page is.
+
+extend type Mutation {
+    """
+    Hosts a Design picture (DESIGN-n, saved - not an unsaved version) as an
+    artifact, and answers the artifact. Hosting one already hosted answers the
+    artifact it has.
+    """
+    hostDesignImage(workspaceId: ID!, id: ID!): Artifact!
+    "Takes a picture's artifact off the Artifacts page; the picture stays. False where it was not hosted."
+    unhostDesignImage(workspaceId: ID!, id: ID!): Boolean!
+}
+
+extend type Artifact {
+    "For a Design picture hosted as an artifact: that artifact, SAVED-n. Null otherwise."
+    hostedAs: ID
+    "For an artifact that hosts a Design picture: the picture, DESIGN-n. Null otherwise."
+    hostOf: ID
+}

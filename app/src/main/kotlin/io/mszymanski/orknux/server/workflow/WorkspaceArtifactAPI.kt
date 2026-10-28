@@ -96,7 +96,11 @@ class WorkspaceArtifactAPI(
         val drawnPictures =
             pictures.findByWorkspaceId(workspaceId).map { describe(it).also { view -> filedIn[view.id] = it.catalogId } } +
                 taskPictures.findByWorkspaceId(workspaceId).map { describe(it).also { view -> filedIn[view.id] = it.catalogId } } +
-                designImages.findByWorkspaceIdAndVersionOfIsNull(workspaceId).map { describe(it).also { view -> filedIn[view.id] = it.catalogId } }
+                designImages.findByWorkspaceIdAndVersionOfIsNull(workspaceId).let { held ->
+                    // Which of them are hosted as artifacts, read once for the list rather than once a picture.
+                    val hosted = if (held.isEmpty()) emptyMap() else hostedIn(workspaceId)
+                    held.map { describe(it).copy(hostedAs = hosted[it.id]).also { view -> filedIn[view.id] = it.catalogId } }
+                }
         val filed: (List<ArtifactView>) -> List<ArtifactView> = if (drawn != true) {
             { it }
         } else {
@@ -183,9 +187,63 @@ class WorkspaceArtifactAPI(
 
             ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)
                 ?.takeIf { it.workspaceId == workspaceId }
-                ?.let(::describe)
+                ?.let { image -> describe(image).copy(hostedAs = saved.findByHostedImageId(rowId)?.let { "${ArtifactKind.SAVED.name}-${it.id}" }) }
         }
     }
+
+    /**
+     * A picture drawn in Design hosted as an artifact: the saved artifact that
+     * refers to it, made where there is none and the one there is where there
+     * is, so hosting twice shows the address it already has. It shares the
+     * picture's file rather than copying it; [replaceBytes] keeps it on the
+     * picture's file as the picture is saved. Null for a picture that is not
+     * a Design picture of this workspace, or is an unsaved version of one.
+     * Not held to the ceiling on saved artifacts, which counts files on disk:
+     * this adds none. Access is the caller's to have checked.
+     *
+     * @return the artifact, and whether it was made now.
+     */
+    fun host(workspaceId: Long, imageId: String): Pair<SavedArtifact, Boolean>? {
+        val (kind, rowId) = parse(imageId) ?: return null
+        if (kind != ArtifactKind.DESIGN) return null
+        val image = designImages.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId && it.versionOf == null } ?: return null
+        saved.findByHostedImageId(rowId)?.let { return it to false }
+        val made = saved.save(
+            SavedArtifact(
+                workspaceId = workspaceId,
+                name = image.filename,
+                description = image.name ?: image.prompt,
+                contentType = image.contentType,
+                sizeBytes = image.sizeBytes,
+                location = image.location,
+                savedBy = HOSTED_BY,
+                hostedImageId = rowId,
+            ),
+        )
+        return made to true
+    }
+
+    /** The artifact hosting a picture removed, and never its file, which is the picture's. Null where it was not hosted. */
+    fun unhost(workspaceId: Long, imageId: String): SavedArtifact? {
+        val (kind, rowId) = parse(imageId) ?: return null
+        if (kind != ArtifactKind.DESIGN) return null
+        val host = saved.findByHostedImageId(rowId)?.takeIf { it.workspaceId == workspaceId } ?: return null
+        saved.delete(host)
+        return host
+    }
+
+    /** The artifact hosting a picture takes the picture's new file name, so the two are called the same. */
+    fun hostRenamed(imageRowId: Long, filename: String) {
+        saved.findByHostedImageId(imageRowId)?.let { host ->
+            host.name = filename
+            saved.save(host)
+        }
+    }
+
+    /** The pictures of a workspace hosted as artifacts: the picture's row id, to the artifact's id. */
+    private fun hostedIn(workspaceId: Long): Map<Long, String> =
+        saved.findByWorkspaceIdAndHostedImageIdIsNotNull(workspaceId)
+            .associate { requireNotNull(it.hostedImageId) to "${ArtifactKind.SAVED.name}-${it.id}" }
 
     /**
      * The image catalog a drawn picture is filed in, as stored - null where it
@@ -265,6 +323,10 @@ class WorkspaceArtifactAPI(
                 was
             }
             ArtifactKind.SAVED -> saved.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.let {
+                // A hosted picture has no file of its own: what it is changed into is the picture's.
+                it.hostedImageId?.let { image ->
+                    return replaceBytes(workspaceId, "${ArtifactKind.DESIGN.name}-$image", location, contentType, sizeBytes)
+                }
                 val was = it.location
                 it.location = location
                 it.contentType = contentType
@@ -278,6 +340,17 @@ class WorkspaceArtifactAPI(
                 it.contentType = contentType
                 it.sizeBytes = sizeBytes
                 designImages.save(it)
+                /*
+                 * The artifact hosting it shares its file, so it moves to the
+                 * new one here - the one place a picture's file is replaced -
+                 * and serves the picture as it now is, with nothing copied.
+                 */
+                saved.findByHostedImageId(rowId)?.let { host ->
+                    host.location = location
+                    host.contentType = contentType
+                    host.sizeBytes = sizeBytes
+                    saved.save(host)
+                }
                 was
             }
         } ?: return false
@@ -315,16 +388,26 @@ class WorkspaceArtifactAPI(
             ArtifactKind.SAVED -> saved.findByIdOrNull(rowId)
                 ?.takeIf { access.canSee(it.workspaceId) }
                 ?.also { saved.delete(it) }
-                ?.let { Removed(it.workspaceId, it.name, it.location) }
+                // One hosting a picture shares the picture's file, which stays with the picture.
+                ?.let { Removed(it.workspaceId, it.name, it.location.takeIf { _ -> it.hostedImageId == null }) }
 
             ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)
                 ?.takeIf { access.canSee(it.workspaceId) }
-                ?.also { designImages.delete(it) }
+                ?.also { image ->
+                    // The artifact hosting it serves its file, which goes now: said here rather than left to the cascade alone.
+                    saved.findByHostedImageId(rowId)?.let { host ->
+                        saved.delete(host)
+                        auditRecorder.record(image.workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image ${image.name ?: image.filename} no longer hosted as artifact")
+                    }
+                    designImages.delete(image)
+                }
                 ?.let { Removed(it.workspaceId, it.filename, it.location) }
         } ?: return false
 
-        runCatching { store.remove(gone.location) }
-            .onFailure { log.warn("Artifact {} row deleted but its file at {} was not", id, gone.location, it) }
+        gone.location?.let { location ->
+            runCatching { store.remove(location) }
+                .onFailure { log.warn("Artifact {} row deleted but its file at {} was not", id, location, it) }
+        }
         // Its draft goes with it: unsaved changes to a picture that is gone have nothing to be saved over.
         designImages.findByWorkspaceIdAndVersionOf(gone.workspaceId, id).forEach { version ->
             designImages.delete(version)
@@ -351,7 +434,7 @@ class WorkspaceArtifactAPI(
     private fun versioned(path: String, location: String): String = "$path?v=${Integer.toHexString(location.hashCode())}"
 
     /** What a delete took, so the audit and the sweep read one shape for both kinds. */
-    private data class Removed(val workspaceId: Long, val filename: String, val location: String)
+    private data class Removed(val workspaceId: Long, val filename: String, val location: String?)
 
     /**
      * An id that says which table it came from.
@@ -406,6 +489,7 @@ class WorkspaceArtifactAPI(
         contentType = artifact.contentType,
         sizeBytes = artifact.sizeBytes,
         url = versioned("/api/artifacts/" + artifact.id, artifact.location),
+        hostOf = artifact.hostedImageId?.let { "${ArtifactKind.DESIGN.name}-$it" },
         // Marked as the file's own address is: a replaced artifact keeps both addresses, and the viewer's frame reloads only when its src changes.
         previewUrl = versioned("/api/artifacts/${artifact.id}/preview", artifact.location).takeIf { readable(artifact.contentType) },
         drawnAt = artifact.savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
@@ -447,6 +531,10 @@ class WorkspaceArtifactAPI(
         at = picture.drawnAt,
     )
 
+    companion object {
+        /** Who the Artifacts page says a hosted picture came from. */
+        const val HOSTED_BY = "Design"
+    }
 }
 
 /**
@@ -521,6 +609,10 @@ data class ArtifactView(
     /** The image catalog of a picture on Design's Images page, in a list asked for with drawn; null otherwise. */
     val catalogId: String? = null,
     val catalogName: String? = null,
+    /** For a picture drawn in Design that is hosted as an artifact: that artifact, SAVED-n. Null otherwise. */
+    val hostedAs: String? = null,
+    /** For an artifact hosting a picture drawn in Design: the picture, DESIGN-n. Null otherwise. */
+    val hostOf: String? = null,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */
     fun matches(looking: String): Boolean =

@@ -85,6 +85,15 @@ class SavedArtifact(
 
     @Column(name = "saved_at", nullable = false)
     val savedAt: OffsetDateTime = OffsetDateTime.now(),
+
+    /**
+     * The picture drawn in Design this hosts, where it hosts one: the row then
+     * shares that picture's file rather than holding one of its own - [location]
+     * is the picture's, kept the same as it is saved - so it is never removed
+     * or replaced as this row's. Null for a file somebody saved.
+     */
+    @Column(name = "hosted_image_id")
+    val hostedImageId: Long? = null,
 )
 
 interface SavedArtifactRepository : JpaRepository<SavedArtifact, Long> {
@@ -100,4 +109,10 @@ interface SavedArtifactRepository : JpaRepository<SavedArtifact, Long> {
 
     /** How many this workspace holds, which is what the ceiling is compared against. */
     fun countByWorkspaceId(workspaceId: Long): Long
+
+    /** The artifact hosting a picture drawn in Design, where it is hosted. */
+    fun findByHostedImageId(hostedImageId: Long): SavedArtifact?
+
+    /** Every artifact in a workspace that hosts a picture: which pictures are hosted, for a list that marks them. */
+    fun findByWorkspaceIdAndHostedImageIdIsNotNull(workspaceId: Long): List<SavedArtifact>
 }

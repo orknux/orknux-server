@@ -99,6 +99,13 @@ class SavedArtifacts(
     private fun swap(workspaceId: Long, id: Long, name: String, description: String?, read: () -> ByteArray?): Replacing {
         val artifact = artifacts.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId }
             ?: return Replacing.Missing("This workspace has no saved artifact ${ArtifactKind.SAVED.name}-$id.")
+        // Its file is a picture's in Design: replacing it here would leave the two telling different stories.
+        if (artifact.hostedImageId != null) {
+            return Replacing.Refused(
+                "${ArtifactKind.SAVED.name}-$id hosts the picture ${ArtifactKind.DESIGN.name}-${artifact.hostedImageId} from Design " +
+                    "and always shows it as it is saved there; change the picture in Design instead.",
+            )
+        }
         val vetted = when (
             val checked = vet(name, description?.takeIf { it.isNotBlank() } ?: artifact.description, settings.maxFileSizeMb() * 1024 * 1024, read)
         ) {

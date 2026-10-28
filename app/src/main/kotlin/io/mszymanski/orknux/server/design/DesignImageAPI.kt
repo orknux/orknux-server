@@ -664,6 +664,7 @@ class DesignImageAPI(
             image.name = called
             image.filename = PictureFilenames.of(called, image.contentType)
             images.save(image)
+            artifacts.hostRenamed(requireNotNull(image.id), image.filename)
             auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image $before renamed to $called in Design")
         }
         return artifacts.describe(image)
@@ -730,6 +731,36 @@ class DesignImageAPI(
             auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image ${held.name ?: held.filename} moved to ${into.name}")
         }
         return requireNotNull(artifacts.storedOf(workspaceId, id)).view.copy(catalogId = into.id.toString(), catalogName = into.name)
+    }
+
+    /**
+     * A picture drawn in Design given a place on the Artifacts page - an
+     * artifact at an address of its own that always serves the picture as it
+     * is saved in Design, since it shares the picture's file rather than
+     * holding a copy. Hosting one already hosted answers the artifact it has.
+     */
+    @MutationMapping
+    @Transactional
+    fun hostDesignImage(@Argument workspaceId: Long, @Argument id: String): ArtifactView {
+        access.requireVisible(workspaceId)
+        val (host, made) = artifacts.host(workspaceId, id)
+            ?: throw DesignImageRefusedException("Only a picture saved in Design can be hosted as an artifact, and that one is not here.")
+        if (made) {
+            val image = requireNotNull(artifacts.storedOf(workspaceId, id)).view
+            auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image ${image.name ?: image.filename} hosted as artifact")
+        }
+        return requireNotNull(artifacts.storedOf(workspaceId, "SAVED-${host.id}")).view
+    }
+
+    /** A picture's artifact taken off the Artifacts page; the picture stays in Design as it was. False where it was not hosted. */
+    @MutationMapping
+    @Transactional
+    fun unhostDesignImage(@Argument workspaceId: Long, @Argument id: String): Boolean {
+        access.requireVisible(workspaceId)
+        artifacts.unhost(workspaceId, id) ?: return false
+        val image = artifacts.storedOf(workspaceId, id)?.view
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image ${image?.name ?: image?.filename ?: id} no longer hosted as artifact")
+        return true
     }
 
     /** Every unsaved version of a picture thrown away, files and all. */

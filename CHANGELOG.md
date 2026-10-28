@@ -24,6 +24,7 @@ have failed.
 - **Agents and MCP clients work in sheets** with `orknux_sheets`, `orknux_sheet`, `orknux_create_sheet`, `orknux_write_sheet_cells` and `orknux_change_sheet_tabs`; each answer says what the cells written now show, and which came to an error.
 - **Design's Images page makes an image from outside**: Paste takes the picture on the clipboard (Ctrl+V anywhere on the page does the same), Import takes picture files, and a picture dropped on the page is taken too. One picture opens in the image editor; several are kept in the gallery.
 - **Catalogs on Design's Images, Wireframes and Videos pages**, as Documents has: a column of catalogs beside the list, a catalog made, renamed and deleted once empty, anything made, imported or pasted filed in the catalog being looked at, and a card moved to another through its menu - a picture whatever drew it, a video with its larger versions. Every workspace has a General catalog of each kind that nobody has to make and nobody can delete. `orknux_wireframes` names each wireframe's catalog and narrows to one, and `orknux_create_wireframe` takes a catalog.
+- **A picture in Design can be hosted as an artifact** from its preview on the Images page: it gets a place on the Artifacts page and an address of its own, shown with Copy link, that always serves the picture as it is saved in Design - an edit saved there is what the address serves next, with nothing copied. Hosting again shows the same address; Stop hosting takes the artifact away and leaves the picture.
 
 ### 🔧 Changed
 
