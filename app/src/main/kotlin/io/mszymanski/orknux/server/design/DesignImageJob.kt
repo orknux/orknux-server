@@ -134,6 +134,10 @@ class DesignImageJob(
      */
     @Column(name = "finished_at")
     var finishedAt: OffsetDateTime? = null,
+
+    /** The image catalog the picture this draws is filed in once it is drawn; null is the workspace's default. */
+    @Column(name = "catalog_id")
+    var catalogId: Long? = null,
 )
 
 interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {

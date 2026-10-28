@@ -61,6 +61,8 @@ class DesignImageAPI(
     private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
     private val layers: DesignImageLayers,
     private val estimates: DesignImageEstimates,
+    /** The image catalogs a picture is filed in. */
+    private val catalogs: DesignCatalogs,
 ) {
 
     /**
@@ -137,6 +139,7 @@ class DesignImageAPI(
                 requestedBy = currentName(),
                 name = called,
                 negativePrompt = negativeFor(model, input.negativePrompt),
+                catalogId = catalogs.resolve(workspaceId, DesignCatalogKind.IMAGE, input.catalogId?.toLongOrNull()),
             ),
         )
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image queued in Design with ${model.name}")
@@ -361,6 +364,7 @@ class DesignImageAPI(
     fun importDesignImage(@Argument input: ImportDesignImageInput): ArtifactView {
         val workspaceId = input.workspaceId.toLong()
         access.requireVisible(workspaceId)
+        val filed = catalogs.resolve(workspaceId, DesignCatalogKind.IMAGE, input.catalogId?.toLongOrNull())
         if (!settings.attachmentsEnabled()) {
             throw DesignImageRefusedException("A picture is kept as an attachment, and attachments are turned off for this installation.")
         }
@@ -399,6 +403,7 @@ class DesignImageAPI(
                 location = store.put(workspaceId, filename, bytes),
                 drawnBy = project?.drawnBy?.take(255) ?: currentName(),
                 name = name,
+                catalogId = filed,
             ),
         )
         // The archive's layers come with it, checked as a change's are.
@@ -684,6 +689,8 @@ class DesignImageAPI(
             // A picture of its own, beside the one it was made from, which stays as it was saved.
             val from = artifacts.storedOf(workspaceId, of)?.view
             version.versionOf = null
+            // Beside it in its catalog, as a copy made in a folder is.
+            version.catalogId = artifacts.catalogOf(workspaceId, of)
             version.name = "${from?.name ?: version.name ?: PictureFilenames.nameOf(version.prompt)} (copy)"
             version.filename = PictureFilenames.of(requireNotNull(version.name), version.contentType)
             artifacts.describe(images.save(version))
@@ -704,6 +711,25 @@ class DesignImageAPI(
             if (asCopy == true) "Changes saved as ${kept.name ?: kept.filename} in Design" else "Changes to ${kept.name ?: kept.filename} saved in Design",
         )
         return kept
+    }
+
+    /**
+     * Files a picture on the Images page in another of its workspace's image
+     * catalogs, whatever drew it - Design, a run or a task.
+     */
+    @MutationMapping
+    @Transactional
+    fun moveDesignImage(@Argument workspaceId: Long, @Argument id: String, @Argument catalogId: Long): ArtifactView {
+        access.requireVisible(workspaceId)
+        val into = catalogs.catalog(workspaceId, DesignCatalogKind.IMAGE, catalogId)
+        val held = artifacts.storedOf(workspaceId, id)?.view ?: throw DesignImageRefusedException("That picture is not here any more.")
+        if (artifacts.catalogOf(workspaceId, id) != into.id) {
+            if (!artifacts.fileIn(workspaceId, id, requireNotNull(into.id))) {
+                throw DesignImageRefusedException("Only a picture on the Images page is filed in an image catalog.")
+            }
+            auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image ${held.name ?: held.filename} moved to ${into.name}")
+        }
+        return requireNotNull(artifacts.storedOf(workspaceId, id)).view.copy(catalogId = into.id.toString(), catalogName = into.name)
     }
 
     /** Every unsaved version of a picture thrown away, files and all. */
@@ -882,6 +908,8 @@ data class DrawDesignImageInput(
     val name: String? = null,
     /** What the picture must not contain; null or blank is the model's default. */
     val negativePrompt: String? = null,
+    /** The image catalog the drawn picture is filed in; null is the workspace's default. */
+    val catalogId: String? = null,
 )
 
 data class EditDesignImageInput(
@@ -917,6 +945,8 @@ data class ImportDesignImageInput(
     val archive: String? = null,
     val name: String? = null,
     val prompt: String? = null,
+    /** The image catalog to file it in; null is the workspace's default. */
+    val catalogId: String? = null,
 )
 
 data class ImageEditorSettingsView(

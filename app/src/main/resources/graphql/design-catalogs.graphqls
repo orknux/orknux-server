@@ -1,0 +1,76 @@
+# Catalogs for Design's images, wireframes and videos: a table of folders per
+# kind, one set of rules for the three. Every workspace has a default catalog of
+# each kind - General, made the first time it is needed - which anything not
+# filed elsewhere is in, which can be renamed and never deleted. Anybody who can
+# see the workspace.
+
+"What a Design catalog holds."
+enum DesignCatalogKind {
+    IMAGE
+    WIREFRAME
+    VIDEO
+}
+
+extend type Query {
+    "A workspace's catalogs of one kind: the default first, then the rest by name."
+    designCatalogs(workspaceId: ID!, kind: DesignCatalogKind!): [DesignCatalog!]!
+}
+
+extend type Mutation {
+    createDesignCatalog(workspaceId: ID!, kind: DesignCatalogKind!, name: String!): DesignCatalog!
+    renameDesignCatalog(workspaceId: ID!, kind: DesignCatalogKind!, id: ID!, name: String!): DesignCatalog!
+    "Refused for the default catalog, and while the catalog holds anything."
+    deleteDesignCatalog(workspaceId: ID!, kind: DesignCatalogKind!, id: ID!): Boolean!
+    "Files a wireframe in another of its workspace's wireframe catalogs."
+    moveWireframe(id: ID!, catalogId: ID!): Wireframe!
+    "Files a video, with the versions made of it, in another of its workspace's video catalogs."
+    moveDesignVideo(workspaceId: ID!, id: ID!, catalogId: ID!): DesignVideo!
+    """
+    Files a picture on Design's Images page - drawn in Design, by a run or by a
+    task - in another of its workspace's image catalogs. `id` is its artifact id.
+    """
+    moveDesignImage(workspaceId: ID!, id: ID!, catalogId: ID!): Artifact!
+}
+
+"A folder of one kind of Design's things."
+type DesignCatalog {
+    id: ID!
+    name: String!
+    "The workspace's default of its kind: where anything not filed elsewhere is. It cannot be deleted."
+    isDefault: Boolean!
+    "How many things it holds; a version is not counted on its own."
+    count: Int!
+}
+
+extend type Wireframe {
+    "The catalog it is filed in: the default where it was never filed."
+    catalogId: ID!
+    catalogName: String!
+}
+
+extend type DesignVideo {
+    "The catalog it is filed in: the default where it was never filed. A version is in its original's."
+    catalogId: ID!
+    catalogName: String!
+}
+
+extend type Artifact {
+    "The image catalog of a picture on Design's Images page, in a list asked for with drawn; null otherwise."
+    catalogId: ID
+    catalogName: String
+}
+
+extend input ImportDesignImageInput {
+    "The image catalog to file it in; the default when left out."
+    catalogId: ID
+}
+
+extend input DrawDesignImageInput {
+    "The image catalog the drawn picture is filed in; the default when left out."
+    catalogId: ID
+}
+
+extend input QueueDesignVideoInput {
+    "The video catalog to file it in; the default when left out."
+    catalogId: ID
+}

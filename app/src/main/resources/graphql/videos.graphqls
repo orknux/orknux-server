@@ -8,7 +8,7 @@ extend type Query {
     """
     designVideoSettings(workspaceId: ID!, modelId: ID!): DesignVideoSettings!
     "This workspace's videos, newest first: made, on their way, failed or stopped."
-    designVideos(workspaceId: ID!, search: String): [DesignVideo!]!
+    designVideos(workspaceId: ID!, search: String, catalogId: ID): [DesignVideo!]!
     "One video, in whatever state it is; null for one not here."
     designVideo(workspaceId: ID!, id: ID!): DesignVideo
 }

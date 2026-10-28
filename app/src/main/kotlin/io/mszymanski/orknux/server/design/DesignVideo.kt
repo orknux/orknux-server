@@ -161,6 +161,10 @@ class DesignVideo(
 
     @Column(name = "frames_total")
     var framesTotal: Int? = null,
+
+    /** The video catalog it is filed in; null is the workspace's default, as it is for a row an older release wrote. */
+    @Column(name = "catalog_id")
+    var catalogId: Long? = null,
 )
 
 interface DesignVideoRepository : JpaRepository<DesignVideo, Long> {

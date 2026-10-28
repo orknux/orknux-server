@@ -64,6 +64,8 @@ class DesignVideoAPI(
     private val upscaler: DesignVideoUpscaler,
     private val tuning: Tuning,
     private val exports: DesignVideoExports,
+    /** The video catalogs a video is filed in. */
+    private val catalogs: DesignCatalogs,
 ) {
 
     /** What one video model takes beyond a prompt, asked of its backend now. */
@@ -81,14 +83,17 @@ class DesignVideoAPI(
 
     /** The workspace's videos, newest first - made, on their way, failed or stopped - matching [search] where one is given. */
     @QueryMapping
-    fun designVideos(@Argument workspaceId: Long, @Argument search: String?): List<DesignVideoView> {
+    @Transactional
+    fun designVideos(@Argument workspaceId: Long, @Argument search: String?, @Argument catalogId: Long?): List<DesignVideoView> {
         access.requireVisible(workspaceId)
         val hunted = search?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
         val all = videos.findByWorkspaceIdOrderByRequestedAtDescIdDesc(workspaceId)
         val queued = queuedOrder()
+        val named = filing(workspaceId)
         return all
             .filter { hunted == null || it.name.lowercase().contains(hunted) || it.prompt.lowercase().contains(hunted) }
-            .map { view(it, queued) }
+            .filter { catalogId == null || (it.catalogId ?: named.first) == catalogId }
+            .map { view(it, queued, named) }
     }
 
     /** One video, in whatever state it is; null for one not here. */
@@ -168,6 +173,7 @@ class DesignVideoAPI(
                 seed = number(VideoSettingNames.SEED, seedOf(input.seed)),
                 startImageId = startImageId,
                 requestedBy = currentName(),
+                catalogId = catalogs.resolve(workspaceId, DesignCatalogKind.VIDEO, input.catalogId?.toLongOrNull()),
             ),
         )
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video queued in Design with ${model.name}")
@@ -221,6 +227,8 @@ class DesignVideoAPI(
                 upscaledFrom = source.id,
                 upscaler = input.algorithm?.trim()?.takeIf { it.isNotEmpty() },
                 scale = input.scale,
+                // A version of the video, so filed where the video is.
+                catalogId = source.catalogId,
             ),
         )
         auditRecorder.record(
@@ -262,6 +270,27 @@ class DesignVideoAPI(
         if (stopped.upscaledFrom != null) upscaler.stopped(stopped) else queue.stopped(stopped)
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video ${video.name} stopped in Design")
         return view(stopped, queuedOrder())
+    }
+
+    /**
+     * Files a video in another of its workspace's video catalogs - and the
+     * versions made of it with it, which are listed beside it wherever it is.
+     */
+    @MutationMapping
+    @Transactional
+    fun moveDesignVideo(@Argument workspaceId: Long, @Argument id: Long, @Argument catalogId: Long): DesignVideoView {
+        access.requireVisible(workspaceId)
+        val video = videos.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw DesignVideoRefusedException("That video is not here any more.")
+        val into = catalogs.catalog(workspaceId, DesignCatalogKind.VIDEO, catalogId)
+        val root = video.versionOf ?: requireNotNull(video.id)
+        val family = videos.findByWorkspaceIdOrderByRequestedAtDescIdDesc(workspaceId).filter { it.id == root || it.versionOf == root }
+        if (family.any { it.catalogId != into.id }) {
+            family.forEach { it.catalogId = into.id }
+            videos.saveAll(family)
+            auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video ${video.name} moved to ${into.name}")
+        }
+        return view(requireNotNull(videos.findByIdOrNull(id)), queuedOrder())
     }
 
     /** A video taken off the page, its file with it. Not one being made: stop it first. */
@@ -369,8 +398,17 @@ class DesignVideoAPI(
         return listOf(made, upscaled).flatMap { queue -> queue.mapIndexedNotNull { index, video -> video.id?.let { it to index } } }.toMap()
     }
 
-    private fun view(video: DesignVideo, queued: Map<Long, Int>): DesignVideoView {
+    /** The workspace's default video catalog, and every video catalog's name by id. */
+    private fun filing(workspaceId: Long): Pair<Long, Map<Long, String>> =
+        requireNotNull(catalogs.defaultOf(workspaceId, DesignCatalogKind.VIDEO).id) to catalogs.names(workspaceId, DesignCatalogKind.VIDEO)
+
+    private fun view(
+        video: DesignVideo,
+        queued: Map<Long, Int>,
+        named: Pair<Long, Map<Long, String>> = filing(video.workspaceId),
+    ): DesignVideoView {
         val id = requireNotNull(video.id)
+        val filed = video.catalogId ?: named.first
         val start = video.startImageId?.let { artifacts.storedOf(video.workspaceId, it) }?.view
         return DesignVideoView(
             id = id.toString(),
@@ -408,6 +446,8 @@ class DesignVideoAPI(
             scale = video.scale,
             framesDone = video.framesDone,
             framesTotal = video.framesTotal,
+            catalogId = filed.toString(),
+            catalogName = named.second[filed].orEmpty(),
         )
     }
 
@@ -455,6 +495,8 @@ data class QueueDesignVideoInput(
     val seed: String? = null,
     /** A picture of the workspace's to start from, by its artifact id. */
     val startImageId: String? = null,
+    /** The video catalog to file it in; null is the workspace's default. */
+    val catalogId: String? = null,
 )
 
 data class DesignVideoSettingView(
@@ -515,6 +557,9 @@ data class DesignVideoView(
     /** How many of an upscale's frames are done, of [framesTotal]; null until it has counted them. */
     val framesDone: Int? = null,
     val framesTotal: Int? = null,
+    /** The catalog it is filed in: the default where it was never filed. A version is in its original's. */
+    val catalogId: String = "",
+    val catalogName: String = "",
 )
 
 /** Where an export is downloaded from, and what it is. */

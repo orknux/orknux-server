@@ -79,6 +79,10 @@ class DesignImage(
      */
     @Column(name = "version_of", length = 80)
     var versionOf: String? = null,
+
+    /** The image catalog it is filed in; null is the workspace's default. A version is filed nowhere until it is saved as a picture of its own. */
+    @Column(name = "catalog_id")
+    var catalogId: Long? = null,
 )
 
 interface DesignImageRepository : JpaRepository<DesignImage, Long> {

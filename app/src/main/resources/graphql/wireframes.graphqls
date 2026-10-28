@@ -3,15 +3,15 @@
 # model through the orknux_* wireframe tools. Anybody who can see the workspace.
 
 extend type Query {
-    "A workspace's wireframes, the one worked on last first."
-    wireframes(workspaceId: ID!): [Wireframe!]!
+    "A workspace's wireframes, the one worked on last first; with catalogId, that catalog's."
+    wireframes(workspaceId: ID!, catalogId: ID): [Wireframe!]!
     "One wireframe; null where there is none."
     wireframe(id: ID!): Wireframe
 }
 
 extend type Mutation {
-    "Makes a wireframe, empty or holding `document`."
-    createWireframe(workspaceId: ID!, name: String!, document: String): Wireframe!
+    "Makes a wireframe, empty or holding `document`, in `catalogId` or the workspace's default wireframe catalog."
+    createWireframe(workspaceId: ID!, name: String!, document: String, catalogId: ID): Wireframe!
     renameWireframe(id: ID!, name: String!): Wireframe!
     """
     Writes a whole drawing over the one held. With `revision`, refused when the

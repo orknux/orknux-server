@@ -171,6 +171,8 @@ class DesignDrawQueue(
                             name = job.name ?: source?.view?.name ?: PictureFilenames.nameOf(job.prompt),
                             // An edit is a version of the picture it changes - of the picture itself, not of the round before.
                             versionOf = source?.let { it.view.versionOf ?: job.sourceId },
+                            // A picture of its own is filed where it was asked for; a version is filed nowhere until it is saved as one.
+                            catalogId = if (source == null) job.catalogId else null,
                         ),
                     )
                     // Kept before the row says DRAWN, so a page that sees it drawn finds its layers too.

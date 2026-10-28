@@ -62,6 +62,10 @@ class TaskPicture(
 
     @Column(name = "drawn_at", nullable = false)
     val drawnAt: OffsetDateTime = OffsetDateTime.now(),
+
+    /** The image catalog it is filed in on Design's Images page; null is the workspace's default, which is where a task's picture lands. */
+    @Column(name = "catalog_id")
+    var catalogId: Long? = null,
 )
 
 interface TaskPictureRepository : JpaRepository<TaskPicture, Long> {

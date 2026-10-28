@@ -54,6 +54,8 @@ class WorkspaceArtifactAPI(
     private val auditRecorder: WorkspaceAuditRecorder,
     /** A picture's layers in the image editor, which go with it. */
     private val layers: io.mszymanski.orknux.server.design.DesignImageLayers,
+    /** The image catalogs the Images page files its pictures in. Lazy: the catalogs are Design's, and Design reaches here. */
+    @param:org.springframework.context.annotation.Lazy private val catalogs: io.mszymanski.orknux.server.design.DesignCatalogs,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -79,18 +81,38 @@ class WorkspaceArtifactAPI(
         @Argument size: Int?,
         @Argument search: String?,
         @Argument drawn: Boolean?,
+        @Argument catalogId: Long?,
     ): ArtifactPage {
         access.requireVisible(workspaceId)
         val looking = search?.trim().orEmpty()
         val keptFiles = if (drawn == true) emptyList() else saved.findByWorkspaceId(workspaceId).map(::describe)
 
-        val all = (
-            pictures.findByWorkspaceId(workspaceId).map(::describe) +
-                taskPictures.findByWorkspaceId(workspaceId).map(::describe) +
-                designImages.findByWorkspaceIdAndVersionOfIsNull(workspaceId).map(::describe) +
-                keptFiles
-            )
+        /*
+         * Which image catalog each drawn picture is in - asked only by Design's
+         * Images page (drawn), whose catalogs these are; the Artifacts page
+         * lists files and knows nothing of them.
+         */
+        val filedIn = mutableMapOf<String, Long?>()
+        val drawnPictures =
+            pictures.findByWorkspaceId(workspaceId).map { describe(it).also { view -> filedIn[view.id] = it.catalogId } } +
+                taskPictures.findByWorkspaceId(workspaceId).map { describe(it).also { view -> filedIn[view.id] = it.catalogId } } +
+                designImages.findByWorkspaceIdAndVersionOfIsNull(workspaceId).map { describe(it).also { view -> filedIn[view.id] = it.catalogId } }
+        val filed: (List<ArtifactView>) -> List<ArtifactView> = if (drawn != true) {
+            { it }
+        } else {
+            val fallback = requireNotNull(catalogs.defaultOf(workspaceId, io.mszymanski.orknux.server.design.DesignCatalogKind.IMAGE).id)
+            val names = catalogs.names(workspaceId, io.mszymanski.orknux.server.design.DesignCatalogKind.IMAGE)
+            ;{ listed ->
+                listed.mapNotNull { view ->
+                    val catalog = filedIn[view.id] ?: fallback
+                    if (catalogId != null && catalog != catalogId) null else view.copy(catalogId = catalog.toString(), catalogName = names[catalog])
+                }
+            }
+        }
+
+        val all = (drawnPictures + keptFiles)
             .filter { looking.isEmpty() || it.matches(looking) }
+            .let(filed)
             .sortedWith(compareByDescending<ArtifactView> { it.at }.thenByDescending { it.id })
             .let { listed ->
                 // Which of them carry a draft: unsaved changes kept until Save or Discard.
@@ -162,6 +184,39 @@ class WorkspaceArtifactAPI(
             ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)
                 ?.takeIf { it.workspaceId == workspaceId }
                 ?.let(::describe)
+        }
+    }
+
+    /**
+     * The image catalog a drawn picture is filed in, as stored - null where it
+     * is in the default, or is not a drawn picture of this workspace.
+     */
+    fun catalogOf(workspaceId: Long, id: String): Long? {
+        val (kind, rowId) = parse(id) ?: return null
+        return when (kind) {
+            ArtifactKind.IMAGE -> pictures.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.catalogId
+            ArtifactKind.TASK -> taskPictures.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.catalogId
+            ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.catalogId
+            ArtifactKind.SAVED -> null
+        }
+    }
+
+    /**
+     * A drawn picture filed in an image catalog, whatever drew it. False for
+     * one that is not a drawn picture of this workspace - a saved file has no
+     * place on the Images page to be filed on. Access, and that the catalog is
+     * this workspace's, are the caller's to have checked.
+     */
+    fun fileIn(workspaceId: Long, id: String, catalogId: Long): Boolean {
+        val (kind, rowId) = parse(id) ?: return false
+        return when (kind) {
+            ArtifactKind.IMAGE -> pictures.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }
+                ?.also { it.catalogId = catalogId; pictures.save(it) } != null
+            ArtifactKind.TASK -> taskPictures.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }
+                ?.also { it.catalogId = catalogId; taskPictures.save(it) } != null
+            ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId && it.versionOf == null }
+                ?.also { it.catalogId = catalogId; designImages.save(it) } != null
+            ArtifactKind.SAVED -> false
         }
     }
 
@@ -391,6 +446,7 @@ class WorkspaceArtifactAPI(
         drawnAt = picture.drawnAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         at = picture.drawnAt,
     )
+
 }
 
 /**
@@ -462,6 +518,9 @@ data class ArtifactView(
     val draft: String? = null,
     /** Where that draft's picture is - what a picture with a draft is shown as; null where it has none. */
     val draftUrl: String? = null,
+    /** The image catalog of a picture on Design's Images page, in a list asked for with drawn; null otherwise. */
+    val catalogId: String? = null,
+    val catalogName: String? = null,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */
     fun matches(looking: String): Boolean =

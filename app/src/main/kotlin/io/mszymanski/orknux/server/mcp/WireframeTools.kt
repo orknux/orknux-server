@@ -2,6 +2,7 @@ package io.mszymanski.orknux.server.mcp
 
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
+import io.mszymanski.orknux.server.design.DesignCatalogKind
 import io.mszymanski.orknux.server.design.WireframeAPI
 import io.mszymanski.orknux.server.design.WireframeDocument
 import io.mszymanski.orknux.server.design.WireframeDocumentInvalidException
@@ -50,6 +51,8 @@ class WireframeTools(
     /** Where that picture's SVG is kept, under a key, as every drawing in a session is. */
     private val scratch: LlmSessionStore,
     private val tuning: Tuning = Tuning.DEFAULTS,
+    /** The wireframe catalogs a list narrows to and a new one is filed in. */
+    private val catalogs: io.mszymanski.orknux.server.design.DesignCatalogs,
 ) {
 
     private val document = WireframeDocument(mapper)
@@ -61,8 +64,9 @@ class WireframeTools(
             ToolSpec(
                 name = LIST,
                 description = "The wireframes in this workspace - the mockups of screens, pages and forms drawn here - the one " +
-                    "worked on last first: id, name, how many elements each holds, and where it opens.",
-                parameters = emptyList(),
+                    "worked on last first: id, name, the catalog it is filed in, how many elements each holds, and where it opens. " +
+                    "Narrow it to one catalog by name.",
+                parameters = listOf(ToolParameterSpec(CATALOG, "Only this catalog's wireframes, by name.", required = false)),
                 summary = "Lists the workspace's wireframes (mockups)",
             ),
         )
@@ -97,6 +101,11 @@ class WireframeTools(
                 summary = "Draws a mockup of a screen or form",
                 parameters = listOf(
                     ToolParameterSpec("name", "What it is called.", required = true),
+                    ToolParameterSpec(
+                        CATALOG,
+                        "The catalog to file it in, by name; made if there is none of that name. The workspace's default when left out.",
+                        required = false,
+                    ),
                     ToolParameterSpec(ADD, "The elements to start it with. $ELEMENT_SAID", required = false, schema = ELEMENT_LIST),
                     AgentTools.SHOW_PARAM,
                 ),
@@ -149,7 +158,7 @@ class WireframeTools(
             ?: return refuse("The arguments are not JSON")
         return try {
             when (name) {
-                LIST -> list(scope)
+                LIST -> list(scope, asked)
                 READ -> withWireframe(scope, asked) { shown(scope, it) }
                 HTML -> withWireframe(scope, asked) { html(it) }
                 else -> if (!scope.mayWrite) refuse("This conversation may read what is here, but not change it") else when (name) {
@@ -167,19 +176,36 @@ class WireframeTools(
         }
     }
 
-    private fun list(scope: OrknuxScope): String = mapper.writeValueAsString(
-        mapOf(
-            "wireframes" to wireframes.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(scope.workspaceId).map { held ->
-                val view = api.view(held)
-                mapOf("id" to view.id, "name" to view.name, "elements" to view.elementCount, "updatedAt" to view.updatedAt, "url" to link(view))
-            },
-        ),
-    )
+    private fun list(scope: OrknuxScope, asked: JsonNode): String {
+        val catalog = text(asked.path(CATALOG))?.let { named ->
+            catalogs.catalogs(scope.workspaceId, DesignCatalogKind.WIREFRAME).firstOrNull { it.name.equals(named, ignoreCase = true) }
+                ?: return refuse("There is no wireframe catalog called $named here")
+        }
+        val held = api.wireframes(scope.workspaceId, catalog?.id)
+        return mapper.writeValueAsString(
+            mapOf(
+                "wireframes" to held.map { view ->
+                    mapOf(
+                        "id" to view.id,
+                        "name" to view.name,
+                        "catalog" to view.catalogName,
+                        "elements" to view.elementCount,
+                        "updatedAt" to view.updatedAt,
+                        "url" to link(view),
+                    )
+                },
+            ),
+        )
+    }
 
     private fun create(scope: OrknuxScope, asked: JsonNode): String {
         val name = text(asked.path("name")) ?: return refuse("What is it called? Give it a name.")
         val elements = list(asked.path(ADD))?.let(document::elements).orEmpty()
-        val made = api.createWireframe(scope.workspaceId, name, document.write(elements))
+        val catalogId = text(asked.path(CATALOG))?.let { named ->
+            val found = catalogs.catalogs(scope.workspaceId, DesignCatalogKind.WIREFRAME).firstOrNull { it.name.equals(named, ignoreCase = true) }
+            found?.id ?: catalogs.create(scope.workspaceId, DesignCatalogKind.WIREFRAME, named).id
+        }
+        val made = api.createWireframe(scope.workspaceId, name, document.write(elements), catalogId)
         return drawn(scope, made, asked)
     }
 
@@ -347,6 +373,7 @@ class WireframeTools(
         val NAMES = setOf(LIST, READ, HTML, CREATE, CHANGE, DRAW)
 
         private const val WIREFRAME = "wireframe"
+        private const val CATALOG = "catalog"
         private const val ELEMENTS = "elements"
         private const val ADD = "add"
         private const val UPDATE = "update"

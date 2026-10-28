@@ -48,15 +48,19 @@ class WireframeAPI(
     /** Who has it open, told when it is saved from any door; and the audit's once-per-visit. Issue #683. */
     private val published: org.springframework.context.ApplicationEventPublisher? = null,
     private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
+    /** The catalogs a wireframe is filed in; null only where a test builds this by hand. */
+    private val catalogs: DesignCatalogs? = null,
 ) {
 
     private val document = WireframeDocument(mapper)
 
     @QueryMapping
     @Transactional(readOnly = true)
-    fun wireframes(@Argument workspaceId: Long): List<WireframeView> {
+    fun wireframes(@Argument workspaceId: Long, @Argument catalogId: Long?): List<WireframeView> {
         access.requireVisible(workspaceId)
-        return wireframes.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId).map(::view)
+        val named = catalogNames(workspaceId)
+        val held = wireframes.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId).map { view(it, named) }
+        return if (catalogId == null) held else held.filter { it.catalogId == catalogId.toString() }
     }
 
     /** One wireframe, or null where there is none this person may see. */
@@ -70,8 +74,14 @@ class WireframeAPI(
 
     @MutationMapping
     @Transactional
-    fun createWireframe(@Argument workspaceId: Long, @Argument name: String, @Argument document: String?): WireframeView {
+    fun createWireframe(
+        @Argument workspaceId: Long,
+        @Argument name: String,
+        @Argument document: String?,
+        @Argument catalogId: Long? = null,
+    ): WireframeView {
         access.requireVisible(workspaceId)
+        val filed = catalogs?.resolve(workspaceId, DesignCatalogKind.WIREFRAME, catalogId)
         val elements = checked(document)
         val who = who()
         val made = wireframes.save(
@@ -81,6 +91,7 @@ class WireframeAPI(
                 document = this.document.write(elements),
                 createdBy = who,
                 updatedBy = who,
+                catalogId = filed,
             ),
         )
         audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${made.name} added")
@@ -122,6 +133,19 @@ class WireframeAPI(
     fun saveElements(id: Long, elements: List<WireframeElement>): WireframeView {
         val held = find(id)
         return write(held, held(elements))
+    }
+
+    /** Files a wireframe in another of its workspace's wireframe catalogs. */
+    @MutationMapping
+    @Transactional
+    fun moveWireframe(@Argument id: Long, @Argument catalogId: Long): WireframeView {
+        val held = find(id)
+        val into = requireNotNull(catalogs).catalog(held.workspaceId, DesignCatalogKind.WIREFRAME, catalogId)
+        if (held.catalogId != into.id) {
+            held.catalogId = into.id
+            audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} moved to ${into.name}")
+        }
+        return view(wireframes.save(held))
     }
 
     @MutationMapping
@@ -206,7 +230,14 @@ class WireframeAPI(
     /** Elements read from a document, held to the Tunable. */
     fun checked(document: String?): List<WireframeElement> = held(this.document.read(document))
 
-    fun view(wireframe: Wireframe): WireframeView = WireframeView(
+    fun view(wireframe: Wireframe): WireframeView = view(wireframe, catalogNames(wireframe.workspaceId))
+
+    /** The workspace's wireframe catalogs by id, and which is the default, for naming each row's. */
+    private fun catalogNames(workspaceId: Long): Pair<Long, Map<Long, String>>? = catalogs?.let {
+        requireNotNull(it.defaultOf(workspaceId, DesignCatalogKind.WIREFRAME).id) to it.names(workspaceId, DesignCatalogKind.WIREFRAME)
+    }
+
+    private fun view(wireframe: Wireframe, named: Pair<Long, Map<Long, String>>?): WireframeView = WireframeView(
         id = requireNotNull(wireframe.id),
         workspaceId = wireframe.workspaceId,
         name = wireframe.name,
@@ -217,6 +248,8 @@ class WireframeAPI(
         createdAt = wireframe.createdAt.toString(),
         updatedBy = wireframe.updatedBy,
         updatedAt = wireframe.updatedAt.toString(),
+        catalogId = named?.let { (fallback, _) -> (wireframe.catalogId ?: fallback).toString() } ?: "",
+        catalogName = named?.let { (fallback, names) -> names[wireframe.catalogId ?: fallback] }.orEmpty(),
     )
 
     private fun write(held: Wireframe, elements: List<WireframeElement>, viewer: String? = null): WireframeView {
@@ -272,6 +305,9 @@ data class WireframeView(
     val createdAt: String,
     val updatedBy: String,
     val updatedAt: String,
+    /** The catalog it is filed in: the default where it was never filed. */
+    val catalogId: String = "",
+    val catalogName: String = "",
 )
 
 /** A wireframe's page, and the name it was made from, which a download is named by. */
