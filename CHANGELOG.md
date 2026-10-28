@@ -15,6 +15,22 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.2.5
+
+### ✨ Added
+
+- **A run's summary shows what its model calls cost**, in a Cost row beside Started, Finished and Duration: the spend of every step's session, the agents those steps asked and the runs it called, marked partial where a model has no price set.
+
+### 🔧 Changed
+
+- **A run's summary is drawn in two columns** - who and what ran on the left, when and what it cost on the right - and goes back to one on a narrow window.
+
+### 🐛 Fixed
+
+- **The wheel over a function's or a tool's code scrolls the page** once the editor has nothing of its own to scroll, so the end of the code comes up above the Save bar.
+- **The settings menu scrolls on its own and ends above the Save bar**, so its last sections can be reached on a short window without scrolling the page.
+- **A function's code runs down to the Save bar**, instead of stopping 136px short of it.
+
 ## 1.2.4
 
 ### ✨ Added
