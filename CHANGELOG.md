@@ -35,6 +35,7 @@ have failed.
 ### 🐛 Fixed
 
 - **A workflow agent step that streams its output no longer lists `agent_wait` among its tools.** The step wrote its instructions before it knew its conversation, so they named `agent_wait` as there to load while the step itself withholds it, and `tool_load` answered that no such tool exists. The delegating skill now says to end the turn where `agent_wait` is not given, since the answer starts the agent again.
+- **Continue in chat opens on the agent that spoke in the session**, rather than on whichever agent you last talked to. Where that agent has since been deleted, switched off or left without a model, it opens as before.
 
 ## 1.2.5
 

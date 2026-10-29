@@ -130,6 +130,15 @@ class LlmSessionRecorder(
      * this application writes produces - is signed by the machinery rather
      * than left unsigned.
      */
+    /**
+     * The agent that last spoke in [session], by the id its setup line carries,
+     * or null where no agent has spoken there yet.
+     */
+    fun agentOf(session: Long): Long? {
+        val details = sessions.findByIdOrNull(session)?.agentDetails ?: return null
+        return runCatching { mapper.readTree(details).path("agentId").takeIf { it.isNumber }?.longValue() }.getOrNull()
+    }
+
     private fun agentNamed(details: String): String =
         runCatching { mapper.readTree(details).path("agent").stringValue() }
             .getOrNull()

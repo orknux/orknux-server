@@ -680,7 +680,17 @@ class ChatService(
          * setting both. Never a model without an agent: that combination is what
          * a bare-model chat is, and this door stopped making them (issue #295).
          */
-        val answering = if (agentId != null) answering(workspaceId, agentId) else lastUsed(workspaceId, userId)
+        /*
+         * And a chat that continues a session is answered by the agent that
+         * spoke there, rather than whoever this person last talked to: "Continue
+         * in chat" opened on an unrelated agent, which then carried on a
+         * conversation it had never been part of. Where that agent is gone,
+         * switched off or has no model, the usual choice applies.
+         */
+        val answering = when {
+            agentId != null -> answering(workspaceId, agentId)
+            else -> llmSessionId?.let { spokeIn(workspaceId, it) } ?: lastUsed(workspaceId, userId)
+        }
 
         val opened = sessions.save(
             ChatSession(
@@ -765,6 +775,13 @@ class ChatService(
         val model = agent.modelId
             ?: throw ChatAgentUnusableException("${agent.name} has no model chosen, so it cannot answer")
         return Answering(model, agentId)
+    }
+
+    /** The agent that spoke in [llmSessionId], where it can still answer here. */
+    private fun spokeIn(workspaceId: Long, llmSessionId: Long): Answering? {
+        val agent = recorder.agentOf(llmSessionId)?.let { agents.findByIdOrNull(it) } ?: return null
+        if (agent.workspaceId != workspaceId || !agent.enabled) return null
+        return agent.modelId?.let { Answering(it, requireNotNull(agent.id)) }
     }
 
     /**

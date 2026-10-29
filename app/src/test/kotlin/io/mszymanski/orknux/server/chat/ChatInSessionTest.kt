@@ -136,6 +136,25 @@ class ChatInSessionTest(
         assertThat(content.last()).startsWith("xxx")
     }
 
+    /**
+     * Answered by the agent that spoke there, not by whoever this person last
+     * talked to: Continue in chat opened on the last one, which carried on a
+     * conversation it had never been part of.
+     */
+    @Test
+    fun `a chat opened from a session is answered by the session's own agent`() {
+        val reviewer = agent("Reviewer", model("http://models.invalid", name = "Reviewing"))
+        val other = agent("Other", model("http://models.invalid", name = "Other"))
+        startChat(null, other)
+        val sessionId = session("issue", "44")
+        recorder.describeAgent(sessionId, """{"agentId":$reviewer,"agent":"Reviewer"}""")
+        recorder.agentSaid(sessionId, "Reviewer", "Looks fine.")
+
+        // Where no agent spoke there, the usual choice: the one last talked to.
+        assertThat(chats.findByIdOrNull(startChat(session("issue", "45")))?.agentId).isEqualTo(other)
+        assertThat(chats.findByIdOrNull(startChat(sessionId))?.agentId).isEqualTo(reviewer)
+    }
+
     @Test
     fun `a chat opened from a session starts holding what was already said`() {
         val sessionId = session("issue", "42")
