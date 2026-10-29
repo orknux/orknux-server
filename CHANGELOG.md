@@ -32,6 +32,10 @@ have failed.
 - **Agents with Orknux access get the five sheet tools marked Always** on upgrade, as the wireframe and diagram tools were; an agent that hid one keeps it hidden.
 - **Existing images, wireframes and videos are filed in a General catalog on upgrade**, one of each kind per workspace; the pages look as they did, with one catalog in the new column. Nothing to do.
 
+### 🐛 Fixed
+
+- **A workflow agent step that streams its output no longer lists `agent_wait` among its tools.** The step wrote its instructions before it knew its conversation, so they named `agent_wait` as there to load while the step itself withholds it, and `tool_load` answered that no such tool exists. The delegating skill now says to end the turn where `agent_wait` is not given, since the answer starts the agent again.
+
 ## 1.2.5
 
 ### ✨ Added

@@ -288,10 +288,36 @@ class AgentNodeRunner(
             ?.let(Chattiness::of)
             ?: agent.chattiness
         val effort = effortFor(mappings, payload, started, modelId, step)
+
+        /*
+         * The session this node writes into, if it names one.
+         *
+         * Opened before the turns are built, because what is already in it goes
+         * into them: a session that is only written to is a transcript, and what
+         * this feature is for is an agent that remembers. The second workflow to
+         * compute this key asks its question of a model that has heard the first
+         * one's exchange.
+         *
+         * And before the briefing, whose list of tools is what this
+         * conversation is offered: agent_wait is not offered in a step that
+         * streams, and that is read off the step's session (see
+         * [io.mszymanski.orknux.server.chat.AgentRunTools.waits]). Written
+         * without it, the briefing named agent_wait to a streaming step whose
+         * round withheld it, and tool_load answered that no such tool exists.
+         */
+        val session = sessionFor(step, agent, mappings, payload, started)
+        // On the step, so the run's page can link this step to the conversation
+        // it produced. The engine saves the step whether this round completes or
+        // parks, so a still-talking agent is reachable too. Issue #387.
+        step.sessionId = session
+        // Written now rather than at the end of the step: while this agent is
+        // talking, the session's page should name the run that is talking.
+        step.id?.let { steps.save(step) }
+
         val briefed = if (override != null) {
-            listOfNotNull(override, briefing.grants(agent, chattiness)).joinToString("\n\n")
+            listOfNotNull(override, briefing.grants(agent, chattiness, session)).joinToString("\n\n")
         } else {
-            briefing.of(agent, chattiness)
+            briefing.of(agent, chattiness, session)
         }
 
         /*
@@ -398,24 +424,6 @@ class AgentNodeRunner(
         val question = step.agentSleepNote?.let { note ->
             WakeNote.wokenQuestion(asked, note, step.agentSleeps, settings.agentSleepTimes())
         } ?: asked
-
-        /*
-         * The session this node writes into, if it names one.
-         *
-         * Opened before the turns are built, because what is already in it goes
-         * into them: a session that is only written to is a transcript, and what
-         * this feature is for is an agent that remembers. The second workflow to
-         * compute this key asks its question of a model that has heard the first
-         * one's exchange.
-         */
-        val session = sessionFor(step, agent, mappings, payload, started)
-        // On the step, so the run's page can link this step to the conversation
-        // it produced. The engine saves the step whether this round completes or
-        // parks, so a still-talking agent is reachable too. Issue #387.
-        step.sessionId = session
-        // Written now rather than at the end of the step: while this agent is
-        // talking, the session's page should name the run that is talking.
-        step.id?.let { steps.save(step) }
 
         /*
          * A picture is something an agent decides on while it is working, so

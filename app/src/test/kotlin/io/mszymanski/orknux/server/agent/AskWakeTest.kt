@@ -133,7 +133,52 @@ class AskWakeTest(
         assertThat(asked.last()).contains("has answered what you asked").contains("The answer is 42.")
     }
 
-    private fun graph(agentId: Long) {
+    /**
+     * A step that streams is not offered agent_wait, and its briefing must not
+     * name it either. It did: the node wrote its briefing before it knew its
+     * session, so the list of tools said agent_wait was there to load, the
+     * round withheld it, and tool_load answered that no such tool exists.
+     */
+    @Test
+    fun `a streaming step's briefing does not name agent_wait, and one that does not stream does`() {
+        val modelId = model(serve())
+        val asker = askerOf(modelId)
+
+        graph(asker, stream = true, key = "streaming")
+        start()
+        assertThat(asked.first()).contains("ask_agent").doesNotContain("agent_wait")
+
+        // A session of its own: the first one's tools are fixed for it now.
+        asked.clear()
+        graph(asker, stream = false, key = "plain")
+        start()
+        assertThat(asked.first()).contains("- agent_wait (")
+    }
+
+    private fun askerOf(modelId: Long): Long {
+        val librarian = agents.save(
+            Agent(
+                workspaceId = workspaceId, name = "Librarian", type = AgentType.LLM, modelId = modelId,
+                systemPrompt = "You are the librarian.", tools = BuiltInTools.GRANTED.toMutableList(),
+            ),
+        )
+        return requireNotNull(
+            agents.save(
+                Agent(
+                    workspaceId = workspaceId, name = "Responder", type = AgentType.LLM, modelId = modelId,
+                    systemPrompt = "You are the responder.", agents = mutableListOf(requireNotNull(librarian.id)),
+                    tools = BuiltInTools.GRANTED.toMutableList(),
+                ),
+            ).id,
+        )
+    }
+
+    private fun start(): Long = graphQlTester.document(
+        """mutation { startExecution(workspaceId: $workspaceId, workflowId: $workflowId, input: "{}") { id } }""",
+    ).execute().path("startExecution.id").entity(Long::class.java).get()
+
+    private fun graph(agentId: Long, stream: Boolean? = null, key: String = "one") {
+        val streaming = stream?.let { ", streamOutput: $it" }.orEmpty()
         graphQlTester.document(
             """
             mutation {
@@ -142,9 +187,9 @@ class AskWakeTest(
                   { key: "talk", kind: SESSION, name: "the conversation", x: 0, y: 0,
                     mappings: [
                       { name: "sessionKeyPrefix", expression: "node", mode: VALUE },
-                      { name: "sessionKey", expression: "one", mode: VALUE }
+                      { name: "sessionKey", expression: "$key", mode: VALUE }
                     ] },
-                  { key: "think", kind: AGENT, name: "Responder", agentId: $agentId, x: 200, y: 0 }
+                  { key: "think", kind: AGENT, name: "Responder", agentId: $agentId, x: 200, y: 0$streaming }
                 ],
                 edges: [{ source: "talk", target: "think" }]
               }) { nodes { key } problems { message } }

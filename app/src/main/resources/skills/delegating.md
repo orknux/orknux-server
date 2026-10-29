@@ -48,7 +48,9 @@ Asking does not wait for the answer.
 2. **Carry on** with anything else the work needs. Ask other agents now too if
    the pieces are independent; a few asks can work at the same time.
 3. **Call `agent_wait`** when you have nothing left to do but wait. It returns
-   when your asks have finished, or after the time you give it.
+   when your asks have finished, or after the time you give it. Where you are
+   not given `agent_wait` - a workflow step whose output is handed on as it is
+   written - end your turn instead: the answer starts you again when it comes.
 4. **Call `agent_asks`** to read what came back. Each finished ask carries its
    answer, and a `contentKey` where the answer was kept as a file.
 5. **If something is still working,** wait again or carry on with what you have.
