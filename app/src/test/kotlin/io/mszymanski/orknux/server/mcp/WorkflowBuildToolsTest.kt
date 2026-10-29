@@ -129,6 +129,21 @@ class WorkflowBuildToolsTest(
         assertThat(xs(save(0, 500))).containsExactly(0.0, 500.0)
     }
 
+    /** Some clients send an array parameter as the JSON text of one, whatever the schema says. */
+    @Test
+    fun `nodes and edges sent as JSON text are read as lists`() {
+        call("orknux_create_workflow", """{"name":"Sent as text"}""")
+        val nodes = mapper.writeValueAsString("""[{"key":"a","kind":"OBJECT","name":"A"},{"key":"b","kind":"OBJECT","name":"B"}]""")
+        val edges = mapper.writeValueAsString("""[{"source":"a","target":"b"}]""")
+        val saved = call("orknux_save_workflow_graph", """{"workflow":"Sent as text","nodes":$nodes,"edges":$edges}""")
+        assertThat(saved.has("error")).describedAs(saved.toString()).isFalse()
+        assertThat(listed(saved.path("nodes"), "key")).containsExactly("a", "b")
+        assertThat(listed(saved.path("edges"), "target")).containsExactly("b")
+
+        val garbled = call("orknux_save_workflow_graph", """{"workflow":"Sent as text","overwrite_draft":true,"nodes":"[{","edges":[]}""")
+        assertThat(garbled.path("error").stringValue()).contains("nodes, as a list")
+    }
+
     @Test
     fun `a draft with unpublished changes is replaced only when told to`() {
         call("orknux_create_workflow", """{"name":"Half drawn"}""")
