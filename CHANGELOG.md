@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.2.6
+
+### 🔧 Changed
+
+- **The desktop app opens about a second sooner.** It no longer starts a separate Java process to ask which release to run when there is nothing to choose, and it notices the server is ready sooner. Updates from Admin → Updates work as before: the release launcher is still asked after every restart, and while a downloaded release is the one running.
+
+### 🐛 Fixed
+
+- **Saving a workflow's graph over MCP works from clients that send lists as text.** `orknux_save_workflow_graph` refused every graph with "Give the graph's nodes, as a list" when the client sent the nodes as JSON text, and dropped edges sent the same way.
+
 ## 1.2.5
 
 ### ✨ Added
