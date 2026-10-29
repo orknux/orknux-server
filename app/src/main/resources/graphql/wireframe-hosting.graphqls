@@ -1,0 +1,17 @@
+# A wireframe hosted as an HTML page: a SAVED-n on the Artifacts page, at an
+# address of its own, holding the wireframe written out as one page - and
+# written again every time the wireframe is saved, from the editor, the
+# orknux_* tools or its chat, so the address always serves it as it now is.
+# Anybody who can see the workspace, as the wireframe itself.
+
+extend type Mutation {
+    "Hosts the wireframe as an HTML page, and answers the wireframe with hostedAs set. Hosting one already hosted keeps the page it has."
+    hostWireframe(id: ID!): Wireframe!
+    "Takes the wireframe's page off the Artifacts page; the wireframe stays. Answers the wireframe."
+    unhostWireframe(id: ID!): Wireframe!
+}
+
+extend type Wireframe {
+    "Where it is hosted as an HTML page: that page's artifact, SAVED-n. Null otherwise."
+    hostedAs: ID
+}

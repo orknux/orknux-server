@@ -25,11 +25,13 @@ have failed.
 - **Design's Images page makes an image from outside**: Paste takes the picture on the clipboard (Ctrl+V anywhere on the page does the same), Import takes picture files, and a picture dropped on the page is taken too. One picture opens in the image editor; several are kept in the gallery.
 - **Catalogs on Design's Images, Wireframes and Videos pages**, as Documents has: a column of catalogs beside the list, a catalog made, renamed and deleted once empty, anything made, imported or pasted filed in the catalog being looked at, and a card moved to another through its menu - a picture whatever drew it, a video with its larger versions. Every workspace has a General catalog of each kind that nobody has to make and nobody can delete. `orknux_wireframes` names each wireframe's catalog and narrows to one, and `orknux_create_wireframe` takes a catalog.
 - **A picture in Design can be hosted as an artifact** from its preview on the Images page: it gets a place on the Artifacts page and an address of its own, shown with Copy link, that always serves the picture as it is saved in Design - an edit saved there is what the address serves next, with nothing copied. Hosting again shows the same address; Stop hosting takes the artifact away and leaves the picture.
+- **A wireframe can be hosted as an HTML page** from **Host page** in its editor: an address on the Artifacts page that always shows the wireframe as it is saved, since every save writes the page again - from the editor, its chat or the `orknux_*` tools - and a rename renames it. The menu has Copy link, Open page and Stop hosting; deleting the wireframe removes its page.
 
 ### 🔧 Changed
 
 - **The function editor takes the whole window**, as the Design editors do: the details down the left, the code in the middle, and a chat down the right that reads the code as it stands - saved or not - and offers changes with Accept and Reject. The floating Ask AI is not shown on it, and the wand asks the chat instead; on a function not created yet, Accept puts the change in the editor. The columns stack below 1100px wide rather than 1300px.
 - **Agents with Orknux access get the five sheet tools marked Always** on upgrade, as the wireframe and diagram tools were; an agent that hid one keeps it hidden.
+- **The Design editors' toolbars wrap onto a second row on a narrow window** rather than running off the edge, where Export could not be reached.
 - **Existing images, wireframes and videos are filed in a General catalog on upgrade**, one of each kind per workspace; the pages look as they did, with one catalog in the new column. Nothing to do.
 
 ### 🐛 Fixed

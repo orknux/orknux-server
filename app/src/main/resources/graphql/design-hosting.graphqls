@@ -17,6 +17,6 @@ extend type Mutation {
 extend type Artifact {
     "For a Design picture hosted as an artifact: that artifact, SAVED-n. Null otherwise."
     hostedAs: ID
-    "For an artifact that hosts a Design picture: the picture, DESIGN-n. Null otherwise."
+    "For an artifact that hosts something made in Design: the picture, DESIGN-n, or the wireframe, WIREFRAME-n. Null otherwise."
     hostOf: ID
 }

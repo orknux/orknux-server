@@ -50,6 +50,8 @@ class WireframeAPI(
     private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
     /** The catalogs a wireframe is filed in; null only where a test builds this by hand. */
     private val catalogs: DesignCatalogs? = null,
+    /** A hosted wireframe's page, written again on every save; null only where a test builds this by hand. */
+    private val hosting: WireframeHosting? = null,
 ) {
 
     private val document = WireframeDocument(mapper)
@@ -59,7 +61,9 @@ class WireframeAPI(
     fun wireframes(@Argument workspaceId: Long, @Argument catalogId: Long?): List<WireframeView> {
         access.requireVisible(workspaceId)
         val named = catalogNames(workspaceId)
-        val held = wireframes.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId).map { view(it, named) }
+        // Which are hosted, read once for the list rather than once a wireframe.
+        val hosted = hosting?.hostedIn(workspaceId).orEmpty()
+        val held = wireframes.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId).map { view(it, named, hosted[it.id]) }
         return if (catalogId == null) held else held.filter { it.catalogId == catalogId.toString() }
     }
 
@@ -108,7 +112,10 @@ class WireframeAPI(
         held.name = called
         touch(held)
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe $was renamed to $called")
-        return view(wireframes.save(held))
+        val renamed = wireframes.save(held)
+        // The page carries the name as its title and its file name.
+        hosting?.refresh(renamed) { page(renamed, document.stored(renamed.document)) }
+        return view(renamed)
     }
 
     /**
@@ -152,6 +159,10 @@ class WireframeAPI(
     @Transactional
     fun deleteWireframe(@Argument id: Long): Boolean {
         val held = find(id)
+        // Its page goes with it - the row would by the cascade, but the cascade cannot reach the file.
+        hosting?.unhost(id)?.let {
+            audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} no longer hosted as a page")
+        }
         wireframes.delete(held)
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} removed")
         return true
@@ -184,6 +195,17 @@ class WireframeAPI(
 
     /** Written out, and said in the audit log: a page leaving the server is a copy somebody now holds. */
     private fun html(held: Wireframe, elements: List<WireframeElement>, pictures: Boolean): String {
+        val page = page(held, elements, pictures)
+        audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} exported as HTML")
+        return page
+    }
+
+    /**
+     * Written out and nothing said: what a hosted wireframe's page is made of,
+     * written again on every save - an audit line each time would bury the log,
+     * and the hosting is said once, when it starts.
+     */
+    private fun page(held: Wireframe, elements: List<WireframeElement>, pictures: Boolean = true): String {
         val carried: (String) -> String? = if (!pictures) {
             { null }
         } else {
@@ -192,9 +214,32 @@ class WireframeAPI(
                     ?.let { "data:${it.contentType};base64," + java.util.Base64.getEncoder().encodeToString(it.bytes) }
             }
         }
-        val page = WireframeHtml(carried).page(held.name, elements)
-        audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} exported as HTML")
-        return page
+        return WireframeHtml(carried).page(held.name, elements)
+    }
+
+    /**
+     * The wireframe hosted as an HTML page: a saved artifact on the Artifacts
+     * page whose address always serves the drawing as it is saved, since every
+     * save writes it again. Hosting one already hosted answers the page it has.
+     */
+    @MutationMapping
+    @Transactional
+    fun hostWireframe(@Argument id: Long): WireframeView {
+        val held = find(id)
+        val (_, made) = requireNotNull(hosting).host(held) { page(held, document.stored(held.document)) }
+        if (made) audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} hosted as a page")
+        return view(held)
+    }
+
+    /** The wireframe's page taken off the Artifacts page, file and all; the wireframe stays as it was. */
+    @MutationMapping
+    @Transactional
+    fun unhostWireframe(@Argument id: Long): WireframeView {
+        val held = find(id)
+        requireNotNull(hosting).unhost(id)?.let {
+            audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} no longer hosted as a page")
+        }
+        return view(held)
     }
 
     /**
@@ -237,7 +282,11 @@ class WireframeAPI(
         requireNotNull(it.defaultOf(workspaceId, DesignCatalogKind.WIREFRAME).id) to it.names(workspaceId, DesignCatalogKind.WIREFRAME)
     }
 
-    private fun view(wireframe: Wireframe, named: Pair<Long, Map<Long, String>>?): WireframeView = WireframeView(
+    private fun view(
+        wireframe: Wireframe,
+        named: Pair<Long, Map<Long, String>>?,
+        hosted: String? = hosting?.hostOf(requireNotNull(wireframe.id))?.let(WireframeHosting::idOf),
+    ): WireframeView = WireframeView(
         id = requireNotNull(wireframe.id),
         workspaceId = wireframe.workspaceId,
         name = wireframe.name,
@@ -250,6 +299,7 @@ class WireframeAPI(
         updatedAt = wireframe.updatedAt.toString(),
         catalogId = named?.let { (fallback, _) -> (wireframe.catalogId ?: fallback).toString() } ?: "",
         catalogName = named?.let { (fallback, names) -> names[wireframe.catalogId ?: fallback] }.orEmpty(),
+        hostedAs = hosted,
     )
 
     private fun write(held: Wireframe, elements: List<WireframeElement>, viewer: String? = null): WireframeView {
@@ -258,6 +308,8 @@ class WireframeAPI(
         touch(held)
         val saved = wireframes.save(held)
         val id = requireNotNull(saved.id)
+        // Its page, where it is hosted, written again from every door that saves - so it is never behind.
+        hosting?.refresh(saved) { page(saved, elements) }
         val key = io.mszymanski.orknux.server.live.LiveRooms.Key(io.mszymanski.orknux.server.live.LiveKind.WIREFRAME, id)
         // Once per visit from an editor, which saves as it is edited; every time from anything else.
         if (viewer == null || rooms?.firstSave(key, viewer) != false) {
@@ -308,6 +360,8 @@ data class WireframeView(
     /** The catalog it is filed in: the default where it was never filed. */
     val catalogId: String = "",
     val catalogName: String = "",
+    /** Where it is hosted as an HTML page: that page's artifact, SAVED-n. Null otherwise. */
+    val hostedAs: String? = null,
 )
 
 /** A wireframe's page, and the name it was made from, which a download is named by. */

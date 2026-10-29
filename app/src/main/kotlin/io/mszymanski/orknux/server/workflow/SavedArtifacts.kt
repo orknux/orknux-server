@@ -99,6 +99,13 @@ class SavedArtifacts(
     private fun swap(workspaceId: Long, id: Long, name: String, description: String?, read: () -> ByteArray?): Replacing {
         val artifact = artifacts.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId }
             ?: return Replacing.Missing("This workspace has no saved artifact ${ArtifactKind.SAVED.name}-$id.")
+        // It is a wireframe's page, written again from the wireframe on every save: a file put here would be gone at the next.
+        if (artifact.hostedWireframeId != null) {
+            return Replacing.Refused(
+                "${ArtifactKind.SAVED.name}-$id is the page of a wireframe in Design and is written again each time the wireframe " +
+                    "is saved; change the wireframe instead.",
+            )
+        }
         // Its file is a picture's in Design: replacing it here would leave the two telling different stories.
         if (artifact.hostedImageId != null) {
             return Replacing.Refused(

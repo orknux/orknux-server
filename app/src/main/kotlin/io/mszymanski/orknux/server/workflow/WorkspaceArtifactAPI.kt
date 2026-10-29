@@ -323,6 +323,8 @@ class WorkspaceArtifactAPI(
                 was
             }
             ArtifactKind.SAVED -> saved.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.let {
+                // A wireframe's page is written from the wireframe, and nothing else is put in its place.
+                if (it.hostedWireframeId != null) return false
                 // A hosted picture has no file of its own: what it is changed into is the picture's.
                 it.hostedImageId?.let { image ->
                     return replaceBytes(workspaceId, "${ArtifactKind.DESIGN.name}-$image", location, contentType, sizeBytes)
@@ -489,7 +491,8 @@ class WorkspaceArtifactAPI(
         contentType = artifact.contentType,
         sizeBytes = artifact.sizeBytes,
         url = versioned("/api/artifacts/" + artifact.id, artifact.location),
-        hostOf = artifact.hostedImageId?.let { "${ArtifactKind.DESIGN.name}-$it" },
+        hostOf = artifact.hostedImageId?.let { "${ArtifactKind.DESIGN.name}-$it" }
+            ?: artifact.hostedWireframeId?.let { "$WIREFRAME-$it" },
         // Marked as the file's own address is: a replaced artifact keeps both addresses, and the viewer's frame reloads only when its src changes.
         previewUrl = versioned("/api/artifacts/${artifact.id}/preview", artifact.location).takeIf { readable(artifact.contentType) },
         drawnAt = artifact.savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
@@ -534,6 +537,9 @@ class WorkspaceArtifactAPI(
     companion object {
         /** Who the Artifacts page says a hosted picture came from. */
         const val HOSTED_BY = "Design"
+
+        /** How an artifact that is a wireframe's page names the wireframe, as WIREFRAME-n. */
+        const val WIREFRAME = "WIREFRAME"
     }
 }
 
@@ -611,7 +617,7 @@ data class ArtifactView(
     val catalogName: String? = null,
     /** For a picture drawn in Design that is hosted as an artifact: that artifact, SAVED-n. Null otherwise. */
     val hostedAs: String? = null,
-    /** For an artifact hosting a picture drawn in Design: the picture, DESIGN-n. Null otherwise. */
+    /** For an artifact hosting something made in Design: the picture, DESIGN-n, or the wireframe, WIREFRAME-n. Null otherwise. */
     val hostOf: String? = null,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */

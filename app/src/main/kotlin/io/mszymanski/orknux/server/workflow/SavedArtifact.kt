@@ -94,6 +94,15 @@ class SavedArtifact(
      */
     @Column(name = "hosted_image_id")
     val hostedImageId: Long? = null,
+
+    /**
+     * The wireframe this is the page of, where it is one: the row then holds
+     * that wireframe written out as HTML, written again each time the wireframe
+     * is saved ([io.mszymanski.orknux.server.design.WireframeHosting]), so it is
+     * never replaced as a file of its own. Null for a file somebody saved.
+     */
+    @Column(name = "hosted_wireframe_id")
+    val hostedWireframeId: Long? = null,
 )
 
 interface SavedArtifactRepository : JpaRepository<SavedArtifact, Long> {
@@ -115,4 +124,10 @@ interface SavedArtifactRepository : JpaRepository<SavedArtifact, Long> {
 
     /** Every artifact in a workspace that hosts a picture: which pictures are hosted, for a list that marks them. */
     fun findByWorkspaceIdAndHostedImageIdIsNotNull(workspaceId: Long): List<SavedArtifact>
+
+    /** The artifact that is a wireframe's page, where it is hosted. */
+    fun findByHostedWireframeId(hostedWireframeId: Long): SavedArtifact?
+
+    /** Every artifact in a workspace that is a wireframe's page: which wireframes are hosted, for the list. */
+    fun findByWorkspaceIdAndHostedWireframeIdIsNotNull(workspaceId: Long): List<SavedArtifact>
 }
