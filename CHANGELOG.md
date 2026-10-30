@@ -30,7 +30,7 @@ have failed.
 
 ### 🔧 Changed
 
-- **With no completion model, the Auto-completion switch in the function and document editors is a tinted dropdown of the workspace's chat models**, and choosing one turns it on; it looked switched on while nothing could be suggested. Where there is nothing to choose, or you may not choose, it is disabled and says why.
+- **With no completion model, the Auto-completion switch in the function and document editors is greyed out**; it looked switched on while nothing could be suggested. Hovering it offers **Set workspace completion model**, which asks for a model and a confirmation, and says that the choice is the whole workspace's.
 - **Every message in the Design editors' chats and the quick chat has a copy button.**
 - **The function editor takes the whole window**, as the Design editors do: the details down the left, the code in the middle, and a chat down the right that reads the code as it stands - saved or not - and offers changes with Accept and Reject. The floating Ask AI is not shown on it, and the wand asks the chat instead; on a function not created yet, Accept puts the change in the editor. The columns stack below 1100px wide rather than 1300px.
 - **Agents with Orknux access get the five sheet tools marked Always** on upgrade, as the wireframe and diagram tools were; an agent that hid one keeps it hidden.
