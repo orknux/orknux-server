@@ -117,7 +117,9 @@ class WorkflowBuildToolsTest(
     @Test
     fun `overlapping positions are laid out, apart ones are kept`() {
         call("orknux_create_workflow", """{"name":"Piled up"}""")
-        fun xs(saved: JsonNode) = (0 until saved.path("nodes").size()).map { saved.path("nodes").get(it).path("x").asDouble() }
+        // By key: a graph's nodes come back in no particular order.
+        fun xs(saved: JsonNode) = (0 until saved.path("nodes").size()).map { saved.path("nodes").get(it) }
+            .sortedBy { it.path("key").stringValue() }.map { it.path("x").asDouble() }
         fun save(ax: Int, bx: Int) = call(
             "orknux_save_workflow_graph",
             """{"workflow":"Piled up","overwrite_draft":true,
@@ -137,7 +139,7 @@ class WorkflowBuildToolsTest(
         val edges = mapper.writeValueAsString("""[{"source":"a","target":"b"}]""")
         val saved = call("orknux_save_workflow_graph", """{"workflow":"Sent as text","nodes":$nodes,"edges":$edges}""")
         assertThat(saved.has("error")).describedAs(saved.toString()).isFalse()
-        assertThat(listed(saved.path("nodes"), "key")).containsExactly("a", "b")
+        assertThat(listed(saved.path("nodes"), "key")).containsExactlyInAnyOrder("a", "b")
         assertThat(listed(saved.path("edges"), "target")).containsExactly("b")
 
         val garbled = call("orknux_save_workflow_graph", """{"workflow":"Sent as text","overwrite_draft":true,"nodes":"[{","edges":[]}""")

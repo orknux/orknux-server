@@ -257,7 +257,8 @@ class WatcherStepWakeTest(
         await().atMost(Duration.ofSeconds(20)).untilAsserted {
             val carried = executions.findAll().singleOrNull { it.id != first }
             assertThat(carried).isNotNull
-            assertThat(steps.findAll().single { it.executionId == carried!!.id && it.nodeKey == "reply" }.input)
+            // Or null, and waited for: a run is written a moment before its steps, and single() would throw past the wait.
+            assertThat(steps.findAll().singleOrNull { it.executionId == carried!!.id && it.nodeKey == "reply" }?.input)
                 .contains("Build 41 is done.")
         }
         assertThat(lines.findAll().any { "was woken by watcher" in (it.content ?: "") }).isTrue()
