@@ -176,6 +176,15 @@ class Workspace(
     var completionModelId: Long? = null,
 
     /**
+     * Whether having no completion model of its own means the installation's,
+     * set under Admin -> Settings, rather than none. On for a new workspace,
+     * and off in the column for one from before there was a choice: it said
+     * nothing is suggested, and an administrator's setting must not change that.
+     */
+    @Column(name = "completion_model_default", nullable = false)
+    var completionModelDefault: Boolean = true,
+
+    /**
      * Whether the quick chat may start things, or only look them up.
      *
      * Off by default, which is not the same as off by nature: the panel opens

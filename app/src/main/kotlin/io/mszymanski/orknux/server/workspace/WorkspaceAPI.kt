@@ -47,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional
 
 @Controller
 class WorkspaceAPI(
+    private val completionModels: io.mszymanski.orknux.server.chat.CompletionModels,
     private val repository: WorkspaceRepository,
     private val roles: RoleRepository,
     private val auditRecorder: WorkspaceAuditRecorder,
@@ -754,19 +755,31 @@ class WorkspaceAPI(
      * A chat model, refused otherwise the way the quick chat refuses one: it is
      * asked to continue text, and a model that only draws or only listens
      * would fail on every pause in somebody's typing. Null turns suggestions
-     * off, and the composer is as it always was.
+     * off, and the composer is as it always was; [useDefault] hands the choice
+     * to the installation's, and is what lets an administrator's setting apply.
      */
     @MutationMapping
     @Transactional
-    fun setWorkspaceCompletionModel(@Argument workspaceId: Long, @Argument modelId: Long?): Workspace {
+    fun setWorkspaceCompletionModel(
+        @Argument workspaceId: Long,
+        @Argument modelId: Long?,
+        @Argument useDefault: Boolean?,
+    ): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
         access.requireAdministers(workspace)
 
+        if (useDefault == true) {
+            workspace.completionModelId = null
+            workspace.completionModelDefault = true
+            auditRecorder.record(workspaceId, WorkspaceAuditCategory.MODEL, "Completion model set to the installation's default")
+            return workspace
+        }
         val chosen = modelId?.let { models.model(it) ?: throw ModelNotFoundForWorkspaceException(it) }
         if (chosen != null && chosen.workspaceId != workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
         if (chosen != null && chosen.kind != ModelKind.CHAT) throw ModelNotChatException(chosen.name)
 
         workspace.completionModelId = chosen?.id
+        workspace.completionModelDefault = false
         auditRecorder.record(
             workspaceId,
             WorkspaceAuditCategory.MODEL,
@@ -968,6 +981,15 @@ class WorkspaceAPI(
     @BatchMapping(typeName = "Workspace")
     fun completionPauseMillis(workspaces: List<Workspace>): List<Int> =
         installation.chatCompletionPauseMillis().let { value -> workspaces.map { value } }
+
+    /**
+     * Whether anything will be suggested here, by the workspace's own model or
+     * the installation's. A yes or no rather than the model, because an ordinary
+     * person cannot read the installation's settings.
+     */
+    @BatchMapping(typeName = "Workspace")
+    fun completionAvailable(workspaces: List<Workspace>): List<Boolean> =
+        workspaces.map { completionModels.of(it) != null }
 
     /**
      * How many other agents one agent in this workspace may ask in one

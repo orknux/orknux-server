@@ -152,6 +152,7 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("voiceButtonHidden", { it.voiceButtonHidden }, { w, v -> w.voiceButtonHidden = v }, YES_NO),
     FileField("widgetTimerSound", { it.widgetTimerSound }, { w, v -> w.widgetTimerSound = v }, YES_NO),
     FileField("sessionCostShown", { it.sessionCostShown }, { w, v -> w.sessionCostShown = v }, YES_NO),
+    FileField("completionModelDefault", { it.completionModelDefault }, { w, v -> w.completionModelDefault = v }, YES_NO),
     FileField("defaultMemoryShare", { it.defaultMemoryShare }, { w, v -> w.defaultMemoryShare = v }, WHOLE_OR_NULL),
     FileField("taskMaxTurns", { it.taskMaxTurns }, { w, v -> w.taskMaxTurns = v }, WHOLE_OR_NULL),
     FileField("agentMaxSubagents", { it.agentMaxSubagents }, { w, v -> w.agentMaxSubagents = v }, WHOLE_OR_NULL),

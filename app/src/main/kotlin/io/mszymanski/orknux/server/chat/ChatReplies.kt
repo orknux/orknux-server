@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit
  */
 @Service
 class ChatReplies(
+    private val completionModels: CompletionModels,
     private val workspaces: WorkspaceRepository,
     private val models: ModelChatClient,
     private val history: ChatMemoryRepository,
@@ -50,7 +51,7 @@ class ChatReplies(
         val count = settings.chatReplySuggestions()
         if (count == 0) return emptyList()
         val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return emptyList()
-        val modelId = workspace.completionModelId ?: return emptyList()
+        val modelId = completionModels.of(workspace) ?: return emptyList()
 
         val said = history.findByConversationId(session.conversationId)
             .filter { it.messageType.name == "USER" || it.messageType.name == "ASSISTANT" }

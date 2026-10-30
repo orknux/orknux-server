@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **A default completion model for the whole installation**, under Admin → Settings. A workspace whose Completion Model is set to the new **Default** uses it; **None** or a model of its own is left alone. New workspaces start on Default; existing ones stay as they are until somebody chooses it. What is typed in those workspaces goes to the provider of the workspace that owns the chosen model.
 - **Sheets in Design**, after Documents: spreadsheets with tabs, formulas worked out on the server (Excel's function names, across tabs), errors shown with their reason, copy and paste with Excel, column widths, live editing with others, a chat beside the grid that fills the sheet in, import from .xlsx, .xls, .ods and .csv, and export as .xlsx or a tab as .csv. Two new limits, `ORKNUX_TUNING_SHEET_CELLS_MOST` (50,000 filled cells) and `ORKNUX_TUNING_SHEET_IMPORT_MB` (25).
 - **Auto-completion in the function editor**: the workspace's completion model suggests how the code at the caret goes on, a line or a few, drawn grey for Tab to take. On by default, switched beside the wand and remembered per person; it needs a completion model chosen in the workspace's settings.
 - **Agents and MCP clients work in sheets** with `orknux_sheets`, `orknux_sheet`, `orknux_create_sheet`, `orknux_write_sheet_cells` and `orknux_change_sheet_tabs`; each answer says what the cells written now show, and which came to an error.

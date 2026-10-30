@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit
  */
 @Service
 class ChatSentences(
+    private val completionModels: CompletionModels,
     private val workspaces: WorkspaceRepository,
     private val models: ModelChatClient,
     private val history: ChatMemoryRepository,
@@ -102,7 +103,7 @@ class ChatSentences(
     /** The model's answer as it said it, or null where there is none to use. */
     private fun ask(workspaceId: Long, key: String, instruction: String, context: String): String? {
         val workspace = workspaces.findByIdOrNull(workspaceId) ?: return null
-        val modelId = workspace.completionModelId ?: return null
+        val modelId = completionModels.of(workspace) ?: return null
 
         val turns = listOf(
             ChatTurn(role = "system", content = instruction),

@@ -48,6 +48,7 @@ class ChatSentenceCompletionTest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val sentences: ChatSentences,
+    @Autowired val completionModels: CompletionModels,
 ) {
 
     private var workspaceId: Long = 0
@@ -337,6 +338,43 @@ class ChatSentenceCompletionTest(
             .path("setWorkspaceCompletionModel.completionModelId").valueIsNull()
     }
 
+    /** The administrator's model reaches a workspace on Default and no other. */
+    @Test
+    fun `a workspace on Default uses the installation's model, and None or its own is left alone`() {
+        val elsewhere = requireNotNull(workspaces.save(Workspace(name = "owner-${System.nanoTime()}")).id)
+        val shared = model(serve(said = " from the default"), inWorkspace = elsewhere)
+        fun choose(arguments: String) = graphQlTester.document(
+            """mutation { setWorkspaceCompletionModel(workspaceId: $workspaceId, $arguments) { completionModelId completionModelDefault completionAvailable } }""",
+        ).execute().errors().verify()
+        fun available() = graphQlTester.document("""query { workspace(id: $workspaceId) { completionAvailable } }""")
+            .execute().path("workspace.completionAvailable").entity(Boolean::class.java)
+
+        graphQlTester.document("mutation { setChatCompletionModel(modelId: $shared) { chatCompletionModelId } }")
+            .execute().errors().verify()
+            .path("setChatCompletionModel.chatCompletionModelId").entity(Long::class.java).isEqualTo(shared)
+        try {
+            choose("modelId: null")
+            available().isEqualTo(false)
+
+            choose("modelId: null, useDefault: true")
+                .path("setWorkspaceCompletionModel.completionModelDefault").entity(Boolean::class.java).isEqualTo(true)
+            available().isEqualTo(true)
+            assertThat(completionModels.of(workspaces.findById(workspaceId).orElseThrow())).isEqualTo(shared)
+
+            val own = model(serve(said = "x"))
+            choose("modelId: $own")
+                .path("setWorkspaceCompletionModel.completionModelDefault").entity(Boolean::class.java).isEqualTo(false)
+            assertThat(completionModels.of(workspaces.findById(workspaceId).orElseThrow())).isEqualTo(own)
+
+            choose("modelId: null, useDefault: true")
+            graphQlTester.document("mutation { setChatCompletionModel(modelId: null) { chatCompletionModelId } }")
+                .execute().errors().verify()
+            available().isEqualTo(false)
+        } finally {
+            graphQlTester.document("mutation { setChatCompletionModel(modelId: null) { chatCompletionModelId } }").execute()
+        }
+    }
+
     @Test
     fun `the four numbers are Admin settings, refused outside their range`() {
         graphQlTester.document(
@@ -378,10 +416,10 @@ class ChatSentenceCompletionTest(
         ).id,
     )
 
-    private fun model(endpoint: String): Long {
+    private fun model(endpoint: String, inWorkspace: Long = workspaceId): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "Stub", endpoint: "$endpoint", secret: "sk-test"
+                 workspaceId: $inWorkspace, name: "Stub", endpoint: "$endpoint", secret: "sk-test"
                }) { id } }""",
         ).execute().errors().verify().path("createModelProvider.id").entity(Long::class.java).get()
 

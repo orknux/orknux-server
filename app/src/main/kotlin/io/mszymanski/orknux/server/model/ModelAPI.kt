@@ -12,6 +12,7 @@ import io.mszymanski.orknux.connector.model.ModelProviderView
 import io.mszymanski.orknux.connector.model.ModelQuotasInput
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.connector.model.ModelThrottleInput
+import io.mszymanski.orknux.connector.model.ModelKind
 import io.mszymanski.orknux.connector.model.ModelUsageView
 import io.mszymanski.orknux.connector.model.ResetInterval
 import io.mszymanski.orknux.connector.model.UpdateModelInput
@@ -68,6 +69,13 @@ class ModelAPI(
     fun workspaceModels(@Argument workspaceId: Long): List<LlmModelView> {
         requireWorkspaceAccess(workspaceId)
         return models.models(workspaceId)
+    }
+
+    /** Every workspace's chat models, for an administrator choosing the installation's completion model. */
+    @QueryMapping
+    fun installationChatModels(): List<LlmModelView> {
+        access.requireAdmin()
+        return workspaces.findAll().flatMap { models.models(requireNotNull(it.id)) }.filter { it.kind == ModelKind.CHAT }
     }
 
     @QueryMapping

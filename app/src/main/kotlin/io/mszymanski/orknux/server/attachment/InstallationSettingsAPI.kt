@@ -23,6 +23,7 @@ class InstallationSettingsAPI(
     private val settings: InstallationSettings,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
+    private val models: io.mszymanski.orknux.connector.model.ModelService,
     /** Switching the flag tools' marks puts agents back too; see SessionFlagToolMarks. */
     private val flagToolMarks: io.mszymanski.orknux.server.flag.SessionFlagToolMarks,
 ) {
@@ -65,6 +66,7 @@ class InstallationSettingsAPI(
         chatCompletionTimeoutMillisConfigured = settings.chatCompletionTimeoutMillisConfigured(),
         chatCompletionPauseMillis = settings.chatCompletionPauseMillis(),
         chatCompletionPauseMillisConfigured = settings.chatCompletionPauseMillisConfigured(),
+        chatCompletionModelId = settings.chatCompletionModel(),
         chatReplySuggestions = settings.chatReplySuggestions(),
         chatReplySuggestionsConfigured = settings.chatReplySuggestionsConfigured(),
         chatReplySuggestionsMaxTokens = settings.chatReplySuggestionsMaxTokens(),
@@ -193,6 +195,29 @@ class InstallationSettingsAPI(
         releaseDownloadBackoffMaxSeconds = settings.releaseDownloadBackoffMaxSeconds(),
         releaseDownloadBackoffMaxSecondsConfigured = settings.releaseDownloadBackoffMaxSecondsConfigured(),
     )
+
+    /**
+     * The completion model of every workspace set to Default. Any workspace's
+     * chat model: what is typed in those workspaces goes to its provider, which
+     * is why this is an administrator's and why it is audited.
+     */
+    @MutationMapping
+    fun setChatCompletionModel(@Argument modelId: Long?): InstallationSettingsView {
+        access.requireAdmin()
+        val chosen = modelId?.let {
+            models.model(it) ?: throw io.mszymanski.orknux.server.workspace.ModelNotFoundForWorkspaceException(it)
+        }
+        if (chosen != null && chosen.kind != io.mszymanski.orknux.connector.model.ModelKind.CHAT) {
+            throw io.mszymanski.orknux.server.workspace.ModelNotChatException(chosen.name)
+        }
+        settings.setChatCompletionModel(chosen?.id, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.MODEL,
+            if (chosen == null) "Default completion model cleared" else "Default completion model set to ${chosen.name}",
+        )
+        return installationSettings()
+    }
 
     /** How many server jars are kept for rolling back to. Issue #584. */
     @MutationMapping
@@ -1355,6 +1380,8 @@ data class InstallationSettingsView(
     val chatCompletionTimeoutMillisConfigured: Int,
     val chatCompletionPauseMillis: Int,
     val chatCompletionPauseMillisConfigured: Int,
+    /** The completion model of every workspace set to Default; null is none. */
+    val chatCompletionModelId: Long?,
     /** Suggested replies under the latest answer: how many, their tokens and their time, and where a fresh installation starts. */
     val chatReplySuggestions: Int,
     val chatReplySuggestionsConfigured: Int,

@@ -62,6 +62,7 @@ object SettingNames {
     /** Whether a chat answer's shell blocks carry a Run button. */
     const val CHAT_RUN_COMMANDS = "chat.run.commands"
     const val USAGE_TRACKING = "usage.tracking"
+    const val CHAT_COMPLETION_MODEL = "chat.completion.model"
     const val SESSION_RATINGS = "session.ratings"
     const val CHAT_REVIEWS = "session.reviews.chat"
     const val METRICS_ANONYMOUS = "metrics.anonymous"
@@ -661,6 +662,21 @@ class InstallationSettings(
      * Suggested replies under the latest answer. Three numbers, each what
      * Admin -> Settings holds or, until somebody changes it, what the file says.
      */
+
+    /** The completion model of every workspace set to Default; see CompletionModels. */
+    fun chatCompletionModel(): Long? =
+        settings.findByIdOrNull(SettingNames.CHAT_COMPLETION_MODEL)?.value?.toLongOrNull()
+
+    @Transactional
+    fun setChatCompletionModel(modelId: Long?, by: String) {
+        val held = settings.findByIdOrNull(SettingNames.CHAT_COMPLETION_MODEL)
+            ?: InstallationSetting(name = SettingNames.CHAT_COMPLETION_MODEL)
+        // An empty value rather than no row, so who cleared it is still written down.
+        held.value = modelId?.toString() ?: ""
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
 
     /** How many replies are suggested under an answer; 0 suggests none. */
     fun chatReplySuggestions(): Int =

@@ -372,6 +372,8 @@ type Query {
     modelProvider(id: ID!): ModelProvider
     "Every model the workspace may reach, provider first and then name."
     models(workspaceId: ID!): [Model!]!
+    "Every workspace's chat models, for choosing the installation's completion model. Administrators."
+    installationChatModels: [Model!]!
     model(id: ID!): Model
     """
     What a model has been used for, over a window and against the one before it.
@@ -2044,7 +2046,9 @@ type Mutation {
     "Chooses the model behind the quick chat; null takes the button away."
     setWorkspaceQuickChatModel(workspaceId: ID!, modelId: ID): Workspace!
     "Chooses the model that suggests how a sentence typed in a chat goes on; null turns suggestions off."
-    setWorkspaceCompletionModel(workspaceId: ID!, modelId: ID): Workspace!
+    setWorkspaceCompletionModel(workspaceId: ID!, modelId: ID, useDefault: Boolean): Workspace!
+    "The completion model of every workspace set to Default; null is none. Administrators."
+    setChatCompletionModel(modelId: ID): InstallationSettings!
     "Whether the quick chat may start things, or only look them up."
     setWorkspaceQuickChatWrites(workspaceId: ID!, allowed: Boolean!): Workspace!
     setWorkspaceChatTimestamps(workspaceId: ID!, shown: Boolean!): Workspace!
@@ -2574,6 +2578,10 @@ type Workspace {
     the caret for Tab to take. Null means nothing is suggested. Issue #649.
     """
     completionModelId: ID
+    "Whether having no completion model of its own means the installation's, rather than none."
+    completionModelDefault: Boolean!
+    "Whether anything will be suggested here, by the workspace's own model or the installation's."
+    completionAvailable: Boolean!
     "How long a chat waits after the last keystroke before asking for a suggestion: the installation's setting."
     completionPauseMillis: Int!
     """
@@ -7346,6 +7354,8 @@ type InstallationSettings {
     chatCompletionPauseMillisConfigured: Int!
     "How many replies are suggested under a chat's latest answer; 0 suggests none."
     chatReplySuggestions: Int!
+    "The completion model of every workspace set to Default."
+    chatCompletionModelId: ID
     "What a fresh installation does - ORKNUX_CHAT_REPLY_SUGGESTIONS."
     chatReplySuggestionsConfigured: Int!
     "The most tokens an answer's suggested replies together may be."
