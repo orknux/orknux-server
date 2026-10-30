@@ -233,11 +233,28 @@ class WorkflowBuildTools(
                     "first; if it is a workflow you are building, save again with overwrite_draft true.",
             )
         }
-        @Suppress("UNCHECKED_CAST")
-        val nodes = (asked["nodes"] as? List<Map<String, Any?>>) ?: return refuse("Give the graph's nodes, as a list.")
-        val edges = (asked["edges"] as? List<Map<String, Any?>>) ?: emptyList()
+        val nodes = objects(asked["nodes"]) ?: return refuse("Give the graph's nodes, as a list.")
+        val edges = if (asked["edges"] == null) emptyList() else objects(asked["edges"]) ?: return refuse("Give the graph's edges, as a list.")
         val input = bind(mapOf("nodes" to laidOut(nodes, edges), "edges" to edges), WorkflowGraphInput::class.java)
         return graph(scope, graphApi.saveWorkflowGraph(scope.workspaceId, workflowId, input))
+    }
+
+    /**
+     * A list of objects, sent as a list or as the JSON text of one.
+     *
+     * The schema says array, and some clients send the array serialised into a
+     * string anyway - so every save was refused with "give the nodes as a list",
+     * one node or ten, and edges sent the same way were dropped without a word.
+     * The wireframe tools read their lists the same way.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun objects(value: Any?): List<Map<String, Any?>>? {
+        val list = when (value) {
+            is List<*> -> value
+            is String -> runCatching { mapper.readValue(value, List::class.java) }.getOrNull() ?: return null
+            else -> return null
+        }
+        return if (list.all { it is Map<*, *> }) list as List<Map<String, Any?>> else null
     }
 
     /**

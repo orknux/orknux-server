@@ -43,7 +43,7 @@ The volume is on the server user's home: a path the image lacks is created
 owned by root.
 
 A whole installation is
-[`deploy/compose.yaml`](https://github.com/michjak-szymanski/orknux-server/blob/main/deploy/compose.yaml)
+[`deploy/compose.yaml`](https://github.com/orknux/orknux-server/blob/main/deploy/compose.yaml)
 in the source repository.
 
 ## The one that matters most
@@ -69,7 +69,7 @@ length, and whether every stored secret still reads with it.
 
 Postgres or SQLite: `ORKNUX_DB_URL` decides, and driver, dialect and
 migrations follow. Postgres for a deployment; SQLite is one file, for one or a
-few people - the README's **The database** says what that costs.
+few people - the reference's **The database** says what that costs.
 
 Under SQLite, keep the file on a volume, and create its directory yourself:
 the server makes only the file.
@@ -93,7 +93,7 @@ ORKNUX_DB_URL: jdbc:sqlite:/data/orknux.db
 ## Signing in
 
 `ORKNUX_AUTH_METHOD` picks one, and only one - never two at once.
-[The README's **Access** section](https://github.com/michjak-szymanski/orknux-server/blob/main/README.md#access)
+[The reference's **Access**](https://github.com/orknux/orknux-server/blob/main/docs/reference.md#access)
 is why.
 
 | Variable | What it does | Default | Required |
@@ -105,7 +105,7 @@ is why.
 allowance is spent, then a pause doubling to a ceiling; nothing locks anybody
 out. The five `ORKNUX_SIGN_IN_*` and six `ORKNUX_PASSWORD_RESET_*` variables are
 in
-[the README's **Rate limits**](https://github.com/michjak-szymanski/orknux-server/blob/main/README.md#rate-limits),
+[the reference's **Rate limits**](https://github.com/orknux/orknux-server/blob/main/docs/reference.md#rate-limits),
 and their defaults suit almost every installation.
 
 **INTERNAL** - nothing to configure, which is the point. Username and password
@@ -150,7 +150,7 @@ request.
 **`ORKNUX_OIDC_AUDIENCES` locks scripts out**, because Keycloak and Entra do not
 write the audience an empty setting expects - a 401 on every API call while
 browser sign-in carries on working.
-[The README's **Access** section](https://github.com/michjak-szymanski/orknux-server/blob/main/README.md#access)
+[The reference's **Access**](https://github.com/orknux/orknux-server/blob/main/docs/reference.md#access)
 has what each writes and what to set, and covers `orknux.security.role-mapping`,
 which is YAML only.
 
@@ -160,7 +160,7 @@ startup, with the `Administrators` role and a password on the ordinary sign-in
 form - which internal users may always use. It only creates, so an account of
 that name is untouched. A password in a variable is a way in, not one to keep:
 sign in, change it, unset both.
-[`deploy/README.md`](https://github.com/michjak-szymanski/orknux-server/blob/main/deploy/README.md#signing-in-without-a-directory)
+[`deploy/README.md`](https://github.com/orknux/orknux-server/blob/main/deploy/README.md#signing-in-without-a-directory)
 has the rest.
 
 | Variable | What it does | Default | Required |
@@ -190,7 +190,7 @@ can be looked at afterwards.
 
 A trigger, a schedule or the API runs the workflow **as published**; Run in the
 editor uses the draft. Its nodes name the function or agent they call, read when
-the step runs. The README's **Publishing** has the rest.
+the step runs. The reference's **Publishing** has the rest.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
@@ -323,7 +323,7 @@ ORKNUX_WATCHER_LOOK_INITIAL_SECONDS, ORKNUX_WATCHER_LOOK_MULTIPLIER,
 ORKNUX_WATCHER_LOOK_MAX_SECONDS, ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS,
 ORKNUX_SCHEDULE_MAX_PER_AGENT, ORKNUX_CONTENT_SECURITY_POLICY and the log file's
 ORKNUX_LOG_MAX_FILE_SIZE, ORKNUX_LOG_MAX_HISTORY and ORKNUX_LOG_TOTAL_SIZE_CAP are in
-[the README](https://github.com/orknux/orknux-server/blob/main/README.md#more-settings).
+[the reference](https://github.com/orknux/orknux-server/blob/main/docs/reference.md#more-settings).
 So is every `ORKNUX_TUNING_*` variable: where a fresh installation starts on each number
 Admin -> Settings shows under its limits - timeouts, retries, caps.
 

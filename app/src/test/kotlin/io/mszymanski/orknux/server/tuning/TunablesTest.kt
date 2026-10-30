@@ -21,7 +21,7 @@ import java.io.File
  * The numbers the server behaves by, as settings. Issue #453.
  *
  * Two halves. The list is held to its other halves - the configuration file,
- * the README and the modules' own knobs - because a number added in one place
+ * docs/reference.md and the modules' own knobs - because a number added in one place
  * and not the others is a box with no variable behind it, or a variable the
  * documentation does not know. And a number changed on the screen is the number
  * the code then uses, which is asserted on a reader rather than on the stored
@@ -126,12 +126,12 @@ class TunablesTest(
 
     /**
      * The file names each one with its variable and the same default, and the
-     * README lists the variable - which is what `DOCKERHUB.md` points at.
+     * reference lists the variable - which is what `DOCKERHUB.md` points at.
      */
     @Test
-    fun `the configuration file and the README carry every tunable`() {
+    fun `the configuration file and the reference carry every tunable`() {
         val yml = File("src/main/resources/application.yml").readText()
-        val readme = File("../README.md").readText()
+        val readme = File("../docs/reference.md").readText()
         Tunable.entries.forEach {
             assertThat(yml).describedAs(it.key).contains("${it.key}: \${${it.variable}:${it.fallback}}")
             assertThat(readme).describedAs(it.key).contains("`${it.variable}`")

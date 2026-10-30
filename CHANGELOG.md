@@ -46,6 +46,15 @@ have failed.
 - **Double-clicking a box in the wireframe editor opens its words for typing again.** The double-click reached the canvas instead of the box under it, so nothing opened; the words of a button, a box or a frame are edited in place as before.
 - **A workflow agent step that streams its output no longer lists `agent_wait` among its tools.** The step wrote its instructions before it knew its conversation, so they named `agent_wait` as there to load while the step itself withholds it, and `tool_load` answered that no such tool exists. The delegating skill now says to end the turn where `agent_wait` is not given, since the answer starts the agent again.
 - **Continue in chat opens on the agent that spoke in the session**, rather than on whichever agent you last talked to. Where that agent has since been deleted, switched off or left without a model, it opens as before.
+## 1.2.6
+
+### 🔧 Changed
+
+- **The desktop app opens about a second sooner.** It no longer starts a separate Java process to ask which release to run when there is nothing to choose, and it notices the server is ready sooner. Updates from Admin → Updates work as before: the release launcher is still asked after every restart, and while a downloaded release is the one running.
+
+### 🐛 Fixed
+
+- **Saving a workflow's graph over MCP works from clients that send lists as text.** `orknux_save_workflow_graph` refused every graph with "Give the graph's nodes, as a list" when the client sent the nodes as JSON text, and dropped edges sent the same way.
 
 ## 1.2.5
 

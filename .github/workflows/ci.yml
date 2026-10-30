@@ -71,7 +71,7 @@ jobs:
             size=$(wc -c < "$file")
             echo "$file is $size bytes of $limit."
             if [ "$size" -gt "$limit" ]; then
-              echo "::error file=$file::$size bytes, and Docker Hub takes $limit. Shorten it by $((size - limit)) bytes, or move a section into README.md and link to it - do not let it be truncated, because the end is where the least-known settings are."
+              echo "::error file=$file::$size bytes, and Docker Hub takes $limit. Shorten it by $((size - limit)) bytes, or move a section into docs/reference.md and link to it - do not let it be truncated, because the end is where the least-known settings are."
               failed=1
             elif [ "$size" -gt "$comfortable" ]; then
               echo "::warning file=$file::$size bytes, $((limit - size)) short of the $limit Docker Hub allows. Adding another variable or two will break the build - worth shortening now rather than in the middle of a release."

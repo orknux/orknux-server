@@ -18,6 +18,10 @@ The main process (`src/main.js`) is what `docker/one/entrypoint.sh` and
 3. **Supervises it** like `orknux-run.sh`: asks `ReleaseLauncher` which jar to
    run, runs it, starts again on exit code 75, and falls back from a release
    that failed. That is what lets the server's own signed-jar updates work here.
+   The launcher is a Java start of its own, about 0.75 s, so it is asked only
+   when it has something to decide - after the server exited, while a release
+   is what runs (`ran-release` in the data directory), under a pin, or after
+   it could not read the release table - and otherwise the shipped jar runs.
 4. **Shows it**: a splash while the server starts, then the interface, in tabs
    (`src/tabs.js`): a link the page opens in a new tab, Ctrl+click and the
    middle button open one, Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work as
