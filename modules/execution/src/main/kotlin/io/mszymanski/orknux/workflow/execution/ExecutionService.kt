@@ -360,6 +360,9 @@ data class ExecutionStepView(
     val branch: EdgeBranch?,
     /** Which option of a decision it went by, on an OPTION branch. Issue #577. */
     val branchOption: String? = null,
+    /** What it cost where it kept no session; see [ExecutionStep.spentCost]. */
+    val spentCost: java.math.BigDecimal = java.math.BigDecimal.ZERO,
+    val spentPartlyUnpriced: Boolean = false,
     /** The run a Workflow step started, once it has; null on every other kind. */
     val childExecutionId: Long? = null,
     /** Whether an agent step handed on what its agent said as it said it, as the run copied the node's setting. */
@@ -397,6 +400,8 @@ data class ExecutionStepView(
         sessionId = step.sessionId,
         branch = step.branch,
         branchOption = step.branchOption,
+        spentCost = step.spentCost,
+        spentPartlyUnpriced = step.spentPartlyUnpriced,
         childExecutionId = step.childExecutionId,
         streamOutput = step.streamOutput,
         attempts = step.attempts,

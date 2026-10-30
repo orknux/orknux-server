@@ -66,6 +66,7 @@ class AgentNodeRunnerTest(
     @Autowired val sessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
     @Autowired val sessionEvents: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
     @Autowired val runner: AgentNodeRunner,
+    @Autowired val usageRows: io.mszymanski.orknux.server.usage.PersonUsageRepository,
     /** For reading the setup snapshot back as the page does. #446. */
     @Autowired val mapper: tools.jackson.databind.ObjectMapper,
 ) {
@@ -132,6 +133,43 @@ class AgentNodeRunnerTest(
         // with it — the same briefing a chat with this agent would open on.
         assertThat(received.single()).contains("You summarise incidents.")
         assertThat(received.single()).contains("the database fell over")
+    }
+
+    /**
+     * A node with no session has nowhere to keep its spend but the step, which
+     * the thread carrying it saves whole after the call: the sum surviving that
+     * save is the point of asserting it after the run has finished.
+     */
+    @Test
+    fun `a step that keeps no session has its cost on the run and in the usage report`() {
+        val modelId = model(serveAnswer())
+        models.save(models.findById(modelId).orElseThrow().apply {
+            inputCostPerMillion = java.math.BigDecimal("1000000")
+            outputCostPerMillion = java.math.BigDecimal("1000000")
+        })
+        graph(agent("Reviewer", modelId, prompt = "You summarise incidents."))
+        graphQlTester.document("mutation { setUsageTracking(enabled: true) { enabled } }").execute()
+        try {
+            start()
+
+            assertThat(sessions.findAll()).isEmpty()
+            val runId = requireNotNull(executions.findAll().single().id)
+            val cost = graphQlTester.document("query { execution(id: $runId) { cost { amount partlyUnpriced sessions } } }").execute()
+            cost.path("execution.cost.amount").entity(String::class.java).isEqualTo("17")
+            cost.path("execution.cost.partlyUnpriced").entity(Boolean::class.java).isEqualTo(false)
+            cost.path("execution.cost.sessions").entity(Int::class.java).isEqualTo(0)
+
+            val row = usageRows.findAll().single { it.workspaceId == workspaceId }
+            assertThat(row.sessionId).isEqualTo(io.mszymanski.orknux.server.usage.UsageTracking.NO_SESSION)
+            assertThat(row.inputTokens).isEqualTo(11)
+
+            val report = graphQlTester.document("query { usageReport(filter: { workspaceId: $workspaceId }) { inputTokens sessions } }").execute()
+            report.path("usageReport.inputTokens").entity(Double::class.java).isEqualTo(11.0)
+            report.path("usageReport.sessions").entity(Int::class.java).isEqualTo(0)
+        } finally {
+            graphQlTester.document("mutation { setUsageTracking(enabled: false) { enabled } }").execute()
+            usageRows.deleteAll(usageRows.findAll().filter { it.workspaceId == workspaceId })
+        }
     }
 
     /**

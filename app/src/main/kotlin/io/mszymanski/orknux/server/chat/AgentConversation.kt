@@ -892,7 +892,7 @@ class AgentConversation(
                     writing.answer(it)
                 }
             }
-            into?.let { spend.add(it, modelId, once) }
+            spend.add(into, agent.workspaceId, modelId, once)
             record(into, agent, once, hangup)
             if (once is ChatCompletion.Answered) kept?.sent(told + ChatTurn(role = "assistant", content = once.content))
             return once
@@ -1151,7 +1151,7 @@ class AgentConversation(
                 }
             }
             // What the round cost, whatever it answered: a round that asked for tools is charged too.
-            into?.let { spend.add(it, modelId, answer) }
+            spend.add(into, agent.workspaceId, modelId, answer)
             when (answer) {
                 /*
                  * A round that could not be used is put back to the model

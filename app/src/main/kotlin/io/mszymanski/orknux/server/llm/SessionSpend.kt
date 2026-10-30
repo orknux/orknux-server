@@ -24,9 +24,38 @@ class SessionSpend(
     private val usage: UsageTracking,
     /** Each call on its own, with the timings its provider reported; see [SessionModelCall]. */
     private val calls: SessionModelCallRepository,
+    /** Where the spend of a step that keeps no session is kept instead. */
+    private val steps: io.mszymanski.orknux.workflow.execution.ExecutionStepRepository,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
+
+    /**
+     * One model call, into [sessionId] where there is one. A turn that keeps no
+     * session is charged all the same - an agent node with no session wired to
+     * it was simply not counted, on its run's page or in any report - so its
+     * spend goes on the step carrying it, and to the ledger under
+     * [UsageTracking.NO_SESSION].
+     */
+    fun add(sessionId: Long?, workspaceId: Long, modelId: Long, call: ChatCompletion) {
+        if (sessionId != null) {
+            add(sessionId, modelId, call)
+            return
+        }
+        val (input, output, cached, written) = when (call) {
+            is ChatCompletion.Answered -> listOf(call.inputTokens, call.outputTokens, call.cachedInputTokens, call.cacheWriteTokens)
+            is ChatCompletion.CalledTools -> listOf(call.inputTokens, call.outputTokens, call.cachedInputTokens, call.cacheWriteTokens)
+            else -> return
+        }
+        if (input == 0L && output == 0L) return
+        val cost = models.costOf(modelId, input, output, cached, written)
+        // Read off the thread, as a stop finds it; a turn no step is carrying has only the ledger.
+        io.mszymanski.orknux.workflow.execution.StepInterrupts.current()?.let {
+            runCatching { steps.addSpend(it.executionId, it.nodeKey, cost ?: BigDecimal.ZERO, cost == null) }
+                .onFailure { failure -> log.warn("The spend of step {} could not be recorded", it.nodeKey, failure) }
+        }
+        usage.recordUnkept(workspaceId, modelId, input, cached, output, cost)
+    }
 
     /**
      * One model call made into [sessionId], whatever it answered. Nothing for a

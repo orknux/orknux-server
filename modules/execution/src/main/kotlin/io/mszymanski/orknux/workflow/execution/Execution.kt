@@ -388,6 +388,20 @@ class ExecutionStep(
     var repeatsDone: Int = 0,
 
     /**
+     * What this step's model calls cost where it keeps no session to hold that.
+     *
+     * Not updatable, and only ever added to by [ExecutionStepRepository.addSpend]:
+     * a step is saved whole by the thread carrying it, from what it read before
+     * the call, which would otherwise write the sum back to nothing.
+     */
+    @Column(name = "spent_cost", nullable = false, updatable = false, precision = 20, scale = 8)
+    val spentCost: java.math.BigDecimal = java.math.BigDecimal.ZERO,
+
+    /** Whether some call's model had no price, so [spentCost] is part of the whole. */
+    @Column(name = "spent_partly_unpriced", nullable = false, updatable = false)
+    val spentPartlyUnpriced: Boolean = false,
+
+    /**
      * When this step's budget runs out, stamped the first time it is attempted.
      *
      * Written down rather than worked out, because a budget is wall clock and

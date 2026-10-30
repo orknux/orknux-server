@@ -145,6 +145,21 @@ interface ExecutionStepRepository : JpaRepository<ExecutionStep, Long> {
     fun findByExecutionIdOrderByOrderAsc(executionId: Long): List<ExecutionStep>
     fun findByExecutionIdAndNodeKey(executionId: Long, nodeKey: String): ExecutionStep?
 
+    /** One model call's spend, added in one statement so two calls at once cannot lose either. */
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(
+        "UPDATE ExecutionStep s SET s.spentCost = s.spentCost + :cost, " +
+            "s.spentPartlyUnpriced = (CASE WHEN :unpriced = true THEN true ELSE s.spentPartlyUnpriced END) " +
+            "WHERE s.executionId = :executionId AND s.nodeKey = :nodeKey",
+    )
+    fun addSpend(
+        @org.springframework.data.repository.query.Param("executionId") executionId: Long,
+        @org.springframework.data.repository.query.Param("nodeKey") nodeKey: String,
+        @org.springframework.data.repository.query.Param("cost") cost: java.math.BigDecimal,
+        @org.springframework.data.repository.query.Param("unpriced") unpriced: Boolean,
+    ): Int
+
     /** Whether a step writing into this session is in one of these states: mid-turn, or parked on it. */
     fun existsBySessionIdAndStatusIn(sessionId: Long, statuses: Collection<StepStatus>): Boolean
 

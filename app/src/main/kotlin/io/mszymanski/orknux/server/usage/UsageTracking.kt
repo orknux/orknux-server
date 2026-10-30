@@ -220,6 +220,35 @@ class UsageTracking(
     }
 
     /**
+     * A call made into no session, so the report's total stays the
+     * installation's total. Under [NO_SESSION] rather than a null: an older jar
+     * reads this column as a number, and rollback has to keep working.
+     */
+    fun recordUnkept(workspaceId: Long, modelId: Long, input: Long, cached: Long, output: Long, cost: BigDecimal?) {
+        if (!settings.usageTracking()) return
+        val prompter = Prompting.current() ?: Prompter.NOBODY
+        runCatching {
+            rows.save(
+                PersonUsage(
+                    at = OffsetDateTime.now(),
+                    workspaceId = workspaceId,
+                    sessionId = NO_SESSION,
+                    modelId = modelId,
+                    source = prompter.source,
+                    connectionId = prompter.connectionId,
+                    personKey = prompter.key,
+                    personName = nameOf(prompter),
+                    inputTokens = input,
+                    cachedInputTokens = cached,
+                    outputTokens = output,
+                    cost = cost ?: BigDecimal.ZERO,
+                    unpriced = cost == null,
+                ),
+            )
+        }.onFailure { log.warn("The usage of a call into no session could not be recorded", it) }
+    }
+
+    /**
      * Who is prompting [sessionId] now, named, by the rule the ledger books a
      * call by - recorded whether tracking is on or not, for whoever asks.
      */
@@ -278,10 +307,13 @@ class UsageTracking(
         return slack.memberName(connectionId, member).also { names[key] = it to now }
     }
 
-    private companion object {
-        val NAME_KEPT: Duration = Duration.ofHours(1)
+    companion object {
+        /** What the ledger's session column says for a call that kept none. No session has this id. */
+        const val NO_SESSION = 0L
+
+        private val NAME_KEPT: Duration = Duration.ofHours(1)
 
         /** How far up a family is looked; asks go one level, so this is room, not a tunable. */
-        const val MAX_DEPTH = 8
+        private const val MAX_DEPTH = 8
     }
 }

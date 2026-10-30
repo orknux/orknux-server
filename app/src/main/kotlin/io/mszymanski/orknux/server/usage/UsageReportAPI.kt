@@ -126,7 +126,7 @@ class UsageReportAPI(
         val mine = query(
             "SELECT u.sessionId, SUM(u.inputTokens + u.outputTokens), SUM(u.cost), " +
                 "MAX(CASE WHEN u.unpriced = true THEN 1 ELSE 0 END), MAX(u.at) " +
-                "FROM PersonUsage u WHERE $where $theirs GROUP BY u.sessionId",
+                "FROM PersonUsage u WHERE $where $theirs AND u.sessionId <> ${UsageTracking.NO_SESSION} GROUP BY u.sessionId",
             them,
         ).associateBy { it[0] as Long }
         if (mine.isEmpty()) return UsagePersonSessionsView(0, emptyList())
@@ -249,7 +249,7 @@ class UsageReportAPI(
                 total.unpriced = total.unpriced || it[7] == true
                 // A row is one model call; the sessions are told apart by id.
                 total.calls += 1
-                total.sessions += (it[8] as Number).toLong()
+                (it[8] as Number).toLong().takeIf { id -> id != UsageTracking.NO_SESSION }?.let { id -> total.sessions += id }
             }
         }
         return days.map { (date, total) ->
@@ -303,7 +303,8 @@ class UsageReportAPI(
             parameters,
         ).groupBy({ it[0] as String }, { it[1] as Long })
         return query(
-            "SELECT u.source, u.personKey, MAX(u.personName), COUNT(DISTINCT u.sessionId), " +
+            "SELECT u.source, u.personKey, MAX(u.personName), " +
+                "COUNT(DISTINCT CASE WHEN u.sessionId <> ${UsageTracking.NO_SESSION} THEN u.sessionId END), " +
                 "SUM(u.inputTokens), SUM(u.cachedInputTokens), SUM(u.outputTokens), SUM(u.cost), " +
                 "MAX(CASE WHEN u.unpriced = true THEN 1 ELSE 0 END), MAX(u.at) " +
                 "FROM PersonUsage u WHERE $where GROUP BY u.source, u.personKey",
@@ -367,7 +368,7 @@ class UsageReportAPI(
 
     private fun sessionCount(period: Period, filter: UsageReportFilter?): Int {
         val (where, parameters) = conditions(period, filter)
-        return (query("SELECT COUNT(DISTINCT u.sessionId) FROM PersonUsage u WHERE $where", parameters, single = true)
+        return (query("SELECT COUNT(DISTINCT u.sessionId) FROM PersonUsage u WHERE $where AND u.sessionId <> ${UsageTracking.NO_SESSION}", parameters, single = true)
             .single()[0] as Number).toInt()
     }
 
