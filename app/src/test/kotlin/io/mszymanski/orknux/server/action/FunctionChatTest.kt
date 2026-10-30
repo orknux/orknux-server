@@ -152,6 +152,21 @@ class FunctionChatTest(
     }
 
     @Test
+    fun `a suggestion stops at code already below the caret, and goes on its own line`() {
+        val after = "\n    const result = response.body;\n    return result;\n  }\n}\n"
+        val before = "    // or"
+        // All of it is there already.
+        assertThat(sentences.codeCleaned(before, "    const result = response.body;\n    return result;\n  }\n}", after)).isNull()
+        // Something new, then the rest of the file: the new line, on a line of its own rather than in the comment.
+        assertThat(sentences.codeCleaned(before, "    const result = response.json();\n    return result;\n  }", after))
+            .isEqualTo("\n    const result = response.json();")
+        // Words carrying on the comment stay on its line.
+        assertThat(sentences.codeCleaned(before, " use response.json()", after)).isEqualTo(" use response.json()")
+        // A closing bracket alone is not a repeat.
+        assertThat(sentences.codeCleaned("if (x) {\n", "    return 1;\n}", "\n}\n")).isEqualTo("    return 1;\n}")
+    }
+
+    @Test
     fun `code from the model keeps its indentation and is held to a few lines`() {
         assertThat(sentences.codeCleaned("if (x) {\n", "    return 1;\n}")).isEqualTo("    return 1;\n}")
         assertThat(sentences.codeCleaned("x", (1..20).joinToString("\n") { "line$it" })!!.lines()).hasSize(8)

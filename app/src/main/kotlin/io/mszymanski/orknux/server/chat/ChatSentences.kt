@@ -89,7 +89,7 @@ class ChatSentences(
             if (after.isNotBlank()) append("\n\nThe code after the caret, which must not be repeated:\n").append(after)
         }
         val said = ask(workspaceId, "function-completion:$key", CODE_INSTRUCTION, context) ?: return null
-        return codeCleaned(before, said)
+        return codeCleaned(before, said, after)
     }
 
     /**
@@ -207,7 +207,7 @@ class ChatSentences(
      * leading whitespace and line breaks are kept, since they are indentation
      * and they are the code. Nothing but whitespace is no suggestion.
      */
-    internal fun codeCleaned(before: String, said: String): String? {
+    internal fun codeCleaned(before: String, said: String, after: String = ""): String? {
         var text = said.replace("\r", "")
         val fenced = Regex("^\\s*```[A-Za-z0-9_+-]*\\n?([\\s\\S]*?)\\n?```\\s*$").matchEntire(text)
         if (fenced != null) text = fenced.groupValues[1]
@@ -216,9 +216,19 @@ class ChatSentences(
             val head = text.trimStart(' ', '\t')
             if (head.startsWith(line.trimStart())) text = head.removePrefix(line.trimStart())
         }
-        val lines = text.split('\n')
+        /*
+         * Up to the first line that is already below the caret. Shown a comment
+         * with the code after it, a small model writes that code out again, and
+         * Tab would then leave it there twice. A line of only brackets says
+         * nothing: every function has the same ones.
+         */
+        val below = after.lineSequence().map { it.trim() }.filter { one -> one.any { it.isLetterOrDigit() } }.toSet()
+        val lines = text.split('\n').takeWhile { it.trim() !in below }
         text = lines.take(CODE_LINES).joinToString("\n").trimEnd()
-        return text.takeIf { it.isNotBlank() }
+        if (text.isBlank()) return null
+        // Indented as a line of its own, it is one: run on after a comment, it would be part of the comment.
+        if (line.isNotBlank() && !line.last().isWhitespace() && text.startsWith("  ")) return "\n$text"
+        return text
     }
 
     /**

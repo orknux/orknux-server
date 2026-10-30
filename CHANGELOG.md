@@ -30,6 +30,8 @@ have failed.
 
 ### 🔧 Changed
 
+- **With no completion model, the Auto-completion switch in the function and document editors is a tinted dropdown of the workspace's chat models**, and choosing one turns it on; it looked switched on while nothing could be suggested. Where there is nothing to choose, or you may not choose, it is disabled and says why.
+- **Every message in the Design editors' chats and the quick chat has a copy button.**
 - **The function editor takes the whole window**, as the Design editors do: the details down the left, the code in the middle, and a chat down the right that reads the code as it stands - saved or not - and offers changes with Accept and Reject. The floating Ask AI is not shown on it, and the wand asks the chat instead; on a function not created yet, Accept puts the change in the editor. The columns stack below 1100px wide rather than 1300px.
 - **Agents with Orknux access get the five sheet tools marked Always** on upgrade, as the wireframe and diagram tools were; an agent that hid one keeps it hidden.
 - **The Design editors' toolbars wrap onto a second row on a narrow window** rather than running off the edge, where Export could not be reached.
@@ -37,6 +39,8 @@ have failed.
 
 ### 🐛 Fixed
 
+- **A code suggestion stops at code already below the caret**, and an indented line goes on a line of its own rather than into the comment before it.
+- **The Design editors' name stays beside its controls**; it took up to half the bar, leaving the rename pencil mid-way.
 - **A workflow step with no session now shows its cost.** An agent node with no session wired to it was charged nowhere: its run read — for cost, and its calls were missing from usage reports. They now count on the run page and, while usage tracking is on, in the report's totals; they are not listed among a person's sessions, having none. Runs from before this keep showing nothing, since those calls were never recorded.
 - **Stop works on a run waiting on Temporal, and a run ended in Temporal no longer reads Running for ever.** Stop was ignored by a step sitting out a retry or a wait, which went on to ask its model again; it now ends the wait at once, on every path of a fan-out. Cancel or Terminate in Temporal's own interface, and a run timeout, left the run Running for good; cancel is now written down as it happens, and a check every minute settles the rest, including runs already stuck when you upgrade.
 - **Double-clicking a box in the wireframe editor opens its words for typing again.** The double-click reached the canvas instead of the box under it, so nothing opened; the words of a button, a box or a frame are edited in place as before.
