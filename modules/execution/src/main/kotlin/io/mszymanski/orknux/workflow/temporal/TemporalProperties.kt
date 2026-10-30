@@ -51,4 +51,6 @@ data class TemporalProperties(
      */
     val workflowCacheSize: Int = 50,
     val maxWorkflowThreads: Int = 100,
+    /** How often runs still going are held against what Temporal says; see [TemporalRunReconciler]. */
+    val reconcileInterval: java.time.Duration = java.time.Duration.ofMinutes(1),
 )

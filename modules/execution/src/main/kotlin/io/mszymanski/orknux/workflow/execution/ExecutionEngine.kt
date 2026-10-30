@@ -58,4 +58,14 @@ interface ExecutionEngine {
      * and a step woken with nothing new simply parks again.
      */
     fun wake(executionId: Long) {}
+
+    /**
+     * Tells the run its stop flag has been set, for an engine whose run would
+     * otherwise not look at it until a timer ran out. The inline engine polls
+     * the flag through every wait and needs no telling.
+     *
+     * Called once the flag is committed: told earlier, the step it wakes reads
+     * the flag still unset and runs.
+     */
+    fun stopAsked(executionId: Long) {}
 }

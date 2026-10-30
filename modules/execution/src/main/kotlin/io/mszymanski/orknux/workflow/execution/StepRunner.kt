@@ -330,6 +330,18 @@ class StepRunner(
         val step = stepOf(executionId, nodeKey)
         val execution = executionOf(executionId)
 
+        /*
+         * Asked to stop before this was called. The inline engine reads the flag
+         * itself; a Temporal workflow cannot read a database, so this is where
+         * its run hears of it - before spending another attempt on a model that
+         * has been answering 429. A step never reached stays PENDING, because
+         * it was; one sitting out a wait has started, and is recorded as stopped.
+         */
+        if (execution.stopRequested) {
+            if (step.status == StepStatus.PENDING) throw StepStoppedException(nodeKey)
+            stopStep(executionId, step)
+        }
+
         // Read here rather than handed in: the payload belongs to the run, not
         // to the message that asked for the step. A parked step picked up by
         // another worker reads the same thing this one did.
@@ -848,8 +860,42 @@ class StepRunner(
         execution.status = ExecutionStatus.STOPPED
         execution.finishedAt = OffsetDateTime.now()
         execution.stoppedReason = STOP_REASON
+        closeOpenSteps(executionId, STOPPED_STEP)
+        // A cancel from outside can end a run with its step's activity still going.
+        interrupts.stop(executionId)
         log.write(executionId, null, LogLevel.INFO, "${execution.workflowName} was stopped")
         return executions.save(execution).also { published.publishEvent(RunEnded(executionId)) }
+    }
+
+    /**
+     * Ends a run whose engine has gone without saying how it ended - timed out,
+     * or nothing left of it at all - so it does not read RUNNING for ever.
+     * Only a run still going; one that ended by itself keeps its own ending.
+     */
+    fun abandonRun(executionId: Long, reason: String): WorkflowExecution {
+        val execution = executionOf(executionId)
+        if (execution.status != ExecutionStatus.RUNNING) return execution
+        execution.status = ExecutionStatus.FAILED
+        execution.error = reason.take(ERROR_LENGTH)
+        execution.finishedAt = OffsetDateTime.now()
+        closeOpenSteps(executionId, reason.take(ERROR_LENGTH))
+        log.write(executionId, null, LogLevel.ERROR, "${execution.workflowName} failed: $reason")
+        metrics.runFailed()
+        return executions.save(execution).also { published.publishEvent(RunEnded(executionId)) }
+    }
+
+    /** Whatever was still open when the run ended: nothing will come back to it. */
+    private fun closeOpenSteps(executionId: Long, why: String) {
+        steps.findByExecutionIdOrderByOrderAsc(executionId)
+            .filter { it.status == StepStatus.WAITING || it.status == StepStatus.RUNNING }
+            .forEach { step ->
+                step.status = StepStatus.SKIPPED
+                step.output = why
+                step.error = null
+                step.waitUntil = null
+                step.finishedAt = OffsetDateTime.now()
+                steps.save(step)
+            }
     }
 
     /**

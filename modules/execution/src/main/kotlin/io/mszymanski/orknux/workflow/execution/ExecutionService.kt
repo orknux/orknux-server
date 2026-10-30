@@ -151,8 +151,21 @@ class ExecutionService(
                 executions.save(execution)
             }
             interrupts.stop(id)
+            whenCommitted { engine.stopAsked(id) }
         }
         return detailOf(execution)
+    }
+
+    private fun whenCommitted(then: () -> Unit) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            then()
+            return
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+            object : org.springframework.transaction.support.TransactionSynchronization {
+                override fun afterCommit() = then()
+            },
+        )
     }
 
     /**

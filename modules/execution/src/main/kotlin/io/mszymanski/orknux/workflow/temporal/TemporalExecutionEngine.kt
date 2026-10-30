@@ -73,6 +73,13 @@ class TemporalExecutionEngine(
         }.onFailure { log.debug("Execution {} had nothing to wake: {}", executionId, it.message) }
     }
 
+    /** A signal to the run's workflow. One already gone is the reconciler's to write down. */
+    override fun stopAsked(executionId: Long) {
+        runCatching {
+            client.newUntypedWorkflowStub(temporalWorkflowId(executionId)).signal("stop")
+        }.onFailure { log.debug("Execution {} could not be told to stop: {}", executionId, it.message) }
+    }
+
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 }
 

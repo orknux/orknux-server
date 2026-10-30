@@ -12,6 +12,8 @@ import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.temporal.activity.ActivityOptions
 import io.temporal.failure.ActivityFailure
 import io.temporal.failure.ApplicationFailure
+import io.temporal.failure.CanceledFailure
+import io.temporal.failure.TemporalFailure
 import io.temporal.workflow.Async
 import io.temporal.workflow.SignalMethod
 import io.temporal.workflow.Workflow
@@ -37,6 +39,15 @@ interface ExecutionWorkflow {
     /** Cuts short the wait of a parked step; see [ExecutionEngine.wake]. */
     @SignalMethod
     fun wake()
+
+    /**
+     * Says the run was asked to stop, so a wait does not sit out its timer.
+     *
+     * Not [wake]: that one is spent by the first wait to read it, and on a
+     * fan-out every parked path has to hear a stop.
+     */
+    @SignalMethod
+    fun stop()
 }
 
 /**
@@ -308,7 +319,33 @@ class ExecutionWorkflowImpl(
         woken = true
     }
 
-    override fun run(plan: RunPlan): ExecutionStatus {
+    /** Set by [stop] and never cleared, because every parked path has to read it. */
+    private var stopping = false
+
+    override fun stop() {
+        stopping = true
+    }
+
+    /**
+     * Walks the plan, and writes down a cancel from outside.
+     *
+     * Cancelling in Temporal's own interface throws out of whatever the
+     * workflow was waiting on, and nothing was left to say so: the workflow
+     * closed and its run read RUNNING for ever. Recorded in a detached scope,
+     * since an activity asked for in the cancelled one never starts, and thrown
+     * on, so Temporal shows what really happened to it. A history can only hold
+     * a cancel that closed it, so no run in flight replays differently.
+     */
+    override fun run(plan: RunPlan): ExecutionStatus =
+        try {
+            walk(plan)
+        } catch (failure: TemporalFailure) {
+            val cancelled = failure as? CanceledFailure ?: failure.cause as? CanceledFailure ?: throw failure
+            Workflow.newDetachedCancellationScope { activities.stopRun(StopRunCommand(plan.executionId)) }.run()
+            throw cancelled
+        }
+
+    private fun walk(plan: RunPlan): ExecutionStatus {
         heartbeat = plan.heartbeatSeconds
         /*
          * What still has a reason to run. Built from the edges the plan
@@ -512,6 +549,8 @@ class ExecutionWorkflowImpl(
             val attempt = try {
                 stepActivities().runStep(RunStepCommand(executionId, nodeKey))
             } catch (failure: ActivityFailure) {
+                // A step cancelled with its workflow did not fail, and no failure edge should see it.
+                (failure.cause as? CanceledFailure)?.let { throw it }
                 return Arrival.Failed(failure.reason())
             }
             attempt.heartbeatSeconds?.let { heartbeat = it }
@@ -533,7 +572,8 @@ class ExecutionWorkflowImpl(
             if (Workflow.getVersion(WAKE_ON_EVENT, Workflow.DEFAULT_VERSION, 1) == Workflow.DEFAULT_VERSION) {
                 Workflow.sleep(Duration.ofSeconds(pause))
             } else {
-                Workflow.await(Duration.ofSeconds(pause)) { woken }
+                // The step is asked again either way, and asked after a stop it ends.
+                Workflow.await(Duration.ofSeconds(pause)) { woken || stopping }
                 woken = false
             }
         }

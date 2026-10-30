@@ -36,6 +36,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **Stop works on a run waiting on Temporal, and a run ended in Temporal no longer reads Running for ever.** Stop was ignored by a step sitting out a retry or a wait, which went on to ask its model again; it now ends the wait at once, on every path of a fan-out. Cancel or Terminate in Temporal's own interface, and a run timeout, left the run Running for good; cancel is now written down as it happens, and a check every minute settles the rest, including runs already stuck when you upgrade.
 - **Double-clicking a box in the wireframe editor opens its words for typing again.** The double-click reached the canvas instead of the box under it, so nothing opened; the words of a button, a box or a frame are edited in place as before.
 - **A workflow agent step that streams its output no longer lists `agent_wait` among its tools.** The step wrote its instructions before it knew its conversation, so they named `agent_wait` as there to load while the step itself withholds it, and `tool_load` answered that no such tool exists. The delegating skill now says to end the turn where `agent_wait` is not given, since the answer starts the agent again.
 - **Continue in chat opens on the agent that spoke in the session**, rather than on whichever agent you last talked to. Where that agent has since been deleted, switched off or left without a model, it opens as before.

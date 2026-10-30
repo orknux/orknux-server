@@ -121,6 +121,16 @@ interface WorkflowExecutionRepository :
         """,
     )
     fun stalledBefore(cutoff: OffsetDateTime): List<Long>
+
+    /** Every run still going that started before [cutoff]; see `TemporalRunReconciler`. */
+    @Query(
+        """
+        select e.id from WorkflowExecution e
+        where e.status = io.mszymanski.orknux.workflow.execution.ExecutionStatus.RUNNING
+          and e.startedAt < :cutoff
+        """,
+    )
+    fun runningStartedBefore(cutoff: OffsetDateTime): List<Long>
 }
 
 /** One row of [WorkflowExecutionRepository.workflowsRun]. */

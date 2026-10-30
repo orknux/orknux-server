@@ -21,6 +21,7 @@ import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import io.mszymanski.orknux.workflow.execution.WorkflowGraph
 import io.mszymanski.orknux.workflow.execution.WorkflowGraphSource
 import io.temporal.activity.ActivityOptions
+import io.temporal.api.enums.v1.WorkflowExecutionStatus
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
 import io.temporal.client.WorkflowStub
@@ -57,7 +58,12 @@ class ExecutionWorkflowTest(
     @Autowired val steps: ExecutionStepRepository,
     @Autowired val logs: ExecutionLogRepository,
     @Autowired val graphs: WorkflowGraphSource,
+    @Autowired val stepRunner: io.mszymanski.orknux.workflow.execution.StepRunner,
 ) {
+
+    /** A spy, so a test can have the stop reach the workflow the way the Temporal engine would. */
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    lateinit var engine: io.mszymanski.orknux.workflow.execution.ExecutionEngine
 
     private lateinit var environment: TestWorkflowEnvironment
 
@@ -435,6 +441,191 @@ class ExecutionWorkflowTest(
     }
 
     /**
+     * Stop during a retry's backoff, which is where it used to be ignored: the
+     * flag was read by nothing on Temporal and no timer was cut short, so a step
+     * on a model answering 429 sat out its ten minutes and asked again.
+     * Through [ExecutionService.requestStop], so the signal is proved to arrive
+     * after the flag is committed: sooner, the step is asked and fails again.
+     */
+    @Test
+    fun `a stop reaches a step sitting out its retry backoff`() = onRealClock { real ->
+        val plan = plan(
+            WorkflowGraph(
+                workflowId = WORKFLOW,
+                name = "Daily digest",
+                nodes = listOf(retrying("boom", attempts = 5, backoffSeconds = 3600), node("ok-2")),
+                edges = listOf(GraphEdge("boom", "ok-2")),
+            ),
+        )
+        val id = temporalWorkflowId(plan.executionId)
+        WorkflowClient.start(realWorkflow(real, id)::run, plan)
+        awaitSteps(plan.executionId) { all -> all.any { it.status == StepStatus.WAITING } }
+
+        signalStopsTo(real)
+        runs.requestStop(plan.executionId)
+
+        assertThat(real.workflowClient.newUntypedWorkflowStub(id).getResult(20, TimeUnit.SECONDS, ExecutionStatus::class.java))
+            .isEqualTo(ExecutionStatus.STOPPED)
+        assertThat(executions.findById(plan.executionId).orElseThrow().status).isEqualTo(ExecutionStatus.STOPPED)
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(plan.executionId).associateBy { it.nodeKey }
+        assertThat(recorded.getValue("boom").status).isEqualTo(StepStatus.SKIPPED)
+        assertThat(recorded.getValue("boom").attempts).isEqualTo(1)
+        assertThat(recorded.getValue("ok-2").status).isEqualTo(StepStatus.PENDING)
+    }
+
+    /** One `wake` is spent by the first wait to read it; a stop has to reach them all. */
+    @Test
+    fun `a stop reaches every parked path of a fan-out`() = onRealClock { real ->
+        val planned = fanOut("wait-for-approval", "wait-for-approval")
+        val plan = runPlanOf(planned, "start here")
+        val id = temporalWorkflowId(plan.executionId)
+        WorkflowClient.start(realWorkflow(real, id)::run, plan)
+        awaitSteps(plan.executionId) { all -> all.count { it.status == StepStatus.WAITING } == 2 }
+
+        signalStopsTo(real)
+        runs.requestStop(plan.executionId)
+
+        assertThat(real.workflowClient.newUntypedWorkflowStub(id).getResult(20, TimeUnit.SECONDS, ExecutionStatus::class.java))
+            .isEqualTo(ExecutionStatus.STOPPED)
+        assertThat(steps.findByExecutionIdOrderByOrderAsc(plan.executionId).associateBy { it.nodeKey }.filterKeys { it in setOf("left", "right") }.values.map { it.status })
+            .containsOnly(StepStatus.SKIPPED)
+    }
+
+    @Test
+    fun `a step asked after a stop does nothing, and one never reached stays pending`() {
+        val plan = plan(
+            WorkflowGraph(workflowId = WORKFLOW, name = "Nightly Report", nodes = listOf(node("ok")), edges = emptyList()),
+        )
+        runs.requestStop(plan.executionId)
+
+        val report = activities.runStep(RunStepCommand(plan.executionId, "ok"))
+
+        assertThat(report.stopped).isTrue()
+        val step = steps.findByExecutionIdAndNodeKey(plan.executionId, "ok")!!
+        assertThat(step.status).isEqualTo(StepStatus.PENDING)
+        assertThat(step.attempts).isZero()
+    }
+
+    @Test
+    fun `cancelling in Temporal during a wait ends the run stopped`() = onRealClock { real ->
+        val plan = plan(
+            WorkflowGraph(workflowId = WORKFLOW, name = "Change Approval", nodes = listOf(node("wait-for-approval")), edges = emptyList()),
+        )
+        val id = temporalWorkflowId(plan.executionId)
+        WorkflowClient.start(realWorkflow(real, id)::run, plan)
+        awaitSteps(plan.executionId) { all -> all.any { it.status == StepStatus.WAITING } }
+
+        real.workflowClient.newUntypedWorkflowStub(id).cancel()
+
+        awaitRun(plan.executionId, ExecutionStatus.STOPPED)
+        assertThat(steps.findByExecutionIdAndNodeKey(plan.executionId, "wait-for-approval")!!.status).isEqualTo(StepStatus.SKIPPED)
+        // And Temporal still shows what was done to it.
+        assertThat(describeStatus(real, id)).isEqualTo(WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_CANCELED)
+    }
+
+    @Test
+    fun `cancelling in Temporal mid-step does not take the failure edge, and cuts the step short`() = onRealClock { real ->
+        Blocking.reset()
+        val plan = plan(
+            WorkflowGraph(
+                workflowId = WORKFLOW,
+                name = "Nightly Report",
+                nodes = listOf(node("block-model"), node("ok-onwards")),
+                edges = listOf(GraphEdge("block-model", "ok-onwards", EdgeBranch.FAILURE)),
+            ),
+        )
+        val id = temporalWorkflowId(plan.executionId)
+        WorkflowClient.start(realWorkflow(real, id)::run, plan)
+        assertThat(Blocking.entered(within = Duration.ofSeconds(10))).isEqualTo(plan.executionId)
+
+        real.workflowClient.newUntypedWorkflowStub(id).cancel()
+
+        awaitRun(plan.executionId, ExecutionStatus.STOPPED)
+        awaitSteps(plan.executionId) { all -> all.first { it.nodeKey == "block-model" }.status == StepStatus.SKIPPED }
+        assertThat(steps.findByExecutionIdAndNodeKey(plan.executionId, "ok-onwards")!!.status).isEqualTo(StepStatus.PENDING)
+    }
+
+    /** What a workflow never gets to say itself: terminated, or gone altogether. */
+    @Test
+    fun `the reconciler settles runs whose workflow has gone, and leaves a live one alone`() = onRealClock { real ->
+        val parked = WorkflowGraph(workflowId = WORKFLOW, name = "Change Approval", nodes = listOf(node("wait-for-approval")), edges = emptyList())
+        val live = plan(parked)
+        val terminated = plan(parked)
+        val forgotten = plan(parked)
+        listOf(live, terminated).forEach { WorkflowClient.start(realWorkflow(real, temporalWorkflowId(it.executionId))::run, it) }
+        listOf(live, terminated).forEach { one -> awaitSteps(one.executionId) { all -> all.any { it.status == StepStatus.WAITING } } }
+        real.workflowClient.newUntypedWorkflowStub(temporalWorkflowId(terminated.executionId)).terminate("by hand")
+
+        val reconciler = TemporalRunReconciler(real.workflowClient, executions, stepRunner, TemporalProperties())
+        val ended = reconciler.reconcile(java.time.OffsetDateTime.now().plusMinutes(1))
+
+        assertThat(ended).isEqualTo(2)
+        assertThat(executions.findById(live.executionId).orElseThrow().status).isEqualTo(ExecutionStatus.RUNNING)
+        assertThat(executions.findById(terminated.executionId).orElseThrow().status).isEqualTo(ExecutionStatus.STOPPED)
+        assertThat(steps.findByExecutionIdAndNodeKey(terminated.executionId, "wait-for-approval")!!.status).isEqualTo(StepStatus.SKIPPED)
+        val gone = executions.findById(forgotten.executionId).orElseThrow()
+        assertThat(gone.status).isEqualTo(ExecutionStatus.FAILED)
+        assertThat(gone.error).contains("no record")
+        // A second pass finds nothing more to end.
+        assertThat(reconciler.reconcile(java.time.OffsetDateTime.now().plusMinutes(1))).isZero()
+    }
+
+    /** An environment on the real clock: with time skipped, a long wait is over before anything can reach it. */
+    private fun onRealClock(body: (TestWorkflowEnvironment) -> Unit) {
+        val real = TestWorkflowEnvironment.newInstance(
+            io.temporal.testing.TestEnvironmentOptions.newBuilder().setUseTimeskipping(false).build(),
+        )
+        try {
+            val worker = real.newWorker(QUEUE)
+            worker.registerWorkflowImplementationTypes(
+                WorkflowImplementationOptions.newBuilder()
+                    .setDefaultActivityOptions(
+                        ActivityOptions.newBuilder().setStartToCloseTimeout(Duration.ofSeconds(30)).build(),
+                    )
+                    .build(),
+                ExecutionWorkflowImpl::class.java,
+            )
+            worker.registerActivitiesImplementations(activities)
+            real.start()
+            body(real)
+        } finally {
+            real.close()
+        }
+    }
+
+    private fun realWorkflow(real: TestWorkflowEnvironment, id: String) = real.workflowClient.newWorkflowStub(
+        ExecutionWorkflow::class.java,
+        WorkflowOptions.newBuilder().setTaskQueue(QUEUE).setWorkflowId(id).build(),
+    )
+
+    /** What [TemporalExecutionEngine.stopAsked] does, against this environment; the context's engine is the inline one. */
+    private fun signalStopsTo(real: TestWorkflowEnvironment) {
+        org.mockito.Mockito.doAnswer { call ->
+            real.workflowClient.newUntypedWorkflowStub(temporalWorkflowId(call.getArgument<Long>(0))).signal("stop")
+            null
+        }.`when`(engine).stopAsked(org.mockito.ArgumentMatchers.anyLong())
+    }
+
+    private fun describeStatus(real: TestWorkflowEnvironment, id: String) =
+        real.workflowClient.newUntypedWorkflowStub(id).describe().status
+
+    private fun awaitSteps(executionId: Long, until: (List<io.mszymanski.orknux.workflow.execution.ExecutionStep>) -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        while (!until(steps.findByExecutionIdOrderByOrderAsc(executionId))) {
+            check(System.nanoTime() < deadline) { "the steps of run $executionId never got there" }
+            Thread.sleep(50)
+        }
+    }
+
+    private fun awaitRun(executionId: Long, status: ExecutionStatus) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        while (executions.findById(executionId).orElseThrow().status != status) {
+            check(System.nanoTime() < deadline) { "run $executionId never became $status" }
+            Thread.sleep(50)
+        }
+    }
+
+    /**
      * A fan-out on Temporal: each path's step is its own activity, started side
      * by side, and the node where the paths meet runs once, after both. Issue
      * #285. Two steps that take a second each finish together in about one.
@@ -536,8 +727,8 @@ class ExecutionWorkflowTest(
         GraphNode(key = key, kind = NodeKind.ACTION, name = key, enabled = enabled)
 
     /** No wait between attempts: what is under test is the count, not the clock. */
-    private fun retrying(key: String, attempts: Int) =
-        GraphNode(key = key, kind = NodeKind.ACTION, name = key, retryAttempts = attempts, retryBackoffSeconds = 0)
+    private fun retrying(key: String, attempts: Int, backoffSeconds: Int = 0) =
+        GraphNode(key = key, kind = NodeKind.ACTION, name = key, retryAttempts = attempts, retryBackoffSeconds = backoffSeconds)
 
     private companion object {
         const val QUEUE = "execution-workflow-test"
