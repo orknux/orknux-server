@@ -80,6 +80,14 @@ class SheetAPITest(
     }
 
     @Test
+    fun `the functions offered are the ones the engine works out`() {
+        val names = graphQlTester.document("query { sheetFunctions(workspaceId: $workspaceId) }").execute()
+            .path("sheetFunctions").entityList(String::class.java).get()
+        assertThat(names).contains("SUM", "VLOOKUP", "IFERROR")
+        assertThat(names).isSorted()
+    }
+
+    @Test
     fun `a sheet is made, listed, renamed, saved and removed, and each is audited`() {
         val id = create("Budget")
         graphQlTester.document("""{ sheets(workspaceId: $workspaceId) { name tabCount cellCount revision createdBy } }""")

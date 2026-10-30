@@ -10,6 +10,8 @@
 extend type Query {
     "A workspace's sheets, the one worked on last first."
     sheets(workspaceId: ID!): [Sheet!]!
+    "The functions a formula may call, in order, for the editor to offer."
+    sheetFunctions(workspaceId: ID!): [String!]!
     "One sheet; null where there is none."
     sheet(id: ID!): Sheet
     """

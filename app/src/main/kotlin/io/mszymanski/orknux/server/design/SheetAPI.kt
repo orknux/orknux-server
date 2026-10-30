@@ -60,6 +60,16 @@ class SheetAPI(
 
     val engine = SheetEngine()
 
+    /** The functions a formula may call: what the engine works out, so a name offered is a name that runs. */
+    @QueryMapping
+    fun sheetFunctions(@Argument workspaceId: Long): List<String> {
+        access.requireVisible(workspaceId)
+        return (
+            org.apache.poi.ss.formula.eval.FunctionEval.getSupportedFunctionNames() +
+                org.apache.poi.ss.formula.atp.AnalysisToolPak.getSupportedFunctionNames()
+            ).filterNot { it.startsWith("_") }.distinct().sorted()
+    }
+
     @QueryMapping
     @Transactional(readOnly = true)
     fun sheets(@Argument workspaceId: Long): List<SheetView> {
