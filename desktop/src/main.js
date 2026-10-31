@@ -64,6 +64,8 @@ let quitting = false;
 let log = null;
 /** The server this app is connected to, by its origin, or null where it runs its own. */
 let remote = null;
+/** Whether that server is older than the compatibility question, and so draws no Disconnect in its user menu. */
+let remoteTooOldForMenu = false;
 
 // One app, one server, one database: a second start brings the first one forward instead.
 if (!app.requestSingleInstanceLock()) {
@@ -214,6 +216,7 @@ async function probe(typed) {
       // Refused by a server that was asked is an answer, and trying another address will not change it.
       if (!verdict.ok) return { why: verdict.why };
       // Electron's fetch may not say where a redirect landed; then it is the address asked.
+      remoteTooOldForMenu = verdict.server === null;
       const landed = question.url ? new URL(question.url).origin : address;
       return { address: landed, plain: isPlainText(landed), version: verdict.server };
     } catch (cause) {
@@ -578,6 +581,8 @@ function createWindow(url) {
   windowState.track(created, data);
   const tabs = new Tabs(created, { webPreferences: PAGE_PREFERENCES, prepare: (tab) => wire(tab, tabs),
     home: () => home,
+    // The user menu is the place for this, but it is the server's to draw and an older one does not; without this, and with no tray, there would be no way off it.
+    tabMenu: () => (remoteTooOldForMenu ? [{ type: 'separator' }, { label: 'Disconnect from server', click: disconnect }] : []),
   });
   windows.set(created, tabs);
   created.webContents.on('before-input-event', (event, input) => keys(tabs, event, input));

@@ -42,11 +42,12 @@ class Tabs {
    * @param {() => string|null} given.home what a new tab opens, null while
    *   there is nothing to open
    */
-  constructor(win, { webPreferences, prepare, home }) {
+  constructor(win, { webPreferences, prepare, home, tabMenu = () => [] }) {
     this.win = win;
     this.webPreferences = webPreferences;
     this.prepare = prepare;
     this.home = home;
+    this.tabMenu = tabMenu;
     /** @type {Tab[]} every tab of the window; which pane holds which, and in what order, is the layout's */
     this.list = [];
     /** The tab being worked in: of the panes' active tabs, the one with the focus. */
@@ -195,6 +196,7 @@ class Tabs {
     Menu.buildFromTemplate([
       { label: 'Split horizontally', enabled: canCut(rect, 'right'), click: () => this.split(tab, 'right') },
       { label: 'Split vertically', enabled: canCut(rect, 'bottom'), click: () => this.split(tab, 'bottom') },
+      ...this.tabMenu(),
     ]).popup({ window: this.win });
   }
 
