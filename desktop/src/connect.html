@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- No script of its own: connect-preload.js does what is done here. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>Orknux</title>
+<style>
+  :root { color-scheme: dark; --ground: #09090b; --card: #121214; --field: #18181b; --edge: #27272a; --text: #fafafa; --soft: #a1a1aa; --faint: #71717a; --wrong: #f87171; --warn: #fbbf24; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; gap: 24px; padding: 40px;
+    background: var(--ground); color: var(--soft); font: 14px -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+  p { margin: 0; line-height: 1.45; }
+  form { display: flex; flex-direction: column; gap: 12px; }
+  label { font-size: 13px; font-weight: 500; }
+  input {
+    box-sizing: border-box; width: 100%; height: 40px; padding: 0 12px; background: var(--field); color: var(--text);
+    border: 1px solid var(--edge); border-radius: 6px; font: inherit;
+  }
+  input:focus { outline: none; border-color: var(--faint); }
+  button { height: 40px; border-radius: 6px; font: inherit; font-weight: 500; cursor: pointer; }
+  #connect { background: var(--text); color: var(--ground); border: 0; }
+  #connect:disabled { opacity: .5; cursor: progress; }
+  #here { background: var(--field); color: var(--text); border: 1px solid var(--edge); }
+  #note.wrong { color: var(--wrong); }
+  #note.warn { color: var(--warn); }
+  #version { font-size: 12px; color: var(--faint); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div>
+    <h1>Where should Orknux connect?</h1>
+    <p>Sign in to a server somebody runs, or keep everything on this computer.</p>
+  </div>
+  <form id="form">
+    <label for="address">Server address</label>
+    <input id="address" type="text" placeholder="orknux.example.com" autocomplete="off" spellcheck="false">
+    <p id="note" role="alert" hidden></p>
+    <button id="connect" type="submit">Connect</button>
+  </form>
+  <button id="here" type="button" hidden>Run Orknux on this computer</button>
+  <p id="version"></p>
+</body>
+</html>

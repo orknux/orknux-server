@@ -101,6 +101,25 @@ checks nothing, and succeeds on a codebase that does not compile. Reporting a
 clean typecheck off that run is reporting that a command exited 0. `tsc -b`
 follows the references, which is why it is the one the build and CI use.
 
+## Clients and versions
+
+**A server works with every client of its major version.** The desktop app is a
+client now, and a terminal or a web client will be one under the same rule: a
+minor or patch server must keep working with the oldest client of that major, and
+a newer client must cope with an older server of it. Across majors they refuse
+each other, in words, before anybody signs in. `ClientCompatibility` holds the
+rule and `GET /api/client/compatibility?client=X.Y.Z` answers it, with nobody
+signed in; every client asks there and goes by the answer rather than working it
+out, so one already installed follows the rule of the server it reached.
+
+What that costs inside a major: an API a client uses only grows. A field, a query,
+a frame or a bridge method is added, never renamed, removed or given a new
+meaning; a breaking change waits for the next major, and a client treats what it
+does not recognise as absent. Nothing checks this automatically yet, so it is on
+whoever changes an API. The `orknuxDesktop` bridge is such an API in both
+directions: the interface is served by the server and the app is whatever is
+installed, so the interface calls anything newer with `?.`.
+
 ## Stack quirks worth knowing
 
 - **Spring Boot 4 ships Jackson 3.** The Jackson 2 Kotlin module does not apply,

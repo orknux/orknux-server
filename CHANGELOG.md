@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **Desktop app: connect to a server instead of running one.** A new installation asks which on first start, remembers it, and signs in on the server's own page; **Disconnect from server** is in the user menu. An existing installation keeps running its own data until you choose otherwise, from the tray icon. Clients and servers work together within a major version, and across majors they refuse each other and say which to update: `GET /api/client/compatibility` is what any client asks.
 - **The model's writing speed beside the tokens under a chat**, live and updating while it answers, marked `~` while estimated, and the provider's own figure afterwards where it gives one. On by default; **Speed in Chat** on Preferences turns it off.
 
 ### 🐛 Fixed

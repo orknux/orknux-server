@@ -12,5 +12,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('orknuxDesktop', {
   tabShortcuts: (next, previous) => ipcRenderer.send('desktop:tab-shortcuts', String(next), String(previous)),
   windowShortcuts: (next, previous) => ipcRenderer.send('desktop:window-shortcuts', String(next), String(previous)),
+  // The server this app is connected to, or null where it runs its own; it is what shows Disconnect.
+  connectedServer: () => ipcRenderer.sendSync('desktop:connected-server'),
+  // Asks the person first, in a dialog of the app's: a page cannot do this behind anybody's back.
+  disconnect: () => ipcRenderer.send('desktop:disconnect'),
   recordingKeys: (on) => ipcRenderer.send('desktop:recording-keys', on === true),
 });

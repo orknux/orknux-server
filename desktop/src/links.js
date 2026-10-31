@@ -33,7 +33,8 @@ const NOTHING = ['about:', 'javascript:'];
  * the address was changed to get there.
  *
  * @param {string} target the link
- * @param {number|null} port the server's port, or null while it is starting
+ * @param {number|string|null} port the local server's port, null while it is
+ *   starting, or the origin of the server this app is connected to
  * @returns {{kind: 'ours'|'outside'|'nothing'|'refused', url: string, moved?: boolean, scheme?: string}}
  */
 function classify(target, port) {
@@ -44,7 +45,7 @@ function classify(target, port) {
     return { kind: 'refused', url: String(target), scheme: '' };
   }
   const isOurs = (candidate) =>
-    port !== null && candidate.protocol === 'http:' && OUR_HOSTS.includes(candidate.hostname) && (candidate.port || '80') === String(port);
+    typeof port === 'string' ? candidate.origin === new URL(port).origin : port !== null && candidate.protocol === 'http:' && OUR_HOSTS.includes(candidate.hostname) && (candidate.port || '80') === String(port);
 
   // A file the page made itself (a report, an export): ours when the page that made it was.
   if (url.protocol === 'blob:') {
@@ -55,7 +56,8 @@ function classify(target, port) {
     }
   }
   if (isOurs(url)) {
-    if (url.hostname === OUR_HOSTS[0]) return { kind: 'ours', url: url.href };
+    // Connected to a server, its address is the one it has: the rewrite below is this machine's alone.
+    if (typeof port === 'string' || url.hostname === OUR_HOSTS[0]) return { kind: 'ours', url: url.href };
     url.hostname = OUR_HOSTS[0];
     return { kind: 'ours', url: url.href, moved: true };
   }

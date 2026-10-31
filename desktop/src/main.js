@@ -6,11 +6,12 @@
  * here knows what the server does; it starts it, shows it, keeps it running
  * and stops it. See ../README.md for what is still to come.
  */
-const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, nativeImage, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, nativeImage, net, session, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { readSettings, prepare } = require('./data');
+const { readSettings, writeConnection, prepare } = require('./data');
+const { PROBE_MILLIS, addressesOf, isPlainText, judged, whereTo } = require('./connect');
 const { Log } = require('./logs');
 const { Server } = require('./server');
 const { Tabs } = require('./tabs');
@@ -54,6 +55,8 @@ let tray = null;
 let server = null;
 let quitting = false;
 let log = null;
+/** The server this app is connected to, by its origin, or null where it runs its own. */
+let remote = null;
 
 // One app, one server, one database: a second start brings the first one forward instead.
 if (!app.requestSingleInstanceLock()) {
@@ -100,6 +103,21 @@ async function start() {
   log.note(`Orknux desktop ${app.getVersion()} starting; data at ${data}; self-update ${selfUpdate ? 'on' : 'off'}`);
 
   const settings = readSettings(data);
+  const canRunHere = fs.existsSync(java) && fs.existsSync(imageJar);
+  const hasData = fs.existsSync(path.join(data, 'orknux.db'));
+  const first = whereTo(settings, { hasData, canRunHere, smoke: smoke !== null });
+  const where = first === 'local' ? 'local' : await connection(settings, first, canRunHere);
+  if (where !== 'local') {
+    remote = where;
+    home = where;
+    title = `Orknux — ${new URL(where).host}`;
+    createWindow(where);
+    watchDownloads();
+    createTray();
+    log.note(`connected to ${where}`);
+    return;
+  }
+
   const prepared = prepare(data, settings);
   prepared.said.forEach((line) => log.note(line));
   prepared.loud.forEach((line) => log.note(`WARNING ${line}`));
@@ -164,6 +182,131 @@ async function start() {
   if (smoke !== null) photograph();
 }
 
+/** What an address answers to one question: its status and JSON, or null for a body that is not JSON. */
+async function asked(address) {
+  const answer = await net.fetch(address, { signal: AbortSignal.timeout(PROBE_MILLIS), bypassCustomProtocolHandlers: true });
+  let json = null;
+  try {
+    json = await answer.json();
+  } catch {
+    // Something that answers in anything else is not a server of ours; judged says so.
+  }
+  return { status: answer.status, json, url: answer.url };
+}
+
+/**
+ * Tries what somebody typed: the address it ended up at where one worked, or why
+ * none did. A redirect is followed and the address it lands on is the one kept,
+ * since http to https is what most servers answer.
+ */
+async function probe(typed) {
+  const parsed = addressesOf(typed);
+  if (parsed.wrong) return { why: parsed.wrong };
+  let failure = null;
+  for (const address of parsed.tries) {
+    try {
+      const question = await asked(`${address}/api/client/compatibility?client=${encodeURIComponent(app.getVersion())}&kind=desktop`);
+      const method = question.status === 404 ? await asked(`${address}/api/auth/method`) : null;
+      const verdict = judged(app.getVersion(), question, method);
+      // Refused by a server that was asked is an answer, and trying another address will not change it.
+      if (!verdict.ok) return { why: verdict.why };
+      const landed = new URL(question.url).origin;
+      return { address: landed, plain: isPlainText(landed), version: verdict.server };
+    } catch (cause) {
+      failure = cause;
+    }
+  }
+  log.note(`could not reach ${typed}: ${failure?.message}`);
+  const said = String(failure?.cause?.code ?? failure?.message ?? '');
+  return {
+    why: /CERT|SSL|TLS/i.test(said)
+      ? 'That server\'s certificate is not one this computer trusts, so it was not contacted.'
+      : 'Nothing answered at that address. Check it, and that the server is running.',
+  };
+}
+
+/**
+ * Where to go, when it is a server or a question: the origin, or `local`.
+ *
+ * A remembered server that answers is gone straight to. One that does not, or no
+ * longer goes with this version, comes back to the window with the reason, since
+ * it may be down for a minute and is still the one meant.
+ */
+async function connection(settings, first, canRunHere) {
+  let said = null;
+  if (first === 'client') {
+    const reached = await probe(settings.server);
+    if (reached.address) return reached.address;
+    said = reached.why;
+  }
+  return askWhere(settings.server, said, canRunHere);
+}
+
+/** The window that asks. Closing it leaves, as there is nothing behind it. */
+function askWhere(server, said, canRunHere) {
+  return new Promise((resolve) => {
+    const asking = new BrowserWindow({
+      width: 520,
+      height: 560,
+      resizable: false,
+      title: 'Orknux',
+      backgroundColor: '#09090b',
+      icon: trayImage(),
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'connect-preload.js') },
+    });
+    let chosen = false;
+    const said_ = asking.webContents.ipc;
+    said_.handle('connect:start', () => ({ server, said, canRunHere, version: app.getVersion() }));
+    said_.handle('connect:try', async (_event, typed, plainAccepted) => {
+      const reached = await probe(typed);
+      if (reached.why) return { why: reached.why };
+      if (reached.plain && !plainAccepted) return { warn: reached.address };
+      chosen = true;
+      writeConnection(data, 'client', reached.address);
+      resolve(reached.address);
+      asking.close();
+      return {};
+    });
+    said_.handle('connect:here', () => {
+      if (!canRunHere) return;
+      chosen = true;
+      writeConnection(data, 'local');
+      resolve('local');
+      asking.close();
+    });
+    asking.on('closed', () => {
+      if (!chosen) quit();
+    });
+    asking.loadFile(path.join(__dirname, 'connect.html'));
+  });
+}
+
+/**
+ * Going back to the question, from wherever it was asked. Starting again rather
+ * than rearranging a running app: a local server has to stop, and every tab holds
+ * a page of the place being left.
+ */
+async function changeServer() {
+  const { response } = await dialog.showMessageBox(current() ?? undefined, {
+    type: 'question',
+    title: 'Orknux',
+    message: remote === null ? 'Connect to a server?' : `Disconnect from ${new URL(remote).host}?`,
+    detail: 'Orknux starts again and asks where to connect. Anything not saved in an open tab is lost.',
+    buttons: [remote === null ? 'Choose a server' : 'Disconnect', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  if (response !== 0) return;
+  if (remote !== null) {
+    // Signed out as well as away, so what is left here is not a way in. The server being gone is no reason to stay.
+    await session.defaultSession.fetch(`${remote}/api/session`, { method: 'DELETE', headers: { Origin: remote }, signal: AbortSignal.timeout(PROBE_MILLIS) }).catch(() => undefined);
+    await session.defaultSession.clearStorageData({ origin: remote, storages: ['cookies'] }).catch(() => undefined);
+  }
+  writeConnection(data, 'ask', remote);
+  app.relaunch();
+  quit();
+}
+
 /**
  * What every page of the interface runs with, in every tab. The preload is
  * page-preload.js: the tab keys, and nothing else.
@@ -195,7 +338,7 @@ function open(tabs, url, more = {}) {
  */
 function wire(tab, tabs) {
   const contents = tab.contents;
-  const port = () => (server === null ? null : server.port);
+  const port = () => remote ?? (server === null ? null : server.port);
   // A tab that never showed a page and was sent elsewhere at once would stay empty.
   tab.leaveIfEmpty = () => {
     if (!tab.committed) tabs.close(tab);
@@ -214,9 +357,21 @@ function wire(tab, tabs) {
    * a file: address included, which is what a file dropped where the page did
    * not take it becomes, and which would replace Orknux with the picture.
    */
-  const steer = (event, url) => {
+  const steer = (event, url, redirected = false) => {
     const link = classify(url, port());
-    if (link.kind === 'ours' && !link.moved) return;
+    if (link.kind === 'ours' && !link.moved) {
+      tab.signingIn = false;
+      return;
+    }
+    /*
+     * Signing in with a provider: the server sends this page to it, and it has to
+     * come back here with the session. Out in the browser it would arrive there
+     * instead. Only ever begun by the server's own redirect, and for the web alone.
+     */
+    if (remote !== null && link.kind === 'outside' && /^https?:/.test(link.url) && (redirected || tab.signingIn)) {
+      tab.signingIn = true;
+      return;
+    }
     event.preventDefault();
     if (link.kind === 'ours') {
       contents.loadURL(link.url);
@@ -229,7 +384,7 @@ function wire(tab, tabs) {
   contents.on('will-navigate', (event) => steer(event, event.url));
   // The server redirecting a page of ours elsewhere is a link like any other; a frame inside the page is the page's business.
   contents.on('will-redirect', (event) => {
-    if (event.isMainFrame) steer(event, event.url);
+    if (event.isMainFrame) steer(event, event.url, true);
   });
   /*
    * A page with unsaved work - the workflow editor, a form - asks before it is
@@ -263,6 +418,12 @@ function wire(tab, tabs) {
   });
   contents.ipc.on('desktop:window-shortcuts', (_event, next, previous) => {
     if (fromUs()) tabKeysChosen = { ...tabKeysChosen, ...windowKeys(next, previous) };
+  });
+  contents.ipc.on('desktop:connected-server', (event) => {
+    event.returnValue = remote !== null && fromUs() ? remote : null;
+  });
+  contents.ipc.on('desktop:disconnect', () => {
+    if (remote !== null && fromUs()) changeServer();
   });
   contents.ipc.on('desktop:recording-keys', (_event, on) => {
     tab.recording = fromUs() && on === true;
@@ -353,7 +514,7 @@ function contextMenu(tabs, tab, params, contents) {
   }
   if (params.linkURL) {
     if (items.length > 0) items.push({ type: 'separator' });
-    const link = classify(params.linkURL, server === null ? null : server.port);
+    const link = classify(params.linkURL, remote ?? (server === null ? null : server.port));
     const actions = {
       tab: () => open(tabs, link.url, { after: tab }),
       window: () => openWindow(link.url),
@@ -420,7 +581,11 @@ function createWindow(url) {
   });
   if (state.maximized) created.maximize();
   windowState.track(created, data);
-  const tabs = new Tabs(created, { webPreferences: PAGE_PREFERENCES, prepare: (tab) => wire(tab, tabs), home: () => home });
+  const tabs = new Tabs(created, { webPreferences: PAGE_PREFERENCES, prepare: (tab) => wire(tab, tabs),
+    home: () => home,
+    // Here as well as in the interface's own menu, which a server older than this has not got.
+    tabMenu: () => (remote === null ? [] : [{ type: 'separator' }, { label: 'Disconnect from server', click: changeServer }]),
+  });
   windows.set(created, tabs);
   created.webContents.on('before-input-event', (event, input) => keys(tabs, event, input));
   open(tabs, url);
@@ -484,6 +649,7 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Orknux', click: show },
     { label: 'Open data folder', click: () => shell.openPath(data) },
+    { label: remote === null ? 'Connect to a server…' : 'Disconnect from server', click: changeServer },
     { type: 'separator' },
     { label: 'Quit Orknux', click: () => app.quit() },
   ]));

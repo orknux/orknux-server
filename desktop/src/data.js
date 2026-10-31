@@ -33,10 +33,29 @@ function readSettings(data) {
   try {
     const held = JSON.parse(fs.readFileSync(file, 'utf8'));
     const account = typeof held.account === 'string' && held.account.trim() !== '' ? held.account.trim() : null;
-    return { network: held.network === NETWORK_EXPOSED ? NETWORK_EXPOSED : NETWORK_LOCAL, account };
+    const server = typeof held.server === 'string' && held.server !== '' ? held.server : null;
+    const mode = ['local', 'client', 'ask'].includes(held.mode) ? held.mode : null;
+    return { network: held.network === NETWORK_EXPOSED ? NETWORK_EXPOSED : NETWORK_LOCAL, account, mode, server };
   } catch {
-    return { network: NETWORK_LOCAL, account: null };
+    return { network: NETWORK_LOCAL, account: null, mode: null, server: null };
   }
+}
+
+/**
+ * Where this app goes on its next start, kept beside what the server's Network
+ * access writes and leaving that alone. `mode` is `local`, `client` or `ask`;
+ * `server` stays through a disconnect, to be offered again.
+ */
+function writeConnection(data, mode, server) {
+  const file = path.join(data, 'desktop.json');
+  let held = {};
+  try {
+    held = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    // Nothing there yet, or nothing readable: this is what there is to say now.
+  }
+  fs.mkdirSync(data, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ ...held, mode, server: server ?? held.server ?? undefined }, null, 2));
 }
 
 /** A file only its owner can read, written once. On Windows the mode is advisory; the directory under the user's profile is what keeps it theirs. */
@@ -126,4 +145,4 @@ function prepare(data, settings) {
   return { database, attachments, releases, temp, secretKey, authMethod, admin, existing, said, loud };
 }
 
-module.exports = { NETWORK_LOCAL, NETWORK_EXPOSED, readSettings, prepare };
+module.exports = { NETWORK_LOCAL, NETWORK_EXPOSED, readSettings, writeConnection, prepare };

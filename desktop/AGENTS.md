@@ -71,6 +71,17 @@ narrower than the interface's 900 is scaled by device emulation rather than
 squeezed, because its bars and tables run into each other below that; not by
 `setZoomFactor`, which Chromium applies to the whole site and so to every pane.
 
+**It can be a client instead.** Connected to a server, it starts no Java and
+shows that server's own interface, so the interface's version is the server's and
+only this shell's is the client's. `connect.js` holds the decisions, without
+Electron; `ClientCompatibility` on the server holds the rule, and the root
+AGENTS.md what it costs. The choice is in `desktop.json`. A data directory that
+already holds a database stays local without asking, so an upgrade changes
+nothing, and a smoke test never asks. Changing server starts the app again rather
+than rearranging a running one. Sign-in redirects to a provider stay in the app
+only because a server page was redirected there: a provider's page has no bridge,
+since everything page-preload passes on checks it comes from a page of ours.
+
 **No Node on the host.** Build and test in `docker/Dockerfile`. The Windows
 `.exe` can be made here in `electronuserland/builder:wine` (see README) and
 `win-unpacked` smoke-tested on this machine; the MSI needs real Windows, which

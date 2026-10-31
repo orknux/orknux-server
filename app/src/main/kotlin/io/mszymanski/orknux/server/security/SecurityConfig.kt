@@ -147,6 +147,8 @@ class SecurityConfig {
                  * draw, only a button pointing at the provider.
                  */
                 authorize(HttpMethod.GET, AUTH_METHOD_PATH, permitAll)
+                // Asked by a client before it shows anybody a sign-in screen.
+                authorize(HttpMethod.GET, CLIENT_COMPATIBILITY_PATH, permitAll)
                 /*
                  * Forgetting a password is the one thing that cannot be done
                  * signed in, so this pair has to be open. What stands in for
@@ -391,6 +393,9 @@ const val LOGIN_PATH = "/api/session"
 
 /** Open: what the sign-in screen has to know before anybody has signed in. */
 const val AUTH_METHOD_PATH = "/api/auth/method"
+
+/** Open: whether a client of some version may use this server, asked before anybody signs in. */
+const val CLIENT_COMPATIBILITY_PATH = "/api/client/compatibility"
 
 /** Open, necessarily: whoever is asking has no password to sign in with. */
 const val PASSWORD_RESET_PATH = "/api/password-reset"
