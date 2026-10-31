@@ -202,22 +202,24 @@ async function asked(address) {
 async function probe(typed) {
   const parsed = addressesOf(typed);
   if (parsed.wrong) return { why: parsed.wrong };
-  let failure = null;
+  const failures = [];
   for (const address of parsed.tries) {
     try {
       const question = await asked(`${address}/api/client/compatibility?client=${encodeURIComponent(app.getVersion())}&kind=desktop`);
-      const method = question.status === 404 ? await asked(`${address}/api/auth/method`) : null;
+      const method = question.status === 200 ? null : await asked(`${address}/api/auth/method`);
       const verdict = judged(app.getVersion(), question, method);
       // Refused by a server that was asked is an answer, and trying another address will not change it.
       if (!verdict.ok) return { why: verdict.why };
-      const landed = new URL(question.url).origin;
+      // Electron's fetch may not say where a redirect landed; then it is the address asked.
+      const landed = question.url ? new URL(question.url).origin : address;
       return { address: landed, plain: isPlainText(landed), version: verdict.server };
     } catch (cause) {
-      failure = cause;
+      failures.push(String(cause?.cause?.code ?? cause?.message ?? cause));
     }
   }
-  log.note(`could not reach ${typed}: ${failure?.message}`);
-  const said = String(failure?.cause?.code ?? failure?.message ?? '');
+  log.note(`could not reach ${typed}: ${failures.join('; ')}`);
+  // Any of them: an https that was refused over its certificate matters more than the http that then found nothing.
+  const said = failures.join(' ');
   return {
     why: /CERT|SSL|TLS/i.test(said)
       ? 'That server\'s certificate is not one this computer trusts, so it was not contacted.'

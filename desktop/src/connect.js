@@ -61,8 +61,8 @@ function judged(client, asked, method) {
     if (asked.json.compatible === false) return { ok: false, why: asked.json.reason || 'This server does not work with this version of the app.' };
     return { ok: true, server: asked.json.server ?? null };
   }
-  // Older than the question, or not Orknux at all: the sign-in screen's own question tells which.
-  if (asked.status === 404 && method?.status === 200 && typeof method.json?.method === 'string') {
+  // Older than the question, which asks to sign in for a path it does not know, or not Orknux at all: the sign-in screen's own question tells which.
+  if (method?.status === 200 && typeof method.json?.method === 'string') {
     if (Number.parseInt(client, 10) !== MAJOR_BEFORE_THE_QUESTION) {
       return { ok: false, why: `This server is older than version ${MAJOR_BEFORE_THE_QUESTION}.x's last releases, and this app is ${client}. Update the server.` };
     }

@@ -30,7 +30,8 @@ test('the server says whether a client may use it, and is believed', () => {
 });
 
 test('a server from before the question is taken at its word within major 1 only', () => {
-  const gone = answer(null, 404);
+  // What one really answers: it asks to sign in for a path it does not know.
+  const gone = answer(null, 401);
   assert.deepEqual(judged('1.3.0', gone, answer({ method: 'LDAP' })), { ok: true, server: null });
   assert.equal(judged('2.0.0', gone, answer({ method: 'LDAP' })).ok, false);
 });
