@@ -7,8 +7,11 @@
  * views and the strip are tabs.js's.
  */
 
-/** The space between two panes, which is also what is pressed to resize them. */
-const GAP = 4;
+/**
+ * The space between two panes, which is also what is pressed to resize them. It
+ * cannot reach over the pages beside it, so it has to be wide enough to find.
+ */
+const GAP = 8;
 /**
  * The smallest a pane is cut to. Small, on purpose: a limit near half the
  * interface's 900 stopped an ordinary window at two columns, with the edges of
@@ -199,6 +202,12 @@ function zoneIn(rect, x, y, stripHeight) {
   return nearest !== null && nearest[1] <= EDGE ? nearest[0] : 'center';
 }
 
+/** Whether a pane can be cut along this edge at all: the rule a drop and the tab's menu share. */
+function canCut(rect, zone) {
+  if (zone === 'left' || zone === 'right') return rect.width >= MIN_WIDTH * 2 + GAP;
+  return rect.height >= MIN_HEIGHT * 2 + GAP;
+}
+
 /** The half a drop would make, or the whole pane where it joins. */
 function lit(rect, zone) {
   const { x, y, width, height } = rect;
@@ -209,4 +218,4 @@ function lit(rect, zone) {
   return { x, y, width, height };
 }
 
-module.exports = { Layout, dropAt, GAP, MIN_WIDTH, MIN_HEIGHT };
+module.exports = { Layout, dropAt, canCut, GAP, MIN_WIDTH, MIN_HEIGHT };

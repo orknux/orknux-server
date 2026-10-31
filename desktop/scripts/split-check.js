@@ -47,6 +47,9 @@ async function release() {
   await pause(400);
 }
 
+// The check closes one window and goes on in another.
+app.on('window-all-closed', () => {});
+
 app.whenReady().then(async () => {
   const site = http.createServer((request, response) => {
     const name = request.url.slice(1);
@@ -188,6 +191,13 @@ app.whenReady().then(async () => {
   await release();
   const columns = across.arranged().panes;
   check('a window of 1390 cuts into three columns', columns.length === 3 && columns.every((one) => one.y === 0), columns.map((one) => one.width));
+
+  // The tab's menu: a tab with company moves, one alone opens its page again beside itself.
+  across.split(opened[0], 'bottom');
+  await pause(500);
+  check('split with nothing else in its pane opens the page again in a new pane below', across.arranged().panes.length === 4 && across.list.length === 4, across.layoutTree.panes().map((one) => one.tabs));
+  const added = across.list.find((one) => !opened.includes(one));
+  check('and it shows the same page', added.contents.getURL() === opened[0].contents.getURL(), added.contents.getURL());
 
   console.log(failures === 0 ? 'ALL PASSED' : `${failures} FAILED`);
   app.exit(failures === 0 ? 0 : 1);

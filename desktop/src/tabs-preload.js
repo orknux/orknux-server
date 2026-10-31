@@ -46,6 +46,10 @@ function makeTab(id) {
   item.addEventListener('auxclick', (event) => {
     if (event.button === 1) ipcRenderer.send('tabs:close', id);
   });
+  item.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    ipcRenderer.send('tabs:menu', id);
+  });
   item.addEventListener('dragstart', (event) => begin(event, { tab: id }));
   item.addEventListener('dragend', () => ipcRenderer.send('tabs:drag-end'));
   close.addEventListener('mousedown', (event) => event.stopPropagation());

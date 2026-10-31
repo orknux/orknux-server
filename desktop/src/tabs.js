@@ -14,9 +14,9 @@
  * what tells the strip it ended when it ended outside the window.
  */
 const path = require('node:path');
-const { WebContentsView } = require('electron');
+const { Menu, WebContentsView } = require('electron');
 const { stepped } = require('./links');
-const { Layout, dropAt } = require('./split');
+const { Layout, canCut, dropAt } = require('./split');
 
 /**
  * A strip's height in pixels. A layout choice rather than a behaviour, and said
@@ -64,6 +64,7 @@ class Tabs {
     said.on('tabs:select', (_event, id) => this.select(this.find(id)));
     said.on('tabs:close', (_event, id) => this.close(this.find(id)));
     said.on('tabs:new', (_event, paneId) => this.openHome(paneId));
+    said.on('tabs:menu', (_event, id) => this.menu(this.find(id)));
     said.on('tabs:drag-start', (_event, what) => this.dragStart(what));
     said.on('tabs:drag-end', () => this.dragEnd());
     said.on('tabs:even', (_event, id) => {
@@ -178,6 +179,33 @@ class Tabs {
     const pane = this.layoutTree.paneOf(this.active.id);
     if (pane === null || pane.tabs.length < 2) return;
     this.select(this.find(pane.tabs[stepped(pane.tabs.indexOf(this.active.id), by, pane.tabs.length)]));
+  }
+
+  /**
+   * A tab's right-click. Named as most editors name them, after the line the cut
+   * draws: horizontally is one above the other, vertically is side by side.
+   */
+  menu(tab) {
+    if (tab === null) return;
+    const pane = this.layoutTree.paneOf(tab.id);
+    const rect = this.arranged().panes.find((one) => one.id === pane?.id);
+    if (rect === undefined) return;
+    Menu.buildFromTemplate([
+      { label: 'Split horizontally', enabled: canCut(rect, 'bottom'), click: () => this.split(tab, 'bottom') },
+      { label: 'Split vertically', enabled: canCut(rect, 'right'), click: () => this.split(tab, 'right') },
+    ]).popup({ window: this.win });
+  }
+
+  /**
+   * Gives a tab a new pane on this edge of its own. One alone in its pane has
+   * nothing to leave behind, so the same page opens in the new pane beside it.
+   */
+  split(tab, zone) {
+    const pane = this.layoutTree.paneOf(tab.id);
+    if (pane === null) return;
+    const moved = pane.tabs.length > 1 ? tab : this.open({ url: tab.contents.getURL(), pane: pane.id });
+    this.layoutTree.move(moved.id, pane.id, zone);
+    this.select(moved);
   }
 
   /** The tab each pane is showing, in reading order: where a step between panes stops. */

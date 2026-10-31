@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { Layout, dropAt, GAP, MIN_WIDTH } = require('../src/split');
+const { Layout, dropAt, canCut, GAP, MIN_WIDTH } = require('../src/split');
 
 const STRIP = 36;
 
@@ -122,12 +122,19 @@ test('the space between two panes moves with the pointer and stops short of a pa
   const layout = holding(1, 2);
   layout.move(2, layout.root.id, 'right');
   const id = layout.root.id;
-  layout.resize(id, layout.arrange(1204, 800), 502, 400);
-  assert.equal(layout.arrange(1204, 800).panes[0].width, 500);
-  layout.resize(id, layout.arrange(1204, 800), 5, 400);
-  assert.equal(layout.arrange(1204, 800).panes[0].width, MIN_WIDTH);
-  layout.resize(id, layout.arrange(1204, 800), 1200, 400);
-  assert.equal(layout.arrange(1204, 800).panes[1].width, MIN_WIDTH);
+  layout.resize(id, layout.arrange(1208, 800), 504, 400);
+  assert.equal(layout.arrange(1208, 800).panes[0].width, 500);
+  layout.resize(id, layout.arrange(1208, 800), 5, 400);
+  assert.equal(layout.arrange(1208, 800).panes[0].width, MIN_WIDTH);
+  layout.resize(id, layout.arrange(1208, 800), 1200, 400);
+  assert.equal(layout.arrange(1208, 800).panes[1].width, MIN_WIDTH);
   layout.even(id);
-  assert.equal(layout.arrange(1204, 800).panes[0].width, 600);
+  assert.equal(layout.arrange(1208, 800).panes[0].width, 600);
+});
+
+test('a pane can be cut along an edge only where both halves would be big enough', () => {
+  assert.equal(canCut({ width: MIN_WIDTH * 2 + GAP, height: 100 }, 'right'), true);
+  assert.equal(canCut({ width: MIN_WIDTH * 2 + GAP - 1, height: 1000 }, 'right'), false);
+  assert.equal(canCut({ width: 100, height: 408 }, 'bottom'), true);
+  assert.equal(canCut({ width: 2000, height: 300 }, 'bottom'), false);
 });
