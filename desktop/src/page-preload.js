@@ -18,3 +18,30 @@ contextBridge.exposeInMainWorld('orknuxDesktop', {
   disconnect: () => ipcRenderer.send('desktop:disconnect'),
   recordingKeys: (on) => ipcRenderer.send('desktop:recording-keys', on === true),
 });
+
+/*
+ * A way off a server too old to draw one, on its sign-in pages. Their page is the
+ * server's and cannot be changed from here, so this lies over it, and only there:
+ * anywhere else the tab's right-click has it. Follows the address, since the
+ * interface moves between pages without loading one.
+ */
+window.addEventListener('DOMContentLoaded', () => {
+  const server = ipcRenderer.sendSync('desktop:server-without-menu');
+  if (server === null) return;
+  const link = document.createElement('button');
+  link.type = 'button';
+  link.dataset.orknuxDisconnect = '';
+  link.textContent = `${new URL(server).host} · Disconnect`;
+  Object.assign(link.style, {
+    position: 'fixed', left: '50%', bottom: '24px', transform: 'translateX(-50%)', zIndex: '2147483647', padding: '8px 14px',
+    background: '#18181b', color: '#a1a1aa', border: '1px solid #27272a', borderRadius: '6px', font: '13px system-ui, sans-serif', cursor: 'pointer',
+  });
+  link.addEventListener('click', () => ipcRenderer.send('desktop:disconnect'));
+  const place = () => {
+    const signingIn = /^\/(login|forgot-password|reset-password)(\/|$)/.test(window.location.pathname);
+    if (signingIn && !link.isConnected) document.body.append(link);
+    if (!signingIn && link.isConnected) link.remove();
+  };
+  new MutationObserver(place).observe(document.body, { childList: true, subtree: true });
+  place();
+});

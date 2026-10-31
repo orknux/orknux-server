@@ -420,6 +420,9 @@ function wire(tab, tabs) {
   contents.ipc.on('desktop:connected-server', (event) => {
     event.returnValue = remote !== null && fromUs() ? remote : null;
   });
+  contents.ipc.on('desktop:server-without-menu', (event) => {
+    event.returnValue = remote !== null && remoteTooOldForMenu && fromUs() ? remote : null;
+  });
   contents.ipc.on('desktop:disconnect', () => {
     if (remote !== null && fromUs()) disconnect();
   });
