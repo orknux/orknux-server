@@ -291,7 +291,7 @@ orknux:
     # asks for is run and handed back. This is where a fresh installation
     # starts; Admin -> Settings is the switch and what it holds wins, and an
     # agent may carry its own number on its page.
-    max-rounds: ${ORKNUX_CHAT_MAX_ROUNDS:100}
+    max-rounds: ${ORKNUX_CHAT_MAX_ROUNDS:5000}
     # After how many exchanges a chat a model named is named again, from what
     # it has become; 0 names it once. A title somebody typed is never replaced.
     # Admin -> Settings holds what it is now.

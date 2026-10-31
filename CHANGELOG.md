@@ -24,6 +24,7 @@ have failed.
 
 ### Changed
 
+- Tool Rounds starts at 5000 instead of 100 on an installation that has not saved its own number, and `ORKNUX_CHAT_MAX_ROUNDS` defaults to 5000. An installation that saved a number keeps it; set the variable to 100 to keep the old limit.
 - Desktop app: with more than one pane or window open, Alt+Left and Alt+Right switch between them rather than going back and forward in the page. Choose other keys on Preferences to keep them.
 
 ## 1.2.7

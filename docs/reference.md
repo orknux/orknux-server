@@ -354,7 +354,7 @@ installation starts from.
 | Variable | What it sets | Default |
 |---|---|---|
 | `ORKNUX_CHAT_RUN_COMMANDS` | Whether a chat answer's shell blocks carry Run, which runs the command on this server's machine for an administrator. Where a fresh installation starts; Admin -> Settings holds what it is now. The desktop app sets it `true`. | `false` |
-| `ORKNUX_CHAT_MAX_ROUNDS` | Tool rounds one chat answer may take. | `100` |
+| `ORKNUX_CHAT_MAX_ROUNDS` | Tool rounds one chat answer may take. | `5000` |
 | `ORKNUX_CHAT_MAX_SUBAGENTS` | Other agents one conversation may ask. | `25` |
 | `ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH` | Findable tools `tool_find` names outright. | `40` |
 | `ORKNUX_MUSIC_SOUNDFONT` | A SoundFont (`.sf2`) `midi_render` plays MIDI with: an absolute path on this machine, on a volume in a container. Read on every render. Empty uses the JDK's built-in bank, which is small and sounds it - a General MIDI SoundFont such as FluidR3_GM or GeneralUser GS is the difference between a demo and music. | empty |
