@@ -834,7 +834,8 @@ opening.
 **The answer arrives as it is written.** A model composes over seconds, a large
 local one over minutes, and a mutation can only return once it has finished —
 which is a blank screen for the whole of that time. `POST /api/chats/{id}/stream`
-sends `chunk`, `done` and `error` as server-sent events, reading the provider's
+sends `chunk`, `answered` (the text is complete and saved; naming the chat may
+still follow), `done` and `error` as server-sent events, reading the provider's
 own stream and speaking both delta shapes. It is the one part of the chat that is
 not GraphQL: the browser client here is `fetch`, and a subscription would mean
 adding a websocket transport and the `graphql-ws` protocol to send one string.

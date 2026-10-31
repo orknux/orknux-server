@@ -438,6 +438,12 @@ class ChatStreamAPI(
                                 answer.cachedInputTokens,
                             )
                             kept = true
+                            /*
+                             * The answer is all there and in the history, and the frames left
+                             * can be a model call away. Voice reads its last sentence on this
+                             * rather than on `done`, which a naming holds back for seconds.
+                             */
+                            send("answered", mapOf<String, Any>())
                             // Naming it is not part of the answer, so a
                             // companion model that will not answer costs the
                             // chat nothing.

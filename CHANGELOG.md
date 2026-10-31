@@ -25,6 +25,7 @@ have failed.
 
 ### 🔧 Changed
 
+- **Voice mode reads the end of an answer sooner.** The last sentence went to speech only after the chat had been saved, renamed and reloaded, and the panel could not listen again until then; neither waits for the rename or the reload now. While the audio is being made the panel says **Preparing speech** rather than Thinking.
 - **The quick chat can be dragged bigger**, from its left edge, top edge or top-left corner, and remembers the size. A double-click puts it back.
 
 ### 🐛 Fixed

@@ -1151,6 +1151,8 @@ class ChatInSessionTest(
         val frames = response.contentAsString
         assertThat(frames).contains("event: titling", "event: titled", "\"title\":\"Disk usage check\"")
         assertThat(frames.indexOf("event: titling")).isLessThan(frames.indexOf("event: titled"))
+        // Voice reads its last sentence on `answered`, so a naming must not hold it back.
+        assertThat(frames.indexOf("event: answered")).isGreaterThan(-1).isLessThan(frames.indexOf("event: titling"))
 
         // A chat that already has a name is not named again, and says nothing about it.
         val again = org.springframework.mock.web.MockHttpServletResponse()
