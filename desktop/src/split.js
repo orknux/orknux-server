@@ -167,6 +167,20 @@ class Layout {
     if (split) split.ratio = 0.5;
   }
 
+  /**
+   * Undoes a cut: every tab on both sides of it goes into one pane, in reading
+   * order, and that pane takes the space. `keep` is the tab to leave showing.
+   */
+  merge(splitId, keep = null) {
+    const split = this.splitById(splitId);
+    if (!split) return;
+    const pane = this.newPane();
+    const held = this.panes(split);
+    pane.tabs = held.flatMap((one) => one.tabs);
+    pane.active = keep !== null && pane.tabs.includes(keep) ? keep : held[0].active;
+    this.replace(split, pane);
+  }
+
   splitById(id, node = this.root) {
     if (node.kind === 'pane') return null;
     if (node.id === id) return node;

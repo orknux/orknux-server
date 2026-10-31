@@ -83,6 +83,10 @@ function makeDivider(id) {
     begin(event, { divider: id });
   });
   divider.addEventListener('dragend', () => ipcRenderer.send('tabs:drag-end'));
+  divider.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    ipcRenderer.send('tabs:divider-menu', id);
+  });
   divider.addEventListener('dblclick', () => ipcRenderer.send('tabs:even', id));
   return divider;
 }

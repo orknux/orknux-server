@@ -65,6 +65,7 @@ class Tabs {
     said.on('tabs:close', (_event, id) => this.close(this.find(id)));
     said.on('tabs:new', (_event, paneId) => this.openHome(paneId));
     said.on('tabs:menu', (_event, id) => this.menu(this.find(id)));
+    said.on('tabs:divider-menu', (_event, id) => this.dividerMenu(id));
     said.on('tabs:drag-start', (_event, what) => this.dragStart(what));
     said.on('tabs:drag-end', () => this.dragEnd());
     said.on('tabs:even', (_event, id) => {
@@ -194,6 +195,18 @@ class Tabs {
       { label: 'Split horizontally', enabled: canCut(rect, 'bottom'), click: () => this.split(tab, 'bottom') },
       { label: 'Split vertically', enabled: canCut(rect, 'right'), click: () => this.split(tab, 'right') },
     ]).popup({ window: this.win });
+  }
+
+  /** The right-click on the line between panes. */
+  dividerMenu(splitId) {
+    Menu.buildFromTemplate([{ label: 'Merge', click: () => this.merge(splitId) }]).popup({ window: this.win });
+  }
+
+  /** Puts everything on both sides of a line into one pane, keeping the tab being worked in in front. */
+  merge(splitId) {
+    this.layoutTree.merge(splitId, this.active === null ? null : this.active.id);
+    this.refresh();
+    if (this.active !== null) this.active.contents.focus();
   }
 
   /**

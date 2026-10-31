@@ -19,7 +19,7 @@ have failed.
 
 ### Added
 
-- Desktop app: a window splits by dragging a tab to the edge of a pane, side by side or one above the other and as often as you like, with the line between panes dragged to resize them, or from Split horizontally and Split vertically on a tab's right-click. Panes narrower than 900 pixels draw their page smaller, down to 320 pixels wide.
+- Desktop app: a window splits by dragging a tab to the edge of a pane, side by side or one above the other and as often as you like, with the line between panes dragged to resize them, or from Split horizontally and Split vertically on a tab's right-click, with Merge on the line's. Panes narrower than 900 pixels draw their page smaller, down to 320 pixels wide.
 - Desktop app: Next and Previous Window shortcuts on Preferences, Alt+Right and Alt+Left unless changed, move between panes and on through the app's other windows.
 
 ### Changed

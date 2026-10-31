@@ -138,3 +138,16 @@ test('a pane can be cut along an edge only where both halves would be big enough
   assert.equal(canCut({ width: 100, height: 408 }, 'bottom'), true);
   assert.equal(canCut({ width: 2000, height: 300 }, 'bottom'), false);
 });
+
+test('merging a line puts both sides in one pane, and a line further out still stands', () => {
+  const layout = holding(1, 2, 3);
+  layout.move(2, layout.root.id, 'right');
+  layout.move(3, layout.paneOf(2).id, 'bottom');
+  const inner = layout.root.second.id;
+  layout.merge(inner, 3);
+  assert.deepEqual(tabsByPane(layout), [[1], [2, 3]]);
+  assert.equal(layout.paneOf(3).active, 3);
+  layout.merge(layout.root.id);
+  assert.equal(layout.root.kind, 'pane');
+  assert.deepEqual(tabsByPane(layout), [[1, 2, 3]]);
+});

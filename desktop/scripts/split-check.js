@@ -199,6 +199,12 @@ app.whenReady().then(async () => {
   const added = across.list.find((one) => !opened.includes(one));
   check('and it shows the same page', added.contents.getURL() === opened[0].contents.getURL(), added.contents.getURL());
 
+  // The line's Merge: everything on both sides in one pane, showing one page across the whole window.
+  across.merge(across.layoutTree.root.id);
+  await pause(400);
+  check('merging the outermost line leaves one pane with every tab', across.layoutTree.panes().length === 1 && across.layoutTree.root.tabs.length === 4, across.layoutTree.root.tabs);
+  check('and one page fills the window', across.list.filter((tab) => tab.view.getVisible()).length === 1 && across.active.view.getBounds().width === place.width);
+
   console.log(failures === 0 ? 'ALL PASSED' : `${failures} FAILED`);
   app.exit(failures === 0 ? 0 : 1);
 }).catch((failure) => {
