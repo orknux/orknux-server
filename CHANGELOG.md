@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## 1.2.8
+## 1.2.9
 
 ### ✨ Added
 
@@ -33,6 +33,10 @@ have failed.
 ### 🐛 Fixed
 
 - **A long name no longer wraps an editor's toolbar onto a second row**: the name shortens instead, at a normal window width.
+
+## 1.2.8
+
+Never published: its build failed, so no image or jar came out. What it would have carried is in 1.2.9.
 
 ## 1.2.7
 

@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.mszymanski</groupId>
         <artifactId>orknux-server</artifactId>
-        <version>1.2.8</version>
+        <version>1.2.9</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -848,6 +848,13 @@
                     -->
                     <excludedGroups>${orknux.test.excluded-groups}</excludedGroups>
                     <systemPropertyVariables>
+                        <!--
+                            A number of the suite's own rather than the shipped default. A stub model
+                            that never stops calling tools runs to this limit and keeps every request,
+                            so at 5000 QuickChatRoundsTest filled 6 GB and stopped the 1.2.8 build. It
+                            went unseen locally, where the run order had left a smaller limit behind.
+                        -->
+                        <orknux.chat.max-rounds>100</orknux.chat.max-rounds>
                         <!--
                             The suite runs workflows on the calling thread: a run
                             has finished by the time the call answers, and nothing
