@@ -162,6 +162,33 @@ app.whenReady().then(async () => {
   const whole = tabs.list[0].view.getBounds();
   check('and what is left has the whole window', whole.width === origin().width, whole);
 
+  // An ordinary window takes more than one cut the same way: three columns, the light on each. A window of its own, as one made here cannot be resized with no window manager.
+  win.destroy();
+  await pause(300);
+  const broad = new BrowserWindow({
+    x: 0, y: 0, width: 1390, height: 800, backgroundColor: '#09090b',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, '..', 'src', 'tabs-preload.js') },
+  });
+  const across = new Tabs(broad, { webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }, prepare: () => {}, home: () => page('home') });
+  const opened = ['X', 'Y', 'Z'].map((name) => across.open({ url: page(name) }));
+  await pause(1500);
+  const place = broad.getContentBounds();
+  const strip = async (tab) => {
+    const box = await broad.webContents.executeJavaScript(
+      `(() => { const r = [...document.querySelectorAll('.tab')].find((t) => t.title === ${JSON.stringify(tab.title)}).getBoundingClientRect(); return { x: r.x + 20, y: r.y + r.height / 2 }; })()`,
+    );
+    return { x: place.x + box.x, y: place.y + box.y };
+  };
+  const shone = () => across.overlay.webContents.executeJavaScript(`document.getElementById('light').style.display`);
+  const edge = { x: place.x + place.width - 20, y: place.y + 400 };
+  await drag(await strip(opened[2]), edge);
+  await release();
+  await drag(await strip(opened[1]), edge);
+  check('a pane of about 700 pixels offers its edge too: the light is on', (await shone()) === 'block');
+  await release();
+  const columns = across.arranged().panes;
+  check('a window of 1390 cuts into three columns', columns.length === 3 && columns.every((one) => one.y === 0), columns.map((one) => one.width));
+
   console.log(failures === 0 ? 'ALL PASSED' : `${failures} FAILED`);
   app.exit(failures === 0 ? 0 : 1);
 }).catch((failure) => {

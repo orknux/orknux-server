@@ -10,11 +10,12 @@
 /** The space between two panes, which is also what is pressed to resize them. */
 const GAP = 4;
 /**
- * The smallest a pane is cut to. A pane narrower than the interface's own 900 is
- * drawn smaller rather than squeezed (tabs.js), and half size is about as small
- * as anybody can read.
+ * The smallest a pane is cut to. Small, on purpose: a limit near half the
+ * interface's 900 stopped an ordinary window at two columns, with the edges of
+ * a pane offering nothing and no word why. A pane under 900 is drawn smaller
+ * (tabs.js), and somebody who wants four small panes can have them.
  */
-const MIN_WIDTH = 450;
+const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 /** How near a pane's edge, as a share of its size, a drop has to be to split it rather than join it. */
 const EDGE = 0.25;
