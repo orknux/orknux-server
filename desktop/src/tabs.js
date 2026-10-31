@@ -183,8 +183,9 @@ class Tabs {
   }
 
   /**
-   * A tab's right-click. Named as most editors name them, after the line the cut
-   * draws: horizontally is one above the other, vertically is side by side.
+   * A tab's right-click. Named after how the panes end up: horizontally is side
+   * by side, vertically is one above the other. Some editors name them after the
+   * line between instead, which reads backwards to whoever this is for.
    */
   menu(tab) {
     if (tab === null) return;
@@ -192,8 +193,8 @@ class Tabs {
     const rect = this.arranged().panes.find((one) => one.id === pane?.id);
     if (rect === undefined) return;
     Menu.buildFromTemplate([
-      { label: 'Split horizontally', enabled: canCut(rect, 'bottom'), click: () => this.split(tab, 'bottom') },
-      { label: 'Split vertically', enabled: canCut(rect, 'right'), click: () => this.split(tab, 'right') },
+      { label: 'Split horizontally', enabled: canCut(rect, 'right'), click: () => this.split(tab, 'right') },
+      { label: 'Split vertically', enabled: canCut(rect, 'bottom'), click: () => this.split(tab, 'bottom') },
     ]).popup({ window: this.win });
   }
 
