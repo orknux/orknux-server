@@ -27,6 +27,7 @@ have failed.
 - A workspace function can no longer take the name of a built-in one or a plugin's: creating, renaming and importing one under such a name is refused or given another, where it used to shadow what the installation provides.
 - The list of a form's field picker opens upward when the Save bar leaves it no room below, where it used to open underneath and out of reach.
 - The Standard workspace type on Admin is drawn at the size of its row.
+- **The desktop `.deb` could fail to start on Ubuntu 24.04**, where its dependency could be met by a substitute sound library the app cannot use. Installing the new package brings the right one.
 
 ## 1.2.9
 
