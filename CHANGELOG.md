@@ -15,6 +15,15 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### Added
+
+- Desktop app: a window splits by dragging a tab to the edge of a pane, side by side or one above the other and as often as you like, with the line between panes dragged to resize them. Panes narrower than 900 pixels draw their page smaller.
+
+### Changed
+
+
 ## 1.2.7
 
 ### ✨ Added

@@ -62,6 +62,15 @@ the one door they come through, and the only thing a page may say to this
 process. `links.js` holds the same defaults for the moments before a page has
 spoken - change one, change the other.
 
+**A split is a tree, and a drag is the browser's own.** `split.js` holds the
+panes and has no Electron in it, so `node --test` covers it. A page takes the
+pointer from whatever is under it, so a drag crosses the pages only because
+`drag-overlay.html` lies over them while one lasts. `scripts/split-check.js`
+drives that with a real pointer under Xvfb; only Linux/X11 has run it. A pane
+narrower than the interface's 900 is scaled by device emulation rather than
+squeezed, because its bars and tables run into each other below that; not by
+`setZoomFactor`, which Chromium applies to the whole site and so to every pane.
+
 **No Node on the host.** Build and test in `docker/Dockerfile`. The Windows
 `.exe` can be made here in `electronuserland/builder:wine` (see README) and
 `win-unpacked` smoke-tested on this machine; the MSI needs real Windows, which
