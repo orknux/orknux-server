@@ -1756,6 +1756,8 @@ type Mutation {
     no id to pass.
     """
     setChatCostShown(shown: Boolean!): AppUser!
+    "Turns the speed beside the tokens in your chats on or off. Yours only, as the cost line is."
+    setChatSpeedShown(shown: Boolean!): AppUser!
     """
     Turns your avatar beside what you said in your chats on or off. Yours only,
     as the cost line is.
@@ -9948,6 +9950,8 @@ type AppUser {
     they have turned it off.
     """
     chatAvatarShown: Boolean!
+    "Whether their chats show how fast the model is writing. True unless they have turned it off."
+    chatSpeedShown: Boolean!
     """
     The language they read the product in, as a BCP-47 tag. Null where they have
     not chosen, which is not the same as English: it is what lets the browser

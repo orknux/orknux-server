@@ -232,6 +232,12 @@ class ChatCostTest(
 
         graphQlTester.document("""mutation { setChatCostShown(shown: true) { chatCostShown } }""")
             .execute().path("setChatCostShown.chatCostShown").entity(Boolean::class.java).isEqualTo(true)
+
+        // The speed beside the tokens: on from the start, and theirs to turn off.
+        assertThat(requireNotNull(users.findByIdOrNull(id)).chatSpeedShown).isTrue()
+        graphQlTester.document("""mutation { setChatSpeedShown(shown: false) { chatSpeedShown } }""")
+            .execute().path("setChatSpeedShown.chatSpeedShown").entity(Boolean::class.java).isEqualTo(false)
+        assertThat(requireNotNull(users.findByIdOrNull(id)).chatSpeedShown).isFalse()
     }
 
     /**

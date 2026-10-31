@@ -249,6 +249,17 @@ class UserAPI(
         return describe(users.save(held))
     }
 
+    /** Whether their own chats show how fast the model is writing; theirs alone, as the cost line is. */
+    @MutationMapping
+    @Transactional
+    fun setChatSpeedShown(@Argument shown: Boolean): UserView {
+        val held = users.findByUsername(editor()) ?: throw UserNotFoundException(-1)
+        held.chatSpeedShown = shown
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = editor()
+        return describe(users.save(held))
+    }
+
     /**
      * Which language somebody reads the product in.
      *
@@ -415,6 +426,7 @@ class UserAPI(
         emailNotifications = user.emailNotifications,
         chatCostShown = user.chatCostShown,
         chatAvatarShown = user.chatAvatarShown,
+        chatSpeedShown = user.chatSpeedShown,
         language = user.language,
         timeZone = user.timeZone,
         type = user.type,
@@ -441,6 +453,7 @@ data class UserView(
     val chatCostShown: Boolean,
     /** Whether their chats draw their avatar beside what they said. */
     val chatAvatarShown: Boolean,
+    val chatSpeedShown: Boolean,
     /** The language they read the product in, or null where they have not said. */
     val language: String?,
     /** The time zone they read times in, or null where their browser's is used. */

@@ -173,6 +173,13 @@ class AppUser(
     var chatAvatarShown: Boolean = true,
 
     /**
+     * Whether their chats show how fast the model is writing, beside the tokens.
+     * Theirs alone, and on until Preferences turns it off. V645.
+     */
+    @Column(name = "chat_speed_shown", nullable = false)
+    var chatSpeedShown: Boolean = true,
+
+    /**
      * Which language they read the product in, or null while they have not said.
      *
      * A property of the person rather than of the workspace they are looking at

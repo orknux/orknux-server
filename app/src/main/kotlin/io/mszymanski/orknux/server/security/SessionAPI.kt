@@ -327,6 +327,8 @@ class SessionAPI(
             chatCostShown = held?.chatCostShown ?: true,
             // And their avatar beside what they said, by the same route.
             chatAvatarShown = held?.chatAvatarShown ?: true,
+            // And how fast the model is writing, by the same route.
+            chatSpeedShown = held?.chatSpeedShown ?: true,
             // With the session for the language's reason: every time on the first screen is drawn in it.
             timeZone = held?.timeZone,
             /*
@@ -390,6 +392,7 @@ data class SessionUser @JsonCreator constructor(
     @JsonProperty("chatCostShown") val chatCostShown: Boolean = true,
     /** Whether the chat window draws their avatar beside what they said. */
     @JsonProperty("chatAvatarShown") val chatAvatarShown: Boolean = true,
+    @JsonProperty("chatSpeedShown") val chatSpeedShown: Boolean = true,
     /** The time zone to draw times in, or null where the browser's own should be used. */
     @JsonProperty("timeZone") val timeZone: String? = null,
     /** Whether they may make access tokens for themselves: internal users only. Issue #2. */

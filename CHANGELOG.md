@@ -17,6 +17,10 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- **The model's writing speed beside the tokens under a chat**, live and updating while it answers, marked `~` while estimated, and the provider's own figure afterwards where it gives one. On by default; **Speed in Chat** on Preferences turns it off.
+
 ### 🐛 Fixed
 
 - A workspace function can no longer take the name of a built-in one or a plugin's: creating, renaming and importing one under such a name is refused or given another, where it used to shadow what the installation provides.

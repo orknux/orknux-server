@@ -470,7 +470,9 @@ class ChatStreamAPI(
                              */
                             send(
                                 "done",
-                                mapOf(
+                                mapOfNotNull(
+                                    // What a local server measured on its last call; the screen's own estimate stands where none did.
+                                    "generatedPerSecond" to answer.timings?.generatedPerSecond,
                                     "millis" to answer.millis,
                                     "inputTokens" to answer.inputTokens,
                                     "outputTokens" to answer.outputTokens,
@@ -659,3 +661,7 @@ internal fun ChatGeneration.watch(links: ItemLinks): RoundWatch = object : Round
     override fun returned(at: Int, result: String, failed: Boolean) =
         post("called", mapOf("at" to at, "result" to result, "failed" to failed, "link" to links.of(result).takeIf { !failed }))
 }
+
+/** A frame's fields, leaving out what is not known rather than sending a null for it. */
+private fun mapOfNotNull(vararg fields: Pair<String, Any?>): Map<String, Any> =
+    fields.mapNotNull { (name, value) -> value?.let { name to it } }.toMap()
