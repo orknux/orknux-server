@@ -473,6 +473,8 @@ class ChatStreamAPI(
                                 mapOfNotNull(
                                     // What a local server measured on its last call; the screen's own estimate stands where none did.
                                     "generatedPerSecond" to answer.timings?.generatedPerSecond,
+                                    // Only over a prompt it really read: a few new tokens after a long cached one say nothing about speed.
+                                    "promptPerSecond" to answer.timings?.takeIf { it.promptTokens >= 8 }?.promptPerSecond,
                                     "millis" to answer.millis,
                                     "inputTokens" to answer.inputTokens,
                                     "outputTokens" to answer.outputTokens,
