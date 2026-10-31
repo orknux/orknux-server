@@ -20,7 +20,7 @@ have failed.
 ### ✨ Added
 
 - **Orknux Client**: a separate, smaller Windows and Linux download with no server and no Java inside. It asks for a server's address on first start, remembers it, and signs in on the server's own page; **Disconnect from server** is in the user menu. The existing desktop app is unchanged and runs its own server. Clients and servers work together within a major version, and across majors they refuse each other and say which to update: `GET /api/client/compatibility` is what any client asks.
-- **The model's writing speed beside the tokens under a chat**, live and updating while it answers, marked `~` while estimated, and the provider's own figure afterwards where it gives one. On by default; **Speed in Chat** on Preferences turns it off.
+- **The model's decode speed beside the tokens under a chat**, as `decode speed 42 t/s`, live and updating while it answers, marked `~` while estimated, and the provider's own figure afterwards where it gives one. On by default; **Speed in Chat** on Preferences turns it off.
 
 ### 🐛 Fixed
 
