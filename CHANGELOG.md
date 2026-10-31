@@ -15,20 +15,24 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.2.8
 
-### Added
+### ✨ Added
 
 - Desktop app: a window splits by dragging a tab to the edge of a pane, side by side or one above the other and as often as you like, with the line between panes dragged to resize them, or from Split horizontally and Split vertically on a tab's right-click, with Merge on the line's. Panes narrower than 900 pixels draw their page smaller, down to 320 pixels wide.
 - Desktop app: Next and Previous Window shortcuts on Preferences, Alt+Right and Alt+Left unless changed, move between panes and on through the app's other windows.
 
-### Changed
+### 🔧 Changed
 
 - Tool Rounds starts at 5000 instead of 100 on an installation that has not saved its own number, and `ORKNUX_CHAT_MAX_ROUNDS` defaults to 5000. An installation that saved a number keeps it; set the variable to 100 to keep the old limit.
 - Dragging the corner of one number in a sheet now counts up (1, 2, 3) rather than copying it, unlike Excel. Hold Ctrl to copy.
 - The sign-in pages look like orknux.ai: its starry sky and blue wash, a lower-case wordmark, and plain field labels. The version is now shown once, in the footer.
 - The copy button on messages in the quick chat and the editors' chats (documents, wireframes, sheets, diagrams and functions) shows only while the pointer is on the message, and no longer leaves a blank row in the bubble.
 - Desktop app: with more than one pane or window open, Alt+Left and Alt+Right switch between them rather than going back and forward in the page. Choose other keys on Preferences to keep them.
+
+### 🐛 Fixed
+
+- **A long name no longer wraps an editor's toolbar onto a second row**: the name shortens instead, at a normal window width.
 
 ## 1.2.7
 
