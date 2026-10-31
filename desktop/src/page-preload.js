@@ -28,15 +28,27 @@ contextBridge.exposeInMainWorld('orknuxDesktop', {
 window.addEventListener('DOMContentLoaded', () => {
   const server = ipcRenderer.sendSync('desktop:server-without-menu');
   if (server === null) return;
-  const link = document.createElement('button');
-  link.type = 'button';
+  // The address beside it as words, and only the button to press.
+  const link = document.createElement('div');
   link.dataset.orknuxDisconnect = '';
-  link.textContent = `${new URL(server).host} · Disconnect`;
   Object.assign(link.style, {
-    position: 'fixed', left: '50%', bottom: '24px', transform: 'translateX(-50%)', zIndex: '2147483647', padding: '8px 14px',
-    background: '#18181b', color: '#a1a1aa', border: '1px solid #27272a', borderRadius: '6px', font: '13px system-ui, sans-serif', cursor: 'pointer',
+    position: 'fixed', left: '50%', bottom: '24px', transform: 'translateX(-50%)', zIndex: '2147483647',
+    display: 'flex', alignItems: 'center', gap: '12px', font: '13px system-ui, sans-serif', color: '#a1a1aa', whiteSpace: 'nowrap',
   });
-  link.addEventListener('click', () => ipcRenderer.send('desktop:disconnect'));
+  const where = document.createElement('span');
+  where.textContent = new URL(server).host;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'Disconnect';
+  const resting = '#18181b';
+  Object.assign(button.style, {
+    height: '32px', padding: '0 14px', background: resting, color: '#fafafa', border: '1px solid #3f3f46', borderRadius: '6px',
+    font: 'inherit', fontWeight: '500', cursor: 'pointer',
+  });
+  button.addEventListener('mouseenter', () => { button.style.background = '#27272a'; });
+  button.addEventListener('mouseleave', () => { button.style.background = resting; });
+  button.addEventListener('click', () => ipcRenderer.send('desktop:disconnect'));
+  link.append(where, button);
   const place = () => {
     const signingIn = /^\/(login|forgot-password|reset-password)(\/|$)/.test(window.location.pathname);
     if (signingIn && !link.isConnected) document.body.append(link);
