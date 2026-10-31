@@ -15,6 +15,9 @@ files:
 # Fixed here, so a client cannot be switched into something it holds nothing for.
 extraMetadata:
   name: orknux-client
+  # What names its folder under the user's profile, and the one-instance lock: the
+  # server's app is "Orknux", and sharing either would stop the two living together.
+  productName: Orknux Client
   desktopName: orknux-client.desktop
   orknux:
     client: true
