@@ -726,6 +726,8 @@ jobs:
             unset CSC_LINK CSC_KEY_PASSWORD
           fi
           npx electron-builder ${{ matrix.targets }} --publish never -c.extraMetadata.version="$version"
+          # Orknux Client, from the same source with no runtime and no jar.
+          npx electron-builder --config electron-builder-client.yml ${{ matrix.targets }} --publish never -c.extraMetadata.version="$version"
 
       - name: Attach them to the GitHub release
         env:

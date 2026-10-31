@@ -11,11 +11,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   const address = document.getElementById('address');
   const button = document.getElementById('connect');
   const note = document.getElementById('note');
-  const here = document.getElementById('here');
   const started = await ipcRenderer.invoke('connect:start');
   document.getElementById('version').textContent = `App version ${started.version}`;
   address.value = started.server ?? '';
-  here.hidden = !started.canRunHere;
 
   let accepted = null;
   const say = (text, kind) => {
@@ -44,7 +42,6 @@ window.addEventListener('DOMContentLoaded', async () => {
       say(`${answer.warn} is not encrypted: your password and everything you do there can be read by anybody on the way.`, 'warn');
     }
   });
-  here.addEventListener('click', () => ipcRenderer.invoke('connect:here'));
   address.focus();
   address.select();
 });

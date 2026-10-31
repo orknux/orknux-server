@@ -71,14 +71,16 @@ narrower than the interface's 900 is scaled by device emulation rather than
 squeezed, because its bars and tables run into each other below that; not by
 `setZoomFactor`, which Chromium applies to the whole site and so to every pane.
 
-**It can be a client instead.** Connected to a server, it starts no Java and
-shows that server's own interface, so the interface's version is the server's and
-only this shell's is the client's. `connect.js` holds the decisions, without
-Electron; `ClientCompatibility` on the server holds the rule, and the root
-AGENTS.md what it costs. The choice is in `desktop.json`. A data directory that
-already holds a database stays local without asking, so an upgrade changes
-nothing, and a smoke test never asks. Changing server starts the app again rather
-than rearranging a running one. Sign-in redirects to a provider stay in the app
+**Orknux Client is a second package from the same source.**
+`electron-builder-client.yml` builds it with no runtime and no jar, under its own
+app id, and sets `orknux.client` in the package metadata, fixed at build time as
+`selfUpdate` is. The server's package never asks where to connect and the client
+never runs a server; nobody chooses between them inside either. The client shows
+a server's own interface, so the interface's version is the server's and only this
+shell's is the client's. `connect.js` holds the decisions, without Electron;
+`ClientCompatibility` on the server holds the rule, and the root AGENTS.md what it
+costs. Which server is in `desktop.json`. Disconnecting starts the app again
+rather than rearranging a running one. Sign-in redirects to a provider stay in the app
 only because a server page was redirected there: a provider's page has no bridge,
 since everything page-preload passes on checks it comes from a page of ours.
 

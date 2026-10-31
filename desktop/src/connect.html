@@ -24,7 +24,6 @@
   button { height: 40px; border-radius: 6px; font: inherit; font-weight: 500; cursor: pointer; }
   #connect { background: var(--text); color: var(--ground); border: 0; }
   #connect:disabled { opacity: .5; cursor: progress; }
-  #here { background: var(--field); color: var(--text); border: 1px solid var(--edge); }
   #note.wrong { color: var(--wrong); }
   #note.warn { color: var(--warn); }
   #version { font-size: 12px; color: var(--faint); }
@@ -33,8 +32,8 @@
 </head>
 <body>
   <div>
-    <h1>Where should Orknux connect?</h1>
-    <p>Sign in to a server somebody runs, or keep everything on this computer.</p>
+    <h1>Connect to a server</h1>
+    <p>Orknux Client shows an Orknux server somebody runs. You sign in on the next page.</p>
   </div>
   <form id="form">
     <label for="address">Server address</label>
@@ -42,7 +41,6 @@
     <p id="note" role="alert" hidden></p>
     <button id="connect" type="submit">Connect</button>
   </form>
-  <button id="here" type="button" hidden>Run Orknux on this computer</button>
   <p id="version"></p>
 </body>
 </html>

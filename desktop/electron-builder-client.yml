@@ -1,0 +1,76 @@
+# Orknux Client: the same source as electron-builder.yml with no runtime and no
+# jar, so it is a separate install of its own, and a small one. See AGENTS.md.
+appId: ai.orknux.client
+productName: Orknux Client
+copyright: Copyright © 2026 Michał Szymański
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - src/**
+  - package.json
+
+# Fixed here, so a client cannot be switched into something it holds nothing for.
+extraMetadata:
+  name: orknux-client
+  desktopName: orknux-client.desktop
+  orknux:
+    client: true
+    selfUpdate: false
+
+extraResources:
+  - from: resources/tray
+    to: tray
+
+asar: true
+
+linux:
+  target:
+    - deb
+    - AppImage
+  category: Development
+  syncDesktopName: true
+  executableName: orknux-client
+  icon: build/icon.png
+  synopsis: Use an Orknux server from this machine.
+  maintainer: Michał Szymański <michjak.szymanski@gmail.com>
+  vendor: Orknux
+
+deb:
+  packageCategory: devel
+  # As the server's package says why, but for the runtime it does not carry.
+  depends:
+    - libgtk-3-0 | libgtk-3-0t64
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0 | libatspi2.0-0t64
+    - libuuid1
+    - libsecret-1-0
+    - libgbm1
+    - libasound2 | libasound2t64
+
+appImage:
+  artifactName: Orknux-Client-${version}.${ext}
+
+win:
+  target:
+    - nsis
+    - msi
+  icon: build/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Orknux-Client-Setup-${version}.${ext}
+
+msi:
+  perMachine: false
+  artifactName: Orknux-Client-${version}.${ext}
+
+publish: null

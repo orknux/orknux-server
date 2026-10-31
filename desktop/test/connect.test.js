@@ -1,7 +1,7 @@
 // What connecting decides, without Electron: `node --test test/` in desktop/docker.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { addressesOf, isPlainText, judged, whereTo } = require('../src/connect');
+const { addressesOf, isPlainText, judged } = require('../src/connect');
 const { classify } = require('../src/links');
 
 test('an address with no scheme is tried encrypted first', () => {
@@ -40,18 +40,6 @@ test('something else at that address is not an Orknux server', () => {
   assert.equal(judged('1.3.0', answer({ hello: 'world' }), null).ok, false);
   assert.equal(judged('1.3.0', answer(null, 404), answer(null, 404)).ok, false);
   assert.equal(judged('1.3.0', answer(null, 500), null).ok, false);
-});
-
-test('an installation that already runs here is not asked, and a new one is', () => {
-  const none = { mode: null, server: null };
-  const here = { canRunHere: true, smoke: false };
-  assert.equal(whereTo(none, { ...here, hasData: true }), 'local');
-  assert.equal(whereTo(none, { ...here, hasData: false }), 'ask');
-  assert.equal(whereTo({ mode: 'client', server: 'https://a' }, { ...here, hasData: true }), 'client');
-  // Disconnecting asks again, however much data is here.
-  assert.equal(whereTo({ mode: 'ask', server: 'https://a' }, { ...here, hasData: true }), 'ask');
-  assert.equal(whereTo({ mode: 'local', server: null }, { ...here, canRunHere: false, hasData: true }), 'ask');
-  assert.equal(whereTo(none, { hasData: false, canRunHere: true, smoke: true }), 'local');
 });
 
 test('connected, the server is ours by its whole origin and nothing else is', () => {

@@ -34,7 +34,7 @@ function readSettings(data) {
     const held = JSON.parse(fs.readFileSync(file, 'utf8'));
     const account = typeof held.account === 'string' && held.account.trim() !== '' ? held.account.trim() : null;
     const server = typeof held.server === 'string' && held.server !== '' ? held.server : null;
-    const mode = ['local', 'client', 'ask'].includes(held.mode) ? held.mode : null;
+    const mode = ['client', 'ask'].includes(held.mode) ? held.mode : null;
     return { network: held.network === NETWORK_EXPOSED ? NETWORK_EXPOSED : NETWORK_LOCAL, account, mode, server };
   } catch {
     return { network: NETWORK_LOCAL, account: null, mode: null, server: null };
@@ -43,7 +43,7 @@ function readSettings(data) {
 
 /**
  * Where this app goes on its next start, kept beside what the server's Network
- * access writes and leaving that alone. `mode` is `local`, `client` or `ask`;
+ * access writes and leaving that alone. `mode` is `client` or `ask`;
  * `server` stays through a disconnect, to be offered again.
  */
 function writeConnection(data, mode, server) {

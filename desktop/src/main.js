@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { readSettings, writeConnection, prepare } = require('./data');
-const { PROBE_MILLIS, addressesOf, isPlainText, judged, whereTo } = require('./connect');
+const { PROBE_MILLIS, addressesOf, isPlainText, judged } = require('./connect');
 const { Log } = require('./logs');
 const { Server } = require('./server');
 const { Tabs } = require('./tabs');
@@ -31,6 +31,13 @@ const selfUpdate = manifest.orknux?.selfUpdate !== false && process.env.ORKNUX_S
 
 /** Set to a directory, the app loads the interface, photographs it there and quits: what the smoke test drives. */
 const smoke = process.env.ORKNUX_DESKTOP_SMOKE || null;
+
+/*
+ * Orknux Client or the server's own app, fixed when the package is built
+ * (electron-builder-client.yml), as selfUpdate is: the client carries no runtime
+ * and no jar, so there is nothing a setting could switch it to.
+ */
+const isClient = manifest.orknux?.client === true;
 
 // Apart from Chromium's own caches, which also live under userData.
 const data = process.env.ORKNUX_DATA || path.join(app.getPath('userData'), 'data');
@@ -103,18 +110,14 @@ async function start() {
   log.note(`Orknux desktop ${app.getVersion()} starting; data at ${data}; self-update ${selfUpdate ? 'on' : 'off'}`);
 
   const settings = readSettings(data);
-  const canRunHere = fs.existsSync(java) && fs.existsSync(imageJar);
-  const hasData = fs.existsSync(path.join(data, 'orknux.db'));
-  const first = whereTo(settings, { hasData, canRunHere, smoke: smoke !== null });
-  const where = first === 'local' ? 'local' : await connection(settings, first, canRunHere);
-  if (where !== 'local') {
-    remote = where;
-    home = where;
-    title = `Orknux — ${new URL(where).host}`;
-    createWindow(where);
+  if (isClient) {
+    remote = await connection(settings);
+    home = remote;
+    title = `Orknux — ${new URL(remote).host}`;
+    createWindow(remote);
     watchDownloads();
     createTray();
-    log.note(`connected to ${where}`);
+    log.note(`connected to ${remote}`);
     return;
   }
 
@@ -228,38 +231,38 @@ async function probe(typed) {
 }
 
 /**
- * Where to go, when it is a server or a question: the origin, or `local`.
+ * The server to show: the remembered one if it answers, or whichever is typed.
  *
- * A remembered server that answers is gone straight to. One that does not, or no
- * longer goes with this version, comes back to the window with the reason, since
- * it may be down for a minute and is still the one meant.
+ * One that does not answer, or no longer goes with this version, comes back to
+ * the window with the reason, as it may be down for a minute and is still the one
+ * meant. Disconnecting is what forgets to go straight there.
  */
-async function connection(settings, first, canRunHere) {
+async function connection(settings) {
   let said = null;
-  if (first === 'client') {
+  if (settings.mode === 'client' && settings.server) {
     const reached = await probe(settings.server);
     if (reached.address) return reached.address;
     said = reached.why;
   }
-  return askWhere(settings.server, said, canRunHere);
+  return askWhere(settings.server, said);
 }
 
 /** The window that asks. Closing it leaves, as there is nothing behind it. */
-function askWhere(server, said, canRunHere) {
+function askWhere(server, said) {
   return new Promise((resolve) => {
     const asking = new BrowserWindow({
       width: 520,
-      height: 560,
+      height: 480,
       resizable: false,
-      title: 'Orknux',
+      title: 'Orknux Client',
       backgroundColor: '#09090b',
       icon: trayImage(),
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'connect-preload.js') },
     });
     let chosen = false;
-    const said_ = asking.webContents.ipc;
-    said_.handle('connect:start', () => ({ server, said, canRunHere, version: app.getVersion() }));
-    said_.handle('connect:try', async (_event, typed, plainAccepted) => {
+    const talk = asking.webContents.ipc;
+    talk.handle('connect:start', () => ({ server, said, version: app.getVersion() }));
+    talk.handle('connect:try', async (_event, typed, plainAccepted) => {
       const reached = await probe(typed);
       if (reached.why) return { why: reached.why };
       if (reached.plain && !plainAccepted) return { warn: reached.address };
@@ -269,13 +272,6 @@ function askWhere(server, said, canRunHere) {
       asking.close();
       return {};
     });
-    said_.handle('connect:here', () => {
-      if (!canRunHere) return;
-      chosen = true;
-      writeConnection(data, 'local');
-      resolve('local');
-      asking.close();
-    });
     asking.on('closed', () => {
       if (!chosen) quit();
     });
@@ -284,26 +280,23 @@ function askWhere(server, said, canRunHere) {
 }
 
 /**
- * Going back to the question, from wherever it was asked. Starting again rather
- * than rearranging a running app: a local server has to stop, and every tab holds
- * a page of the place being left.
+ * Back to the question of which server. Starting again rather than rearranging a
+ * running app, as every tab holds a page of the server being left.
  */
-async function changeServer() {
+async function disconnect() {
   const { response } = await dialog.showMessageBox(current() ?? undefined, {
     type: 'question',
     title: 'Orknux',
-    message: remote === null ? 'Connect to a server?' : `Disconnect from ${new URL(remote).host}?`,
-    detail: 'Orknux starts again and asks where to connect. Anything not saved in an open tab is lost.',
-    buttons: [remote === null ? 'Choose a server' : 'Disconnect', 'Cancel'],
+    message: `Disconnect from ${new URL(remote).host}?`,
+    detail: 'Orknux starts again and asks which server to connect to. Anything not saved in an open tab is lost.',
+    buttons: ['Disconnect', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
   });
   if (response !== 0) return;
-  if (remote !== null) {
-    // Signed out as well as away, so what is left here is not a way in. The server being gone is no reason to stay.
-    await session.defaultSession.fetch(`${remote}/api/session`, { method: 'DELETE', headers: { Origin: remote }, signal: AbortSignal.timeout(PROBE_MILLIS) }).catch(() => undefined);
-    await session.defaultSession.clearStorageData({ origin: remote, storages: ['cookies'] }).catch(() => undefined);
-  }
+  // Signed out as well as away, so what is left here is not a way in. The server being gone is no reason to stay.
+  await session.defaultSession.fetch(`${remote}/api/session`, { method: 'DELETE', headers: { Origin: remote }, signal: AbortSignal.timeout(PROBE_MILLIS) }).catch(() => undefined);
+  await session.defaultSession.clearStorageData({ origin: remote, storages: ['cookies'] }).catch(() => undefined);
   writeConnection(data, 'ask', remote);
   app.relaunch();
   quit();
@@ -425,7 +418,7 @@ function wire(tab, tabs) {
     event.returnValue = remote !== null && fromUs() ? remote : null;
   });
   contents.ipc.on('desktop:disconnect', () => {
-    if (remote !== null && fromUs()) changeServer();
+    if (remote !== null && fromUs()) disconnect();
   });
   contents.ipc.on('desktop:recording-keys', (_event, on) => {
     tab.recording = fromUs() && on === true;
@@ -586,7 +579,7 @@ function createWindow(url) {
   const tabs = new Tabs(created, { webPreferences: PAGE_PREFERENCES, prepare: (tab) => wire(tab, tabs),
     home: () => home,
     // Here as well as in the interface's own menu, which a server older than this has not got.
-    tabMenu: () => (remote === null ? [] : [{ type: 'separator' }, { label: 'Disconnect from server', click: changeServer }]),
+    tabMenu: () => (remote === null ? [] : [{ type: 'separator' }, { label: 'Disconnect from server', click: disconnect }]),
   });
   windows.set(created, tabs);
   created.webContents.on('before-input-event', (event, input) => keys(tabs, event, input));
@@ -650,8 +643,9 @@ function createTray() {
   tray.setToolTip('Orknux');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Orknux', click: show },
-    { label: 'Open data folder', click: () => shell.openPath(data) },
-    { label: remote === null ? 'Connect to a server…' : 'Disconnect from server', click: changeServer },
+    // A client keeps nothing of anybody's there.
+    ...(isClient ? [] : [{ label: 'Open data folder', click: () => shell.openPath(data) }]),
+    ...(remote === null ? [] : [{ label: 'Disconnect from server', click: disconnect }]),
     { type: 'separator' },
     { label: 'Quit Orknux', click: () => app.quit() },
   ]));

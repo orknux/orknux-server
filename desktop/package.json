@@ -22,6 +22,8 @@
     "dist:linux": "electron-builder --linux deb AppImage",
     "dist:linux:store": "electron-builder --linux deb AppImage -c.extraMetadata.orknux.selfUpdate=false",
     "dist:win": "electron-builder --win nsis msi",
+    "dist:client:linux": "electron-builder --config electron-builder-client.yml --linux deb AppImage",
+    "dist:client:win": "electron-builder --config electron-builder-client.yml --win nsis msi",
     "dist:win:store": "electron-builder --win nsis msi -c.extraMetadata.orknux.selfUpdate=false"
   },
   "devDependencies": {

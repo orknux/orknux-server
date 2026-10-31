@@ -71,22 +71,4 @@ function judged(client, asked, method) {
   return { ok: false, why: 'Something answered at that address, but it is not an Orknux server.' };
 }
 
-/**
- * Where to go on a start: what was chosen, or on no choice, this computer if it
- * already holds data, so an upgrade changes nothing for an installation that has
- * always run here. Otherwise ask.
- *
- * @param {{mode: string|null, server: string|null}} connection from desktop.json
- * @param {{hasData: boolean, canRunHere: boolean, smoke: boolean}} here
- * @returns {'local'|'client'|'ask'}
- */
-function whereTo(connection, { hasData, canRunHere, smoke }) {
-  if (smoke) return 'local';
-  if (connection.mode === 'client' && connection.server) return 'client';
-  if (connection.mode === 'ask') return 'ask';
-  if (!canRunHere) return 'ask';
-  if (connection.mode === 'local' || hasData) return 'local';
-  return 'ask';
-}
-
-module.exports = { PROBE_MILLIS, addressesOf, isPlainText, judged, whereTo };
+module.exports = { PROBE_MILLIS, addressesOf, isPlainText, judged };
