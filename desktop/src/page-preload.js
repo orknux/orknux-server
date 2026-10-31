@@ -11,5 +11,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('orknuxDesktop', {
   tabShortcuts: (next, previous) => ipcRenderer.send('desktop:tab-shortcuts', String(next), String(previous)),
+  windowShortcuts: (next, previous) => ipcRenderer.send('desktop:window-shortcuts', String(next), String(previous)),
   recordingKeys: (on) => ipcRenderer.send('desktop:recording-keys', on === true),
 });

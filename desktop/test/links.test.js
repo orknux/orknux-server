@@ -1,7 +1,7 @@
 // The link and key decisions, without Electron: `node --test test/` in desktop/docker.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { classify, linkMenu, shortcut, stepped, tabKeys, DEFAULT_TAB_KEYS } = require('../src/links');
+const { classify, linkMenu, shortcut, stepped, tabKeys, windowKeys, DEFAULT_TAB_KEYS, DEFAULT_WINDOW_KEYS } = require('../src/links');
 
 const PORT = 8080;
 
@@ -120,4 +120,14 @@ test('the web still opens outside, mail and phone are opened, and the rest is on
   assert.deepEqual(labels('mailto:someone@example.com'), ['Open link', 'Copy link address']);
   assert.deepEqual(actions('blob:http://127.0.0.1:8080/0b1c'), ['copy']);
   assert.deepEqual(actions('file:///C:/Windows/System32/calc.exe'), ['copy']);
+});
+
+test('Alt and the arrows move between windows unless the interface says otherwise', () => {
+  const press = (key, extra = {}) => ({ type: 'keyDown', key, alt: true, control: false, shift: false, meta: false, ...extra });
+  assert.equal(shortcut(press('ArrowRight')), 'next-window');
+  assert.equal(shortcut(press('ArrowLeft')), 'previous-window');
+  const chosen = { ...DEFAULT_TAB_KEYS, ...windowKeys('Ctrl+Shift+N', 'Ctrl+Shift+P') };
+  assert.equal(shortcut(press('n', { alt: false, control: true, shift: true }), chosen), 'next-window');
+  assert.equal(shortcut(press('ArrowRight'), chosen), null);
+  assert.deepEqual(windowKeys('', 7), DEFAULT_WINDOW_KEYS);
 });

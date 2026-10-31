@@ -20,9 +20,11 @@ have failed.
 ### Added
 
 - Desktop app: a window splits by dragging a tab to the edge of a pane, side by side or one above the other and as often as you like, with the line between panes dragged to resize them. Panes narrower than 900 pixels draw their page smaller.
+- Desktop app: Next and Previous Window shortcuts on Preferences, Alt+Right and Alt+Left unless changed, move between panes and on through the app's other windows.
 
 ### Changed
 
+- Desktop app: with more than one pane or window open, Alt+Left and Alt+Right switch between them rather than going back and forward in the page. Choose other keys on Preferences to keep them.
 
 ## 1.2.7
 

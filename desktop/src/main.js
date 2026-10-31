@@ -14,7 +14,7 @@ const { readSettings, prepare } = require('./data');
 const { Log } = require('./logs');
 const { Server } = require('./server');
 const { Tabs } = require('./tabs');
-const { classify, linkMenu, shortcut, tabKeys, DEFAULT_TAB_KEYS } = require('./links');
+const { classify, linkMenu, shortcut, stepped, tabKeys, windowKeys, DEFAULT_TAB_KEYS, DEFAULT_WINDOW_KEYS } = require('./links');
 const windowState = require('./window-state');
 const look = require('./look');
 const manifest = require('../package.json');
@@ -46,8 +46,8 @@ const imageJar = path.join(resources, 'server', 'app.jar');
 const windows = new Map();
 /** The windows' title, which every window shows: see server.onNetwork. */
 let title = 'Orknux';
-/** The next and previous tab keys, as the interface last said them; links.js has the defaults. */
-let tabKeysChosen = DEFAULT_TAB_KEYS;
+/** The next and previous tab and window keys, as the interface last said them; links.js has the defaults. */
+let tabKeysChosen = { ...DEFAULT_TAB_KEYS, ...DEFAULT_WINDOW_KEYS };
 /** The interface's address once the server answers: what a new tab opens. */
 let home = null;
 let tray = null;
@@ -259,7 +259,10 @@ function wire(tab, tabs) {
    */
   const fromUs = () => classify(contents.getURL(), port()).kind === 'ours';
   contents.ipc.on('desktop:tab-shortcuts', (_event, next, previous) => {
-    if (fromUs()) tabKeysChosen = tabKeys(next, previous);
+    if (fromUs()) tabKeysChosen = { ...tabKeysChosen, ...tabKeys(next, previous) };
+  });
+  contents.ipc.on('desktop:window-shortcuts', (_event, next, previous) => {
+    if (fromUs()) tabKeysChosen = { ...tabKeysChosen, ...windowKeys(next, previous) };
   });
   contents.ipc.on('desktop:recording-keys', (_event, on) => {
     tab.recording = fromUs() && on === true;
@@ -304,11 +307,34 @@ function tell(message, url, why) {
 function keys(tabs, event, input) {
   const asked = shortcut(input, tabKeysChosen);
   if (asked === null) return;
+  if (asked === 'next-window' || asked === 'previous-window') {
+    // With nowhere to go the keys stay the page's: Alt and an arrow is also back and forward.
+    if (stepWindow(tabs, asked === 'next-window' ? 1 : -1)) event.preventDefault();
+    return;
+  }
   event.preventDefault();
   if (asked === 'new') tabs.openHome();
   else if (asked === 'close') tabs.close(tabs.active);
   else if (asked === 'next') tabs.step(1);
   else if (asked === 'previous') tabs.step(-1);
+}
+
+/**
+ * Moves to the next or previous pane, and on through the panes of the app's other
+ * windows in the order they were opened: a split and a second window are the same
+ * thing to somebody who wants to be in the other one. Says whether there was one.
+ */
+function stepWindow(tabs, by) {
+  const stops = [...windows.values()].filter((one) => one.win.isVisible()).flatMap((one) => one.workingPlaces().map((tab) => ({ tabs: one, tab })));
+  if (stops.length < 2) return false;
+  const here = stops.findIndex((stop) => stop.tab === tabs.active);
+  const there = stops[stepped(here, by, stops.length)];
+  if (there.tabs !== tabs) {
+    there.tabs.win.show();
+    there.tabs.win.focus();
+  }
+  there.tabs.select(there.tab);
+  return true;
 }
 
 /*

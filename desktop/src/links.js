@@ -99,6 +99,9 @@ function linkMenu(link) {
  */
 const DEFAULT_TAB_KEYS = Object.freeze({ next: 'Ctrl+PageDown', previous: 'Ctrl+PageUp' });
 
+/** Next and previous window: `DEFAULT_NEXT_WINDOW_SHORTCUT` and its pair in the same file, for the same reason. */
+const DEFAULT_WINDOW_KEYS = Object.freeze({ nextWindow: 'Alt+ArrowRight', previousWindow: 'Alt+ArrowLeft' });
+
 /** The longest shortcut taken from a page: a format, so a page cannot hand over a novel. */
 const LONGEST_SHORTCUT = 64;
 
@@ -111,6 +114,15 @@ function tabKeys(next, previous) {
   return {
     next: fine(next) ? next.trim() : DEFAULT_TAB_KEYS.next,
     previous: fine(previous) ? previous.trim() : DEFAULT_TAB_KEYS.previous,
+  };
+}
+
+/** The window keys a page handed over, by the same check, or the defaults for whichever is not one. */
+function windowKeys(next, previous) {
+  const fine = (value) => typeof value === 'string' && value.trim() !== '' && value.length <= LONGEST_SHORTCUT;
+  return {
+    nextWindow: fine(next) ? next.trim() : DEFAULT_WINDOW_KEYS.nextWindow,
+    previousWindow: fine(previous) ? previous.trim() : DEFAULT_WINDOW_KEYS.previousWindow,
   };
 }
 
@@ -147,8 +159,8 @@ const KEYS = {
 };
 
 /**
- * What a key press asks of the tabs - `new`, `close`, `next`, `previous` - or
- * null. Takes Electron's before-input-event input, and the next and previous
+ * What a key press asks of the tabs - `new`, `close`, `next`, `previous`,
+ * `next-window`, `previous-window` - or null. Takes Electron's before-input-event input, and the next and previous
  * keys chosen in the interface, which come first: a choice made there wins over
  * a fixed key here.
  *
@@ -156,11 +168,13 @@ const KEYS = {
  * that character is not a Latin letter: Ctrl+T on a Polish or a French layout
  * means T, and on a Russian one the key that carries T.
  */
-function shortcut(input, bound = DEFAULT_TAB_KEYS) {
+function shortcut(input, bound = { ...DEFAULT_TAB_KEYS, ...DEFAULT_WINDOW_KEYS }) {
   if (input.type !== 'keyDown') return null;
   const said = described(input)?.toLowerCase();
   if (said === bound.next.toLowerCase()) return 'next';
   if (said === bound.previous.toLowerCase()) return 'previous';
+  if (said !== undefined && said === bound.nextWindow?.toLowerCase()) return 'next-window';
+  if (said !== undefined && said === bound.previousWindow?.toLowerCase()) return 'previous-window';
   if (!input.control || input.alt || input.meta) return null;
   let key = input.key;
   if (key.length === 1) {
@@ -175,4 +189,4 @@ function stepped(at, by, count) {
   return (((at + by) % count) + count) % count;
 }
 
-module.exports = { classify, linkMenu, shortcut, tabKeys, stepped, DEFAULT_TAB_KEYS };
+module.exports = { classify, linkMenu, shortcut, tabKeys, windowKeys, stepped, DEFAULT_TAB_KEYS, DEFAULT_WINDOW_KEYS };
