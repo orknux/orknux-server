@@ -578,8 +578,6 @@ function createWindow(url) {
   windowState.track(created, data);
   const tabs = new Tabs(created, { webPreferences: PAGE_PREFERENCES, prepare: (tab) => wire(tab, tabs),
     home: () => home,
-    // Here as well as in the interface's own menu, which a server older than this has not got.
-    tabMenu: () => (remote === null ? [] : [{ type: 'separator' }, { label: 'Disconnect from server', click: disconnect }]),
   });
   windows.set(created, tabs);
   created.webContents.on('before-input-event', (event, input) => keys(tabs, event, input));
