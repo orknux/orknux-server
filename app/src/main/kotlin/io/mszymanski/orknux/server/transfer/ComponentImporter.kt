@@ -1633,12 +1633,12 @@ class ComponentImporter(
      * but a break. Conditions and skills are prose and read better with the
      * bracket.
      */
-    /** Whether nothing here, in the file so far, or in a plugin answers to this name. */
+    /** Whether nothing here, in the file so far, in a plugin or in the release answers to this name. */
     private fun nameFree(workspaceId: Long, kind: ComponentKind, name: String, claimed: Set<String>): Boolean =
         name !in claimed && findByName(workspaceId, kind, name) == null &&
-            // A workspace function may not shadow one a plugin declared: a call
-            // by name would have no way to say which of the two it meant.
-            (kind != ComponentKind.FUNCTION || functions.findByScopeAndName(FunctionScope.PLUGIN, name) == null) &&
+            // A workspace function may not shadow one a plugin declared or the release
+            // embeds: a call by name would have no way to say which of the two it meant.
+            (kind != ComponentKind.FUNCTION || installationFunction(name) == null) &&
             (kind != ComponentKind.TOOL || name !in pluginToolNames())
 
     /**

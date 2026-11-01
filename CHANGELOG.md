@@ -15,6 +15,14 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- A workspace function can no longer take the name of a built-in one or a plugin's: creating, renaming and importing one under such a name is refused or given another, where it used to shadow what the installation provides.
+- The list of a form's field picker opens upward when the Save bar leaves it no room below, where it used to open underneath and out of reach.
+- The Standard workspace type on Admin is drawn at the size of its row.
+
 ## 1.2.9
 
 ### ✨ Added

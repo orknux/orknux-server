@@ -61,6 +61,27 @@ class FunctionAPITest(
     }
 
     @Test
+    fun `a workspace function may not take the name of one the release embeds`() {
+        functions.save(
+            WorkflowFunction(
+                workspaceId = null,
+                name = "charts_render",
+                scope = FunctionScope.EMBEDDED,
+                source = "export default async function charts_render() {}",
+            ),
+        )
+
+        graphQlTester.document(
+            """mutation { createFunction(input: { workspaceId: $workspaceId, name: "charts_render" }) { id } }""",
+        ).execute().errors().expect { it.message?.contains("already exists") == true }.verify()
+
+        val id = create("somethingElse")
+        graphQlTester.document(
+            """mutation { updateFunction(id: $id, input: { name: "charts_render" }) { id } }""",
+        ).execute().errors().expect { it.message?.contains("already exists") == true }.verify()
+    }
+
+    @Test
     fun `the editor saves the code, and what will not parse is refused`() {
         val id = create("validateEmail")
 

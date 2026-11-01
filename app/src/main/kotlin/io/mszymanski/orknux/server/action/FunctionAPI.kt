@@ -141,6 +141,11 @@ class FunctionAPI(
         return describe(function)
     }
 
+    /** Whether a plugin declared this name, or the release embeds it: either is on every workspace's list. */
+    private fun heldByInstallation(name: String): Boolean =
+        functions.findByScopeAndName(FunctionScope.PLUGIN, name) != null ||
+            functions.findByScopeAndName(FunctionScope.EMBEDDED, name) != null
+
     @MutationMapping
     @Transactional
     fun createFunction(@Argument input: CreateFunctionInput): FunctionView {
@@ -148,11 +153,9 @@ class FunctionAPI(
         val name = input.name.trim()
         requireIdentifier(name) { FunctionNameInvalidException(name) }
         if (functions.findByWorkspaceIdAndName(input.workspaceId, name) != null) throw FunctionNameTakenException(name)
-        // A function is called by name, so a workspace one may not shadow an
-        // organisation one — the caller would have no way to say which it meant.
-        if (functions.findByScopeAndName(FunctionScope.PLUGIN, name) != null) {
-            throw FunctionNameTakenException(name)
-        }
+        // A function is called by name, so a workspace one may not shadow one every
+        // workspace has — the caller would have no way to say which it meant.
+        if (heldByInstallation(name)) throw FunctionNameTakenException(name)
 
         val externals = input.externalVariableIds.orEmpty().toExternals(input.workspaceId)
         val externalNames = externals.map { held ->
@@ -238,9 +241,7 @@ class FunctionAPI(
             ) {
                 throw FunctionNameTakenException(name)
             }
-            if (name != function.name && functions.findByScopeAndName(FunctionScope.PLUGIN, name) != null) {
-                throw FunctionNameTakenException(name)
-            }
+            if (name != function.name && heldByInstallation(name)) throw FunctionNameTakenException(name)
             function.name = name
         }
         input.description?.let { function.description = it.trim().ifEmpty { null }?.also(::requireDescriptionFits) }
