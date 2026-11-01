@@ -51,7 +51,9 @@ class SvgCapability(
                 "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"…\" height=\"…\" viewBox=\"…\">. " +
                 "Colour with fill and stroke: names (teal), #hex, rgb() and hsl() with alpha, fill-opacity, and " +
                 "<linearGradient> or <radialGradient> under <defs>. Nothing outside the markup is fetched, so " +
-                "no linked images or web fonts. A diagram or a chart has a tool of its own that draws it from a description. " +
+                "no linked images or web fonts. Write text as it is spelt: Polish and other accented letters (ą, ł, é), " +
+                "Greek, Cyrillic and common symbols (♩ ♪ ♭ ♯) draw properly. Rarer signs such as the treble clef and " +
+                "Chinese or Japanese characters come out as empty boxes, so draw those as shapes. A diagram or a chart has a tool of its own that draws it from a description. " +
                 "For an illustration, an icon or a picture - not for a mockup or wireframe of a screen, a page, a form " +
                 "or an app's UI: where you have ${WireframeTools.CREATE}, whether in hand or to load, draw that as a wireframe " +
                 "with it, which a person can open and change in the wireframe editor.",
