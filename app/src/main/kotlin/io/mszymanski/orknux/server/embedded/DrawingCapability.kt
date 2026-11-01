@@ -249,6 +249,7 @@ internal val SHOW_PICTURE = EmbeddedParam(
     io.mszymanski.orknux.server.chat.AgentTools.SHOW,
     ValueType.BOOLEAN,
     io.mszymanski.orknux.server.chat.AgentTools.SHOW_SAID,
+    required = true,
 )
 
 /**

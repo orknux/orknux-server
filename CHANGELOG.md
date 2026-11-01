@@ -21,16 +21,22 @@ have failed.
 
 - **Orknux Client**: a separate, smaller Windows and Linux download with no server and no Java inside. It asks for a server's address on first start, remembers it, and signs in on the server's own page; **Disconnect from server** is in the user menu. The existing desktop app is unchanged and runs its own server. Clients and servers work together within a major version, and across majors they refuse each other and say which to update: `GET /api/client/compatibility` is what any client asks.
 - **Send now on a message waiting in voice mode**, beside Cancel: it stops the answer in progress and sends the message straight away, rather than when that answer ends.
+- **Refresh in a chat's title bar** reads the chat again and picks up any answer still being written.
+- **Set voice models from the chat's bar:** where a workspace has no speech or transcription model, the note on the greyed-out voice button offers an administrator the models the workspace holds, and voice mode comes on without leaving the chat.
 - **The model's eval and decode speed beside the tokens under a chat**, as `eval speed 1,200 t/s · decode speed 42 t/s`, live and updating while it answers, marked `~` while estimated, and the provider's own figure afterwards where it gives one. On by default; **Speed in Chat** on Preferences turns it off.
 
 ### 🔧 Changed
 
 - **`svg_draw` tells a model what its text can hold.** A model unsure of the fonts wrote Polish without its accents inside pictures; it is now told accented letters draw properly, and which signs do not.
 - **Voice mode reads the end of an answer sooner.** The last sentence went to speech only after the chat had been saved, renamed and reloaded, and the panel could not listen again until then; neither waits for the rename or the reload now. While the audio is being made the panel says **Preparing speech** rather than Thinking.
+- **The reasoning effort under a chat shows its word**, such as `High`, with a chevron rather than a brain icon, and a new chat starts on the level last picked on this machine.
+- **A new chat starts in Auto**, so its agent goes ahead without asking for leave at each step; it is still given nothing it was not granted. Existing chats keep their mode, and the switch under a chat changes it.
+- **A model must decide whether to show each picture it draws**: `show` is now a required parameter of the drawing tools, so a draft it means to check and redraw can stay out of the chat. A call without it is not refused, and the picture is shown as before.
 - **The quick chat can be dragged bigger**, from its left edge, top edge or top-left corner, and remembers the size. A double-click puts it back.
 
 ### 🐛 Fixed
 
+- Leaving voice mode while the model was working left the chat on an empty answer until a reload, though the turn went on; the chat now picks the answer up.
 - A workspace function can no longer take the name of a built-in one or a plugin's: creating, renaming and importing one under such a name is refused or given another, where it used to shadow what the installation provides.
 - The list of a form's field picker opens upward when the Save bar leaves it no room below, where it used to open underneath and out of reach.
 - The Standard workspace type on Admin is drawn at the size of its row.

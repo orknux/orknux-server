@@ -275,7 +275,7 @@ class ChatDrawingTest(
         listOf(RENDER_TOOL, "svg_draw", "diagram_render", "charts_render").forEach { tool ->
             val show = requireNotNull(specs[tool]) { tool }.parameters.single { it.name == SHOW }
             assertThat(show.description).describedAs(tool).isEqualTo(AgentTools.SHOW_SAID)
-            assertThat(show.required).isFalse()
+            assertThat(show.required).isTrue()
         }
     }
 

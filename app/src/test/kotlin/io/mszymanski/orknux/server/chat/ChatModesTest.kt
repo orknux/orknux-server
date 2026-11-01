@@ -87,10 +87,10 @@ class ChatModesTest(
     }
 
     @Test
-    fun `the mode is set on the chat, read back, and the default stores nothing`() {
+    fun `a new chat starts in Auto, the mode is set and read back, and Default stores nothing`() {
         val chatId = chatWithAgent(serve())
         graphQlTester.document("{ chatSession(id: $chatId) { mode } }").execute()
-            .path("chatSession.mode").entity(String::class.java).isEqualTo("DEFAULT")
+            .path("chatSession.mode").entity(String::class.java).isEqualTo("AUTO")
 
         graphQlTester.document("mutation { setChatMode(id: $chatId, mode: PLAN) { mode } }").execute()
             .path("setChatMode.mode").entity(String::class.java).isEqualTo("PLAN")

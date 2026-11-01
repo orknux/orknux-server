@@ -1072,11 +1072,16 @@ class AgentTools(
         const val SHOW = "show"
 
         /** What [SHOW] is told to be for, in the one line a parameter gets. */
-        const val SHOW_SAID = "false when the picture is only for you to check your own work: the person is not shown " +
-            "it, and its key is still answered. Left out, it goes into the conversation."
+        const val SHOW_SAID = "Decide on every call whether the person should see this picture now. false for a draft " +
+            "you will look at first and may draw again: they are not shown it, and its key is still answered. " +
+            "true for the one you mean them to see."
 
         /** [SHOW] as a tool declares it. */
-        val SHOW_PARAM = ToolParameterSpec(SHOW, SHOW_SAID, required = false)
+        /*
+         * Declared required so a model has to decide, and a grammar-bound one cannot skip it. Nothing refuses
+         * a call without it: an older client, or a session's frozen tool array, still gets the picture shown.
+         */
+        val SHOW_PARAM = ToolParameterSpec(SHOW, SHOW_SAID, required = true)
 
         /**
          * Whether a call asked for its picture to be kept from the person:

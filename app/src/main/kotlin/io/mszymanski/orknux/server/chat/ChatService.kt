@@ -702,6 +702,8 @@ class ChatService(
                 agentId = answering.agentId,
                 llmSessionId = llmSessionId,
                 createdAt = OffsetDateTime.now(),
+                // A new chat goes ahead without asking. It lifts the asking, not the grants; a chat made before this keeps its mode.
+                mode = ChatMode.AUTO,
             ),
         )
         llmSessionId?.let { seed(opened, it) }
