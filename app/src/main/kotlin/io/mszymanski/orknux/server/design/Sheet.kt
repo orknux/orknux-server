@@ -57,6 +57,10 @@ class Sheet(
 
     @Column(name = "updated_at", nullable = false)
     var updatedAt: OffsetDateTime = OffsetDateTime.now(),
+
+    /** The sheet catalog it is filed in; null is the workspace's default, as it is for a row an older release wrote. */
+    @Column(name = "catalog_id")
+    var catalogId: Long? = null,
 )
 
 interface SheetRepository : JpaRepository<Sheet, Long> {

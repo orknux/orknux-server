@@ -8,8 +8,8 @@
 # the server, so the editor, the tools and the .xlsx export share one engine.
 
 extend type Query {
-    "A workspace's sheets, the one worked on last first."
-    sheets(workspaceId: ID!): [Sheet!]!
+    "A workspace's sheets, the one worked on last first; with catalogId, that catalog's."
+    sheets(workspaceId: ID!, catalogId: ID): [Sheet!]!
     "The functions a formula may call, in order, for the editor to offer."
     sheetFunctions(workspaceId: ID!): [String!]!
     "One sheet; null where there is none."
@@ -23,7 +23,9 @@ extend type Query {
 
 extend type Mutation {
     "Makes a sheet, with one empty tab or holding `workbook`."
-    createSheet(workspaceId: ID!, name: String!, workbook: String): Sheet!
+    createSheet(workspaceId: ID!, name: String!, workbook: String,
+        "The sheet catalog to file it in; the default when left out."
+        catalogId: ID): Sheet!
     renameSheet(id: ID!, name: String!): Sheet!
     """
     Writes a whole workbook over the one held. With `revision`, refused when the
@@ -38,7 +40,9 @@ extend type Mutation {
     URL. Every tab is kept with its values and formulas; formatting is not.
     Named after the file where `name` is left out.
     """
-    importSheet(workspaceId: ID!, filename: String!, file: String!, name: String): Sheet!
+    importSheet(workspaceId: ID!, filename: String!, file: String!, name: String,
+        "The sheet catalog to file it in; the default when left out."
+        catalogId: ID): Sheet!
     """
     Asks a chat model to work in the sheet: the conversation so far, oldest
     first, ending with what is asked now. Whatever it writes is saved as it goes.

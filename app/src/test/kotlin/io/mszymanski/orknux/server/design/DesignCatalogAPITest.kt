@@ -76,6 +76,53 @@ class DesignCatalogAPITest(
         }
     }
 
+    /**
+     * A workspace made through the door has its General catalogs from the
+     * start, so a page that asks for its list before its catalogs is answered.
+     * The wireframes list is read in a read-only transaction, and making the
+     * default there failed - every Design page of a new workspace opened on
+     * INTERNAL_ERROR.
+     */
+    @Test
+    fun `a workspace made through the door has every General catalog, and its lists answer before anybody asks for catalogs`() {
+        val made = graphQlTester.document("""mutation { createWorkspace(input: { name: "catalogs made ${System.nanoTime()}" }) { id } }""")
+            .execute().path("createWorkspace.id").entity(Long::class.java).get()
+
+        graphQlTester.document("""{ wireframes(workspaceId: $made) { id } sheets(workspaceId: $made) { id } designVideos(workspaceId: $made) { id } }""")
+            .execute().errors().verify()
+        listOf("IMAGE", "WIREFRAME", "VIDEO", "SHEET").forEach { kind ->
+            val listed = graphQlTester.document("""{ designCatalogs(workspaceId: $made, kind: $kind) { name isDefault } }""")
+                .execute().path("designCatalogs[*].name").entityList(String::class.java).get()
+            assertThat(listed).describedAs(kind).containsExactly("General")
+        }
+    }
+
+    /** Sheets are filed as wireframes are: in the catalog asked for or the default, listed by catalog, and moved. */
+    @Test
+    fun `a sheet is filed in a catalog, listed under it, and moved to another`() {
+        val ledgers = graphQlTester.document("""mutation { createDesignCatalog(workspaceId: $workspaceId, kind: SHEET, name: "Ledgers") { id } }""")
+            .execute().path("createDesignCatalog.id").entity(String::class.java).get()
+        val general = catalogs("SHEET").single { it.isDefault }.id
+
+        val filed = graphQlTester.document(
+            """mutation { createSheet(workspaceId: $workspaceId, name: "Budget", catalogId: $ledgers) { id catalogId catalogName } }""",
+        ).execute()
+        filed.path("createSheet.catalogName").entity(String::class.java).isEqualTo("Ledgers")
+        val sheet = filed.path("createSheet.id").entity(String::class.java).get()
+        graphQlTester.document("""mutation { createSheet(workspaceId: $workspaceId, name: "Loose") { catalogId } }""")
+            .execute().path("createSheet.catalogId").entity(String::class.java).isEqualTo(general)
+
+        graphQlTester.document("""{ sheets(workspaceId: $workspaceId, catalogId: $ledgers) { name } }""")
+            .execute().path("sheets[*].name").entityList(String::class.java).containsExactly("Budget")
+        assertThat(catalogs("SHEET").single { it.id == ledgers }.count).isEqualTo(1)
+
+        graphQlTester.document("""mutation { moveSheet(id: $sheet, catalogId: $general) { catalogName } }""")
+            .execute().path("moveSheet.catalogName").entity(String::class.java).isEqualTo("General")
+        graphQlTester.document("""{ sheets(workspaceId: $workspaceId, catalogId: $ledgers) { name } }""")
+            .execute().path("sheets").entityList(Any::class.java).hasSize(0)
+        assertThat(audit.findAll().filter { it.workspaceId == workspaceId }.map { it.message }).contains("Sheet Budget moved to General")
+    }
+
     @Test
     fun `a catalog is made, renamed and deleted, each audited, and refused while it holds anything`() {
         val holiday = create("WIREFRAME", "Holiday")

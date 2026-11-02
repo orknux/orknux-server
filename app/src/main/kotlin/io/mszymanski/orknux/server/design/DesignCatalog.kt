@@ -24,6 +24,7 @@ enum class DesignCatalogKind(
     IMAGE("images"),
     WIREFRAME("wireframes"),
     VIDEO("videos"),
+    SHEET("sheets"),
 }
 
 /**
@@ -73,6 +74,11 @@ class WireframeCatalog(workspaceId: Long, name: String, isDefault: Boolean = fal
 class VideoCatalog(workspaceId: Long, name: String, isDefault: Boolean = false, createdBy: String) :
     DesignCatalog(workspaceId = workspaceId, name = name, isDefault = isDefault, createdBy = createdBy)
 
+@Entity
+@Table(name = "sheet_catalog")
+class SheetCatalog(workspaceId: Long, name: String, isDefault: Boolean = false, createdBy: String) :
+    DesignCatalog(workspaceId = workspaceId, name = name, isDefault = isDefault, createdBy = createdBy)
+
 /** The queries every kind's catalogs answer, written once; each kind's repository is this over its own entity. */
 @NoRepositoryBean
 interface DesignCatalogRepository<T : DesignCatalog> : JpaRepository<T, Long> {
@@ -89,6 +95,8 @@ interface ImageCatalogRepository : DesignCatalogRepository<ImageCatalog>
 interface WireframeCatalogRepository : DesignCatalogRepository<WireframeCatalog>
 
 interface VideoCatalogRepository : DesignCatalogRepository<VideoCatalog>
+
+interface SheetCatalogRepository : DesignCatalogRepository<SheetCatalog>
 
 class DesignCatalogNotFoundException(val id: Long) : RuntimeException("No catalog with id $id here"), Refusal {
     override val arguments get() = mapOf("id" to id)

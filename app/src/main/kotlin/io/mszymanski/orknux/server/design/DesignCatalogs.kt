@@ -10,8 +10,8 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Service
 
 /**
- * The catalogs of Design's images, wireframes and videos: one set of rules for
- * the three, over a table each.
+ * The catalogs of Design's images, wireframes, videos and sheets: one set of
+ * rules for them all, over a table each.
  *
  * **There is always a default.** Each workspace has one catalog of each kind
  * marked default - General, when it is made - and a thing with no catalog of
@@ -29,6 +29,7 @@ class DesignCatalogs(
     private val images: ImageCatalogRepository,
     private val wireframes: WireframeCatalogRepository,
     private val videos: VideoCatalogRepository,
+    private val sheets: SheetCatalogRepository,
     private val audit: WorkspaceAuditRecorder,
     private val entities: EntityManager,
 ) {
@@ -55,6 +56,19 @@ class DesignCatalogs(
                 .first { repository(kind).findByWorkspaceIdAndName(workspaceId, it) == null }
             return save(kind, made(kind, workspaceId, name, isDefault = true))
         }
+    }
+
+    /**
+     * Every kind's default catalog, for a workspace being made. Made with the
+     * workspace rather than on first sight, because first sight is a page load:
+     * the catalog list and the list of things are asked for at once, both
+     * found none, and the second to insert one failed - on the unique default,
+     * or, for the wireframes list, because a list is read in a read-only
+     * transaction. Every workspace made after the catalogs arrived, and every
+     * copy, opened each Design page on an INTERNAL_ERROR.
+     */
+    fun ensureDefaults(workspaceId: Long) {
+        DesignCatalogKind.entries.forEach { defaultOf(workspaceId, it) }
     }
 
     /** One catalog of [kind] in [workspaceId], or a refusal that does not say whether it is somebody else's. */
@@ -128,6 +142,7 @@ class DesignCatalogs(
                 column("select x.catalogId from TaskPicture x where x.workspaceId = :w", workspaceId)
         DesignCatalogKind.WIREFRAME -> column("select x.catalogId from Wireframe x where x.workspaceId = :w", workspaceId)
         DesignCatalogKind.VIDEO -> column("select x.catalogId from DesignVideo x where x.workspaceId = :w and x.versionOf is null", workspaceId)
+        DesignCatalogKind.SHEET -> column("select x.catalogId from Sheet x where x.workspaceId = :w", workspaceId)
     }
 
     private fun column(query: String, workspaceId: Long): List<Long?> =
@@ -138,6 +153,7 @@ class DesignCatalogs(
         DesignCatalogKind.IMAGE -> images
         DesignCatalogKind.WIREFRAME -> wireframes
         DesignCatalogKind.VIDEO -> videos
+        DesignCatalogKind.SHEET -> sheets
     } as DesignCatalogRepository<DesignCatalog>
 
     private fun save(kind: DesignCatalogKind, catalog: DesignCatalog): DesignCatalog = repository(kind).saveAndFlush(catalog)
@@ -148,6 +164,7 @@ class DesignCatalogs(
         DesignCatalogKind.IMAGE -> ImageCatalog(workspaceId, name, isDefault, who())
         DesignCatalogKind.WIREFRAME -> WireframeCatalog(workspaceId, name, isDefault, who())
         DesignCatalogKind.VIDEO -> VideoCatalog(workspaceId, name, isDefault, who())
+        DesignCatalogKind.SHEET -> SheetCatalog(workspaceId, name, isDefault, who())
     }
 
     private fun cleanName(name: String): String =
@@ -171,6 +188,7 @@ class DesignCatalogs(
             DesignCatalogKind.IMAGE -> "Image"
             DesignCatalogKind.WIREFRAME -> "Wireframe"
             DesignCatalogKind.VIDEO -> "Video"
+            DesignCatalogKind.SHEET -> "Sheet"
         }
     }
 }

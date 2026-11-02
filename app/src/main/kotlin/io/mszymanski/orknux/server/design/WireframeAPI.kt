@@ -57,7 +57,8 @@ class WireframeAPI(
     private val document = WireframeDocument(mapper)
 
     @QueryMapping
-    @Transactional(readOnly = true)
+    // Not read-only: naming the rows' catalogs makes the default where a workspace has none.
+    @Transactional
     fun wireframes(@Argument workspaceId: Long, @Argument catalogId: Long?): List<WireframeView> {
         access.requireVisible(workspaceId)
         val named = catalogNames(workspaceId)

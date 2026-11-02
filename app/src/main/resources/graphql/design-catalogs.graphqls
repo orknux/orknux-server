@@ -1,6 +1,6 @@
-# Catalogs for Design's images, wireframes and videos: a table of folders per
-# kind, one set of rules for the three. Every workspace has a default catalog of
-# each kind - General, made the first time it is needed - which anything not
+# Catalogs for Design's images, wireframes, videos and sheets: a table of
+# folders per kind, one set of rules for them all. Every workspace has a default
+# catalog of each kind - General, made with the workspace - which anything not
 # filed elsewhere is in, which can be renamed and never deleted. Anybody who can
 # see the workspace.
 
@@ -9,6 +9,7 @@ enum DesignCatalogKind {
     IMAGE
     WIREFRAME
     VIDEO
+    SHEET
 }
 
 extend type Query {
@@ -25,6 +26,8 @@ extend type Mutation {
     moveWireframe(id: ID!, catalogId: ID!): Wireframe!
     "Files a video, with the versions made of it, in another of its workspace's video catalogs."
     moveDesignVideo(workspaceId: ID!, id: ID!, catalogId: ID!): DesignVideo!
+    "Files a sheet in another of its workspace's sheet catalogs."
+    moveSheet(id: ID!, catalogId: ID!): Sheet!
     """
     Files a picture on Design's Images page - drawn in Design, by a run or by a
     task - in another of its workspace's image catalogs. `id` is its artifact id.
@@ -43,6 +46,12 @@ type DesignCatalog {
 }
 
 extend type Wireframe {
+    "The catalog it is filed in: the default where it was never filed."
+    catalogId: ID!
+    catalogName: String!
+}
+
+extend type Sheet {
     "The catalog it is filed in: the default where it was never filed."
     catalogId: ID!
     catalogName: String!

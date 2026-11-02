@@ -54,6 +54,8 @@ class SheetAPI(
     /** Who has it open, told when it is saved from any door; and the audit's once-per-visit. */
     private val published: ApplicationEventPublisher? = null,
     private val rooms: LiveRooms? = null,
+    /** The catalogs a sheet is filed in; null only where a test builds this by hand. */
+    private val catalogs: DesignCatalogs? = null,
 ) {
 
     private val workbook = SheetWorkbook(mapper)
@@ -71,10 +73,13 @@ class SheetAPI(
     }
 
     @QueryMapping
-    @Transactional(readOnly = true)
-    fun sheets(@Argument workspaceId: Long): List<SheetView> {
+    // Not read-only: naming the rows' catalogs makes the default where a workspace has none.
+    @Transactional
+    fun sheets(@Argument workspaceId: Long, @Argument catalogId: Long? = null): List<SheetView> {
         access.requireVisible(workspaceId)
-        return sheets.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId).map(::view)
+        val named = catalogNames(workspaceId)
+        val held = sheets.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId).map { view(it, named) }
+        return if (catalogId == null) held else held.filter { it.catalogId == catalogId.toString() }
     }
 
     /** One sheet, or null where there is none this person may see. */
@@ -99,9 +104,14 @@ class SheetAPI(
 
     @MutationMapping
     @Transactional
-    fun createSheet(@Argument workspaceId: Long, @Argument name: String, @Argument workbook: String?): SheetView {
+    fun createSheet(
+        @Argument workspaceId: Long,
+        @Argument name: String,
+        @Argument workbook: String?,
+        @Argument catalogId: Long? = null,
+    ): SheetView {
         access.requireVisible(workspaceId)
-        val made = make(workspaceId, cleanName(name), checked(workbook))
+        val made = make(workspaceId, cleanName(name), checked(workbook), catalogId)
         audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Sheet ${made.name} added")
         return view(made)
     }
@@ -160,7 +170,13 @@ class SheetAPI(
      */
     @MutationMapping
     @Transactional
-    fun importSheet(@Argument workspaceId: Long, @Argument filename: String, @Argument file: String, @Argument name: String?): SheetView {
+    fun importSheet(
+        @Argument workspaceId: Long,
+        @Argument filename: String,
+        @Argument file: String,
+        @Argument name: String?,
+        @Argument catalogId: Long? = null,
+    ): SheetView {
         access.requireVisible(workspaceId)
         val bytes = try {
             Base64.getMimeDecoder().decode(file.substringAfter("base64,", file))
@@ -185,7 +201,7 @@ class SheetAPI(
             engine.imported(reader.workbook(bytes, null, 1, null, limits)) { tab -> reader.workbook(bytes, tab, 1, null, limits) }
         }
         val called = cleanName(name?.takeIf { it.isNotBlank() } ?: filename.substringBeforeLast('.').ifBlank { filename })
-        val made = make(workspaceId, called, held(tabs))
+        val made = make(workspaceId, called, held(tabs), catalogId)
         audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Sheet ${made.name} imported from $filename")
         return view(made)
     }
@@ -248,7 +264,27 @@ class SheetAPI(
         ),
     )
 
-    fun view(sheet: Sheet): SheetView {
+    /** Files a sheet in another of its workspace's sheet catalogs. */
+    @MutationMapping
+    @Transactional
+    fun moveSheet(@Argument id: Long, @Argument catalogId: Long): SheetView {
+        val held = find(id)
+        val into = requireNotNull(catalogs).catalog(held.workspaceId, DesignCatalogKind.SHEET, catalogId)
+        if (held.catalogId != into.id) {
+            held.catalogId = into.id
+            audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Sheet ${held.name} moved to ${into.name}")
+        }
+        return view(sheets.save(held))
+    }
+
+    fun view(sheet: Sheet): SheetView = view(sheet, catalogNames(sheet.workspaceId))
+
+    /** The workspace's sheet catalogs by id, and which is the default, for naming each row's. */
+    private fun catalogNames(workspaceId: Long): Pair<Long, Map<Long, String>>? = catalogs?.let {
+        requireNotNull(it.defaultOf(workspaceId, DesignCatalogKind.SHEET).id) to it.names(workspaceId, DesignCatalogKind.SHEET)
+    }
+
+    private fun view(sheet: Sheet, named: Pair<Long, Map<Long, String>>?): SheetView {
         val tabs = runCatching { workbook.read(sheet.workbook) }.getOrDefault(emptyList())
         return SheetView(
             id = requireNotNull(sheet.id),
@@ -262,12 +298,17 @@ class SheetAPI(
             createdAt = sheet.createdAt.toString(),
             updatedBy = sheet.updatedBy,
             updatedAt = sheet.updatedAt.toString(),
+            catalogId = named?.let { (fallback, _) -> (sheet.catalogId ?: fallback).toString() } ?: "",
+            catalogName = named?.let { (fallback, names) -> names[sheet.catalogId ?: fallback] }.orEmpty(),
         )
     }
 
-    private fun make(workspaceId: Long, name: String, tabs: List<SheetTab>): Sheet {
+    private fun make(workspaceId: Long, name: String, tabs: List<SheetTab>, catalogId: Long? = null): Sheet {
         val who = who()
-        return sheets.save(Sheet(workspaceId = workspaceId, name = name, workbook = workbook.write(tabs), createdBy = who, updatedBy = who))
+        val filed = catalogs?.resolve(workspaceId, DesignCatalogKind.SHEET, catalogId)
+        return sheets.save(
+            Sheet(workspaceId = workspaceId, name = name, workbook = workbook.write(tabs), createdBy = who, updatedBy = who, catalogId = filed),
+        )
     }
 
     private fun write(held: Sheet, tabs: List<SheetTab>, viewer: String? = null): SheetView {
@@ -330,6 +371,9 @@ data class SheetView(
     val createdAt: String,
     val updatedBy: String,
     val updatedAt: String,
+    /** The catalog it is filed in: the default where it was never filed. */
+    val catalogId: String = "",
+    val catalogName: String = "",
 )
 
 /** A sheet written out as a file: its name, its type and its bytes. */

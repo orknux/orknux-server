@@ -75,6 +75,7 @@ class WorkspaceAPI(
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
     /** Where a new workspace's research modes are made; see `createWorkspace`. Issue #659. */
     private val researchModes: io.mszymanski.orknux.server.research.ResearchModes,
+    private val designCatalogs: io.mszymanski.orknux.server.design.DesignCatalogs,
     /** The installation's numbers a workspace's own settings fall back to. */
     private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
 ) {
@@ -314,6 +315,8 @@ class WorkspaceAPI(
          * visit. Issue #659.
          */
         researchModes.ensure(requireNotNull(workspace.id))
+        // And Design's General catalogs, which a page load used to race to make.
+        designCatalogs.ensureDefaults(requireNotNull(workspace.id))
         return workspace
     }
 
