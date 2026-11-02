@@ -15,14 +15,21 @@ between the two.
 
 **The environment is `Dockerfile.one`'s, the loop is `orknux-run.sh`'s.** Exit
 code 75 means start again, `ReleaseLauncher` chooses the jar, a failed release
-is fallen back from. Matching them is what lets the server's self-update work
-here without a desktop-specific path, so diverge only with a reason written
-beside it.
+is fallen back from. Matching them keeps the network-access restart and a
+build with jar updates switched back on working without a desktop-specific
+path, so diverge only with a reason written beside it.
 
-**Self-update is switched at build time.** `orknux.selfUpdate` in
-`package.json`, overridden by `-c.extraMetadata` for store and distribution
-builds. A store that ships an app which replaces its own code refuses it; a
-setting a person could flip would put the store build one click from that.
+**The app updates as a package, never by swapping its jar.** A newer package
+is found on orknux.ai and installed from Admin › Updates
+(`src/package-update.js`), runtime and all; the server's own jar updates are
+off in every package (`orknux.selfUpdate` false), so Updates shows no official
+jar list, no upload, no URL and no kept history here. The Windows app is to
+ship its server as a GraalVM native image, and a native image has no jar to
+swap - a jar update would also leave the runtime it came with behind. Both are
+switched at build time: `orknux.packageUpdate` is turned off by
+`-c.extraMetadata` for store and distribution builds, because a store that
+ships an app which replaces its own code refuses it, and a setting a person
+could flip would put the store build one click from that.
 
 **Local means loopback and no sign-in.** `NONE` auth is only ever paired with
 `127.0.0.1`. Anything that could reach the server from the network must come

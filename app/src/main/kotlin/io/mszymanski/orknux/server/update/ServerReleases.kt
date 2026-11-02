@@ -352,6 +352,29 @@ class ServerReleases(
     }
 
     /**
+     * A release chosen under an older image stops being the choice once the
+     * image is newer - the launcher's rule, done here too because not every
+     * start asks the launcher. The desktop app asks it only after the server
+     * exits or while a release runs, so a newer package started cold ran its
+     * own jar and left the old choice standing: Updates went on marking 1.2.5
+     * chosen on an app at 1.3.0, and the next restart for any other reason
+     * would have asked the launcher about a choice nobody still meant.
+     */
+    private fun letGoOfOutgrownChoice() {
+        if (pin() != null) return
+        val chosen = releases.findAllByStateIn(listOf(ServerReleaseState.ACTIVATING, ServerReleaseState.ACTIVE))
+        for (release in chosen) {
+            if (!ReleaseVersion.newer(imageVersion(), release.imageVersion)) continue
+            release.state = ServerReleaseState.STORED
+            releases.save(release)
+            log.info(
+                "Release {} was chosen on image {}; the image is now {}, so it is no longer the choice",
+                release.version, release.imageVersion, imageVersion(),
+            )
+        }
+    }
+
+    /**
      * The release every server should be running, or null for the image's own
      * jar - the same answer the launcher would give, without its side effects.
      */
@@ -390,6 +413,7 @@ class ServerReleases(
             }
         } else if (runningJar.isNotBlank()) {
             log.info("Running the image's own jar, {}", runningVersion)
+            letGoOfOutgrownChoice()
         }
 
         for (failed in releases.findAllByStateAndFailureReportedFalse(ServerReleaseState.FAILED)) {

@@ -17,7 +17,9 @@ The main process (`src/main.js`) is what `docker/one/entrypoint.sh` and
    8080 is taken, with the environment `Dockerfile.one` sets.
 3. **Supervises it** like `orknux-run.sh`: asks `ReleaseLauncher` which jar to
    run, runs it, starts again on exit code 75, and falls back from a release
-   that failed. That is what lets the server's own signed-jar updates work here.
+   that failed. With jar updates off, which every package now ships with, it
+   runs the shipped jar and only restarts on 75; the loop stays for a build
+   that switches them back on.
    The launcher is a Java start of its own, about 0.75 s, so it is asked only
    when it has something to decide - after the server exited, while a release
    is what runs (`ran-release` in the data directory), under a pin, or after
@@ -40,6 +42,26 @@ The main process (`src/main.js`) is what `docker/one/entrypoint.sh` and
 
 If the server stops on its own, a dialog shows its last log lines and offers to
 start again.
+
+### Updating the app itself
+
+Admin › Updates shows this app's own package (`src/package-update.js`). It asks
+`https://orknux.ai/desktop` - fixed in `electron-builder.yml`, never named by a
+page - for the newest version's update file (`latest.yml`, `latest-linux.yml`,
+or `client.yml` and `client-linux.yml` for Orknux Client), and **Download and
+install** fetches the package it names. electron-updater checks it against its
+SHA-512, the server is stopped and waited for, and the installer runs silently
+and opens the app again. CI uploads the packages and update files to orknux.ai
+after attaching the packages to the GitHub release.
+
+Only an install that can replace itself is offered this: the NSIS installer
+(told by its uninstaller beside the executable), an AppImage and a `.deb`. An
+MSI install, a store build (`orknux.packageUpdate` off) and a checkout say why not.
+
+The server's own jar updates - the official jar list, an upload, a URL, the
+kept releases - are off in every package (`orknux.selfUpdate` false), and
+Updates does not show them: the app is updated as a package, and the Windows
+app is to ship its server as a native image, which has no jar to swap.
 
 ### Who signs in
 
@@ -126,12 +148,12 @@ installers are signed when `ORKNUX_WINDOWS_CERTIFICATE` (a base64 `.pfx`) and
 `ORKNUX_WINDOWS_CERTIFICATE_PASSWORD` are set as repository secrets; without
 them they are built unsigned, with a warning, and SmartScreen warns on install.
 
-`dist:linux:store` and `dist:win:store` build the same packages with
-self-update switched off (`orknux.selfUpdate` in `package.json`, baked in at
+`dist:linux:store` and `dist:win:store` build the same packages with package
+updates switched off (`orknux.packageUpdate` in `package.json`, baked in at
 build time). Use them for anything a store or a distribution updates: those
 replace the app themselves, and refuse one that replaces its own code
-underneath them. `ORKNUX_SELF_UPDATE=false` switches it off on a single machine,
-as it does in the images.
+underneath them. `ORKNUX_PACKAGE_UPDATE=false` switches it off on a single
+machine.
 
 ### The smoke test
 

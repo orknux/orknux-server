@@ -79,4 +79,11 @@ msi:
   perMachine: false
   artifactName: Orknux-${version}.${ext}
 
-publish: null
+# Where package-update.js looks for a newer package: orknux.ai, which serves the
+# newest release's update file (latest.yml, latest-linux.yml) and the packages it
+# names. Nothing is published from here - CI builds with --publish never and
+# uploads them itself - but a provider has to be named for electron-builder to
+# write the update files and the app-update.yml the installed app reads.
+publish:
+  provider: generic
+  url: https://orknux.ai/desktop

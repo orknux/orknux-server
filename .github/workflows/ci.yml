@@ -737,3 +737,46 @@ jobs:
           packages=(dist/*.exe dist/*.msi dist/*.deb dist/*.AppImage)
           [ ${#packages[@]} -gt 0 ] || { echo "::error::electron-builder left no package in dist/"; exit 1; }
           gh release upload "$GITHUB_REF_NAME" "${packages[@]}" --clobber
+
+      # What an installed app updates itself from (desktop/src/package-update.js):
+      # orknux.ai/desktop, which serves the newest version's update file and the
+      # packages it names. Each file is declared with its hash and size and sent
+      # in pieces at the offset the site has received up to, as the jar is, since
+      # Cloudflare refuses a body over 100 MB. The update files go last, and the
+      # site offers one only once every package it names is whole, so the two
+      # platforms' jobs can upload side by side without either offering the other
+      # half-sent. The update files by name, not dist/*.yml, which would take
+      # builder-debug.yml along.
+      - name: Offer them through orknux.ai
+        env:
+          TOKEN: ${{ secrets.ORKNUX_AI_PUBLISH_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::ORKNUX_AI_PUBLISH_TOKEN is not set, so the $version desktop packages are not offered through orknux.ai, and no installed app will update to them."
+            exit 0
+          fi
+          shopt -s nullglob
+          files=(dist/*.exe dist/*.msi dist/*.deb dist/*.AppImage dist/*.blockmap)
+          for update in latest.yml latest-linux.yml client.yml client-linux.yml; do
+            if [ -f "dist/$update" ]; then files+=("dist/$update"); fi
+          done
+          site="https://orknux.ai/api/desktop-releases/$version/files"
+          piece=$((90 * 1024 * 1024))
+          for file in "${files[@]}"; do
+            name="$(basename "$file")"
+            size="$(stat -c %s "$file")"
+            sha256="$(sha256sum "$file" | cut -d' ' -f1)"
+            answer="$(curl -sS --fail-with-body -X POST "$site" -H "Authorization: Bearer $TOKEN" \
+              -F "name=$name" -F "sha256=$sha256" -F "size=$size")" \
+              || { echo "::error::orknux.ai refused $name: $answer"; exit 1; }
+            while [ "$(jq -r '.complete' <<<"$answer")" != "true" ]; do
+              offset="$(jq -r '.received' <<<"$answer")"
+              [ "$offset" -lt "$size" ] || { echo "::error::orknux.ai has every byte of $name and has not completed it: $answer"; exit 1; }
+              dd if="$file" of="$RUNNER_TEMP/piece" iflag=skip_bytes,count_bytes skip="$offset" count="$piece" status=none
+              answer="$(curl -sS --fail-with-body -X PUT "$site/$name?offset=$offset" -H "Authorization: Bearer $TOKEN" \
+                -H 'Content-Type: application/octet-stream' --data-binary "@$RUNNER_TEMP/piece")" \
+                || { echo "::error::orknux.ai refused a piece of $name at $offset: $answer"; exit 1; }
+            done
+            echo "orknux.ai has $name ($size bytes)"
+          done

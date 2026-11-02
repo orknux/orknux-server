@@ -183,6 +183,26 @@ class ServerReleaseDownloads(
             row.updatedAt = now()
             downloads.save(row)
         }
+        putAwayOutgrown()
+    }
+
+    /**
+     * A finished download of a version older than the one running is history,
+     * and is put away. Nobody dismissed one on a desktop app that was since
+     * updated by its package, and Updates went on showing "Updating to 1.2.5"
+     * on a server at 1.3.0 - a story about a server that no longer exists. A
+     * failure of an older version is put away for the same reason: nothing
+     * about it can be acted on any more.
+     */
+    private fun putAwayOutgrown() {
+        val running = updates.runningVersion()
+        for (row in downloads.findAllByStateIn(listOf(ServerReleaseDownloadState.DONE, ServerReleaseDownloadState.FAILED))) {
+            val version = row.version ?: continue
+            if (row.dismissed || !ReleaseVersion.newer(running, version)) continue
+            row.dismissed = true
+            row.updatedAt = now()
+            downloads.save(row)
+        }
     }
 
     private fun requireNoneWorking() {

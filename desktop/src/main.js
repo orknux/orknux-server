@@ -6,7 +6,7 @@
  * here knows what the server does; it starts it, shows it, keeps it running
  * and stops it. See ../README.md for what is still to come.
  */
-const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, nativeImage, net, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, nativeImage, net, session, shell, webContents } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -14,6 +14,7 @@ const { readSettings, writeConnection, prepare } = require('./data');
 const { PROBE_MILLIS, addressesOf, isPlainText, judged } = require('./connect');
 const { Log } = require('./logs');
 const { Server } = require('./server');
+const { PackageUpdate, installKind, refusalFor } = require('./package-update');
 const { Tabs } = require('./tabs');
 const { classify, linkMenu, shortcut, stepped, tabKeys, windowKeys, DEFAULT_TAB_KEYS, DEFAULT_WINDOW_KEYS } = require('./links');
 const windowState = require('./window-state');
@@ -21,11 +22,13 @@ const look = require('./look');
 const manifest = require('../package.json');
 
 /*
- * Whether a release the server installs may run instead of the one shipped.
- * Baked into the package at build time - a store or a distribution updates the
- * app itself, and an app that replaces its own code underneath them is one they
- * refuse - and switched off from outside with ORKNUX_SELF_UPDATE=false as the
- * images are.
+ * Whether a server jar the server installs - from Admin › Updates, an upload or
+ * a URL - may run instead of the one shipped. Off in every package now: the
+ * desktop app updates as a whole package (packageUpdates, below), and the
+ * Windows app is to ship its server as a native image, which there is no jar to
+ * swap for. Still a switch, so a build that wants the jar updates back sets
+ * `orknux.selfUpdate` in the package metadata, and ORKNUX_SELF_UPDATE=false
+ * switches it off from outside as the images do.
  */
 const selfUpdate = manifest.orknux?.selfUpdate !== false && process.env.ORKNUX_SELF_UPDATE !== 'false';
 
@@ -38,6 +41,16 @@ const smoke = process.env.ORKNUX_DESKTOP_SMOKE || null;
  * and no jar, so there is nothing a setting could switch it to.
  */
 const isClient = manifest.orknux?.client === true;
+
+/*
+ * Whether a newer package of this app may be downloaded and installed from the
+ * Updates page (package-update.js) - how the desktop app is updated. Baked into
+ * the package at build time: a store or a distribution updates the app itself,
+ * and refuses one that replaces its own code underneath it, so their builds set
+ * `orknux.packageUpdate` false (dist:*:store); ORKNUX_PACKAGE_UPDATE=false turns
+ * it off on one machine.
+ */
+const packageUpdates = manifest.orknux?.packageUpdate !== false && process.env.ORKNUX_PACKAGE_UPDATE !== 'false';
 
 // Apart from Chromium's own caches, which also live under userData.
 const data = process.env.ORKNUX_DATA || path.join(app.getPath('userData'), 'data');
@@ -66,6 +79,8 @@ let log = null;
 let remote = null;
 /** Whether that server is older than the compatibility question, and so draws no Disconnect in its user menu. */
 let remoteTooOldForMenu = false;
+/** A newer package of this app, as the Updates page shows it; see package-update.js. */
+let packageUpdate = null;
 
 // One app, one server, one database: a second start brings the first one forward instead.
 if (!app.requestSingleInstanceLock()) {
@@ -84,6 +99,11 @@ function first() {
 function current() {
   const focused = BrowserWindow.getFocusedWindow();
   return focused !== null && windows.has(focused) ? focused : first();
+}
+
+/** The port a page of ours is served on: the remote server's origin in the client, else the local server's. */
+function ourPort() {
+  return remote ?? (server === null ? null : server.port);
 }
 
 /** The tab a page is in, wherever it is. */
@@ -109,7 +129,9 @@ async function start() {
   Menu.setApplicationMenu(null);
   fs.mkdirSync(data, { recursive: true });
   log = new Log(path.join(data, 'logs'));
-  log.note(`Orknux desktop ${app.getVersion()} starting; data at ${data}; self-update ${selfUpdate ? 'on' : 'off'}`);
+  log.note(`Orknux desktop ${app.getVersion()} starting; data at ${data}; jar updates ${selfUpdate ? 'on' : 'off'}, package updates ${packageUpdates ? 'on' : 'off'}`);
+
+  packageUpdate = makePackageUpdate();
 
   const settings = readSettings(data);
   if (isClient) {
@@ -336,7 +358,7 @@ function open(tabs, url, more = {}) {
  */
 function wire(tab, tabs) {
   const contents = tab.contents;
-  const port = () => remote ?? (server === null ? null : server.port);
+  const port = ourPort;
   // A tab that never showed a page and was sent elsewhere at once would stay empty.
   tab.leaveIfEmpty = () => {
     if (!tab.committed) tabs.close(tab);
@@ -426,6 +448,16 @@ function wire(tab, tabs) {
   contents.ipc.on('desktop:disconnect', () => {
     if (remote !== null && fromUs()) disconnect();
   });
+  // A newer package of this app: where it stands, asking the feed, and download-then-install. See package-update.js.
+  contents.ipc.on('desktop:package-update', (event) => {
+    event.returnValue = fromUs() && packageUpdate !== null ? packageUpdate.state : null;
+  });
+  contents.ipc.on('desktop:package-update-check', () => {
+    if (fromUs()) packageUpdate?.check();
+  });
+  contents.ipc.on('desktop:package-update-install', () => {
+    if (fromUs()) packageUpdate?.install();
+  });
   contents.ipc.on('desktop:recording-keys', (_event, on) => {
     tab.recording = fromUs() && on === true;
   });
@@ -439,6 +471,44 @@ function wire(tab, tabs) {
   };
   contents.on('did-finish-load', remember);
   contents.on('did-navigate-in-page', remember);
+}
+
+/**
+ * The package update, made once: refused in words where this copy cannot
+ * update itself, and the updater loaded only where it can, so a store build
+ * never so much as reads the feed. Every page of ours is told when it moves.
+ */
+function makePackageUpdate() {
+  const kind = installKind({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    execPath: process.execPath,
+    resourcesPath: process.resourcesPath,
+    productName: app.getName(),
+    env: process.env,
+  });
+  const refusal = refusalFor(kind, packageUpdates);
+  log.note(`package updates: ${kind} install, ${refusal === null ? 'on' : `off (${refusal})`}`);
+  const made = new PackageUpdate({
+    updater: refusal === null ? require('electron-updater').autoUpdater : null,
+    current: app.getVersion(),
+    refusal,
+    client: isClient,
+    beforeInstall: async () => {
+      // Stopped and waited for here, so before-quit has nothing left to stop.
+      if (server !== null && server.child !== null) await server.stop();
+      server = null;
+    },
+    note: (line) => log?.note(line),
+  });
+  made.onChange((state) => {
+    for (const contents of webContents.getAllWebContents()) {
+      if (!contents.isDestroyed() && classify(contents.getURL(), ourPort()).kind === 'ours') {
+        contents.send('desktop:package-update-state', state);
+      }
+    }
+  });
+  return made;
 }
 
 /** A link that is not a page of ours: to the operating system, or said why not. */

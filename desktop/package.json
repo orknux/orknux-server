@@ -13,21 +13,25 @@
   "main": "src/main.js",
   "desktopName": "orknux.desktop",
   "orknux": {
-    "selfUpdate": true
+    "selfUpdate": false,
+    "packageUpdate": true
   },
   "scripts": {
     "start": "electron .",
     "smoke": "electron . --no-sandbox",
     "test": "node --test",
     "dist:linux": "electron-builder --linux deb AppImage",
-    "dist:linux:store": "electron-builder --linux deb AppImage -c.extraMetadata.orknux.selfUpdate=false",
+    "dist:linux:store": "electron-builder --linux deb AppImage -c.extraMetadata.orknux.packageUpdate=false",
     "dist:win": "electron-builder --win nsis msi",
     "dist:client:linux": "electron-builder --config electron-builder-client.yml --linux deb AppImage",
     "dist:client:win": "electron-builder --config electron-builder-client.yml --win nsis msi",
-    "dist:win:store": "electron-builder --win nsis msi -c.extraMetadata.orknux.selfUpdate=false"
+    "dist:win:store": "electron-builder --win nsis msi -c.extraMetadata.orknux.packageUpdate=false"
   },
   "devDependencies": {
     "electron": "44.5.1",
     "electron-builder": "26.16.1"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

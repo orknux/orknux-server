@@ -17,6 +17,22 @@ contextBridge.exposeInMainWorld('orknuxDesktop', {
   // Asks the person first, in a dialog of the app's: a page cannot do this behind anybody's back.
   disconnect: () => ipcRenderer.send('desktop:disconnect'),
   recordingKeys: (on) => ipcRenderer.send('desktop:recording-keys', on === true),
+  /*
+   * A newer package of this app (package-update.js): where it stands, asking
+   * orknux.ai, and download-then-install. The page names no address and no
+   * file - the feed is fixed in the package - so all it can ask for is the
+   * newest release of this app. A copy of the state crosses, never an object.
+   */
+  packageUpdate: {
+    state: () => ipcRenderer.sendSync('desktop:package-update'),
+    check: () => ipcRenderer.send('desktop:package-update-check'),
+    install: () => ipcRenderer.send('desktop:package-update-install'),
+    onState: (listener) => {
+      const heard = (_event, state) => listener(state);
+      ipcRenderer.on('desktop:package-update-state', heard);
+      return () => ipcRenderer.removeListener('desktop:package-update-state', heard);
+    },
+  },
 });
 
 /*
