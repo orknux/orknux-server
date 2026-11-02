@@ -91,6 +91,9 @@ interface PluginParameterSettingRepository : JpaRepository<PluginParameterSettin
 
     fun findByPluginIdAndWorkspaceId(pluginId: Long, workspaceId: Long): List<PluginParameterSetting>
 
+    /** Every answer one workspace gave, to every plugin: what a workspace copy carries. */
+    fun findByWorkspaceId(workspaceId: Long): List<PluginParameterSetting>
+
     fun findByPluginIdAndWorkspaceIdAndName(pluginId: Long, workspaceId: Long, name: String): PluginParameterSetting?
 }
 

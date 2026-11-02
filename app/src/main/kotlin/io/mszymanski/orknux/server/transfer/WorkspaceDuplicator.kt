@@ -102,6 +102,14 @@ class WorkspaceDuplicator(
     private val models: io.mszymanski.orknux.connector.model.LlmModelRepository,
     /** The installation's default connections, which an inherited connection is named by in a file. */
     private val defaultConnections: io.mszymanski.orknux.connector.connection.ConnectionRepository,
+    /** What the workspace answered each plugin's parameters with; the plugins themselves are the installation's. */
+    private val pluginParameters: io.mszymanski.orknux.server.plugin.PluginParameterSettingRepository,
+    private val plugins: io.mszymanski.orknux.server.plugin.PluginRepository,
+    private val pluginDeclarations: io.mszymanski.orknux.server.plugin.PluginDeclarations,
+    /** Whether a variable lent by another workspace is lent to the copy too. */
+    @param:org.springframework.context.annotation.Lazy
+    private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
+    private val designCatalogs: io.mszymanski.orknux.server.design.DesignCatalogs,
     /**
      * One transaction per piece rather than one for the whole copy. Issue #570:
      * a component that failed in the database left the one shared session
@@ -225,6 +233,12 @@ class WorkspaceDuplicator(
         fun carryMemories(into: Long, by: String): Int
         /** The workspace's own memory catalog's name, for a copy that leaves memories out. */
         fun defaultMemoryCatalog(): String?
+        /**
+         * The workspace's answers to its plugins' parameters, written into
+         * [into]; answers how many, and adds to [needs] each one that could not
+         * come whole.
+         */
+        fun carryPluginParameters(into: Long, by: String, needs: MutableList<String>): Int
     }
 
     /** What the variable step did: how many came, and which came without their value. */
@@ -304,6 +318,8 @@ class WorkspaceDuplicator(
         val copy = step(wait) { workspaces.save(origin.settings(wanted)) }
         val into = requireNotNull(copy.id)
         log.info("Copy of {} into {}: workspace created", from, into)
+        // Design's General catalogs come with any workspace; nothing drawn is copied into them.
+        step(wait) { designCatalogs.ensureDefaults(into) }
 
         val counts = linkedMapOf<String, Int>()
         val problems = mutableListOf<String>()
@@ -393,6 +409,18 @@ class WorkspaceDuplicator(
                 }
             }
         }
+
+        /*
+         * What the workspace answered its plugins with, after the variables and
+         * connections an answer can point at. Always, like the settings: a
+         * plugin is the installation's and every workspace sees it, so a copy
+         * without the answers is a copy whose plugins ask again for what the
+         * original was told - and whose functions fail until somebody does.
+         */
+        log.info("Copy of {} into {}: copying the plugins' parameters", from, into)
+        val answered = runCatching { step(wait) { origin.carryPluginParameters(into, by, needs) } }
+            .getOrElse { why -> throw stopped(from, into, "the plugins' parameters", why, wait) }
+        if (answered > 0) counts["plugin parameter"] = answered
 
         /*
          * Copied kind by kind, and then again for what did not come. Issue #570:
@@ -510,6 +538,9 @@ class WorkspaceDuplicator(
 
         override fun defaultMemoryCatalog() =
             memoryCatalogs.findByWorkspaceIdOrderByNameAsc(sourceId).firstOrNull { it.isDefault }?.name
+
+        override fun carryPluginParameters(into: Long, by: String, needs: MutableList<String>) =
+            copyPluginParameters(sourceId, into, by, needs)
     }
 
     /** A workspace file, already read and checked whole. Issue #590. */
@@ -572,6 +603,9 @@ class WorkspaceDuplicator(
         override fun carryMemories(into: Long, by: String) = 0
 
         override fun defaultMemoryCatalog(): String? = null
+
+        // A file holds no plugin's answers: its plugins may not be on this installation.
+        override fun carryPluginParameters(into: Long, by: String, needs: MutableList<String>) = 0
     }
 
     /**
@@ -849,6 +883,79 @@ class WorkspaceDuplicator(
                 )
                 count += 1
             }
+        }
+        return count
+    }
+
+    /**
+     * The workspace's answers to its plugins' parameters.
+     *
+     * A typed value comes as typed, and a typed secret with its value, for the
+     * reason a secret variable does: copying is an administrator's, and a copy
+     * whose plugins cannot run until each token is typed again is not what
+     * anybody copied for. The converter re-encrypts it on the way in.
+     *
+     * Two kinds of answer point at a row, and are pointed at the copy's row of
+     * the same name: a variable, by its catalog and name, and a connection
+     * parameter, whose literal is the connection's id. A variable another
+     * workspace lends stays the same variable where the copy is lent it too.
+     * One whose row did not come - its part was switched off, or the lending
+     * does not reach the copy - is left unanswered and named, rather than
+     * pointed at the original's, which would have the copy read another
+     * workspace's credential.
+     *
+     * @return how many answers were written.
+     */
+    private fun copyPluginParameters(from: Long, into: Long, by: String, needs: MutableList<String>): Int {
+        val held = pluginParameters.findByWorkspaceId(from)
+        if (held.isEmpty()) return 0
+        val sourceCatalogs = variableCatalogs.findByWorkspaceIdOrderByNameAsc(from).associate { it.id to it.name }
+        val copiedVariables = variables.findByWorkspaceId(into).associateBy { variable ->
+            variableCatalogs.findByIdOrNull(variable.catalogId)?.name to variable.name
+        }
+        val declared = mutableMapOf<Long, List<io.mszymanski.orknux.server.plugin.PluginParameterView>>()
+        var count = 0
+        held.forEach { answer ->
+            val plugin = plugins.findByIdOrNull(answer.pluginId) ?: return@forEach
+            val parameter = declared.getOrPut(answer.pluginId) { pluginDeclarations.readParameters(plugin.declaredParameters) }
+                .firstOrNull { it.name == answer.name }
+            val what = "plugin ${plugin.name} parameter ${answer.name}"
+
+            var literal = answer.literalValue
+            var variableId: Long? = null
+            answer.variableId?.let { id ->
+                val variable = variables.findByIdOrNull(id)
+                variableId = when {
+                    variable == null -> null
+                    variable.workspaceId == from ->
+                        copiedVariables[sourceCatalogs[variable.catalogId] to variable.name]?.id
+                    sharing.usable(into, variable) -> variable.id
+                    else -> null
+                }
+            }
+            val isConnection = parameter?.type.equals(io.mszymanski.orknux.server.plugin.PluginDeclarations.CONNECTION, ignoreCase = true)
+            if (isConnection && literal != null) {
+                val name = literal.trim().toLongOrNull()?.let { connections.findByIdOrNull(it) }
+                    ?.takeIf { it.workspaceId == from }?.name
+                literal = name?.let { connections.findByWorkspaceIdAndName(into, it) }?.id?.toString()
+            }
+
+            if (literal == null && answer.secretValue == null && variableId == null) {
+                needs += what
+                return@forEach
+            }
+            pluginParameters.save(
+                io.mszymanski.orknux.server.plugin.PluginParameterSetting(
+                    pluginId = answer.pluginId,
+                    workspaceId = into,
+                    name = answer.name,
+                    literalValue = literal,
+                    secretValue = answer.secretValue,
+                    variableId = variableId,
+                    lastModifiedBy = by,
+                ),
+            )
+            count += 1
         }
         return count
     }

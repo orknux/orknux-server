@@ -54,6 +54,9 @@ class WorkspaceDuplicateTest(
     @Autowired val documents: io.mszymanski.orknux.server.design.DesignDocumentRepository,
     @Autowired val diagramCatalogs: io.mszymanski.orknux.server.diagram.DiagramCatalogRepository,
     @Autowired val diagrams: io.mszymanski.orknux.server.diagram.DiagramRepository,
+    @Autowired val plugins: io.mszymanski.orknux.server.plugin.PluginRepository,
+    @Autowired val pluginParameters: io.mszymanski.orknux.server.plugin.PluginParameterSettingRepository,
+    @Autowired val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository,
 ) {
 
     /** A document is written work, like a picture: a copy carries neither it nor its catalog. */
@@ -312,6 +315,76 @@ class WorkspaceDuplicateTest(
         val catalog = memoryCatalogs.findByWorkspaceIdAndName(into, "General")
         assertThat(catalog?.isDefault).isTrue()
         assertThat(memories.findByCatalogIdAndTitle(requireNotNull(catalog?.id), "Escalation")?.content).isEqualTo("Page the on-call.")
+    }
+
+    /**
+     * What the workspace answered its plugins with comes too: a typed value as
+     * typed, a typed secret with its value, and a variable or a connection
+     * pointed at the copy's own of that name. They were left behind, so every
+     * plugin in a copy asked again for what the original had been told. One
+     * whose variable did not come is named rather than pointed at the original's.
+     */
+    @Test
+    fun `a plugin's parameters are copied, pointing at the copy's own variable and connection`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-plugin-$stamp")).id)
+        val plugin = requireNotNull(
+            plugins.save(
+                io.mszymanski.orknux.server.plugin.Plugin(
+                    key = "dup-tracker-$stamp", name = "Tracker $stamp", filename = "tracker.js", source = "",
+                    sizeBytes = 0, apiVersion = 1, sha256 = "0".repeat(64),
+                    declaredParameters = """[
+                        {"name":"baseUrl","type":"string","required":true},
+                        {"name":"token","type":"string","required":true,"secret":true},
+                        {"name":"project","type":"string","required":true},
+                        {"name":"host","type":"connection","required":true,"connectionType":"HTTP"}
+                    ]""",
+                ),
+            ).id,
+        )
+        val keys = requireNotNull(variableCatalogs.save(io.mszymanski.orknux.server.variable.VariableCatalog(workspaceId = source, name = "Keys")).id)
+        val project = variables.save(
+            io.mszymanski.orknux.server.variable.WorkspaceVariable(
+                workspaceId = source, catalogId = keys, name = "project",
+                kind = io.mszymanski.orknux.server.variable.VariableKind.VALUE, value = "OPS",
+            ),
+        )
+        val host = connections.save(
+            io.mszymanski.orknux.connector.connection.WorkspaceConnection(
+                workspaceId = source, name = "Tracker host",
+                type = io.mszymanski.orknux.connector.connection.ConnectionType.HTTP, url = "https://tracker.invalid",
+            ),
+        )
+        fun answer(name: String, literal: String? = null, secret: String? = null, variable: Long? = null) = pluginParameters.save(
+            io.mszymanski.orknux.server.plugin.PluginParameterSetting(
+                pluginId = plugin, workspaceId = source, name = name, literalValue = literal, secretValue = secret, variableId = variable,
+            ),
+        )
+        answer("baseUrl", literal = "https://tracker.invalid")
+        answer("token", secret = "t0ken")
+        answer("project", variable = project.id)
+        answer("host", literal = host.id.toString())
+
+        val into = duplicator.duplicate(source, "dup-plugin-copy-$stamp", "alice").workspaceId
+
+        val copied = pluginParameters.findByPluginIdAndWorkspaceId(plugin, into).associateBy { it.name }
+        assertThat(copied.getValue("baseUrl").literalValue).isEqualTo("https://tracker.invalid")
+        assertThat(copied.getValue("token").secretValue).isEqualTo("t0ken")
+        val copiedProject = requireNotNull(copied.getValue("project").variableId)
+        assertThat(copiedProject).isNotEqualTo(project.id)
+        assertThat(variables.findByIdOrNull(copiedProject)?.workspaceId).isEqualTo(into)
+        val copiedHost = connections.findByWorkspaceIdAndName(into, "Tracker host")
+        assertThat(copied.getValue("host").literalValue).isEqualTo(copiedHost?.id.toString())
+        assertThat(pluginParameters.findByPluginIdAndWorkspaceId(plugin, source)).hasSize(4)
+
+        // Without its variables, the answer that read one is named, not pointed at the original's.
+        val bare = duplicator.duplicate(
+            source, "dup-plugin-bare-$stamp", "alice",
+            parts = WorkspaceCopyPart.entries.toSet() - WorkspaceCopyPart.VARIABLES,
+        )
+        assertThat(pluginParameters.findByPluginIdAndWorkspaceId(plugin, bare.workspaceId).map { it.name })
+            .containsExactlyInAnyOrder("baseUrl", "token", "host")
+        assertThat(bare.credentialsToSet).contains("plugin Tracker $stamp parameter project")
     }
 
     /** What is switched off stays behind, and the workspace's own memory catalog comes whatever is left out. */
