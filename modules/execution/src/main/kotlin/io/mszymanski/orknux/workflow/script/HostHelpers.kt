@@ -395,6 +395,47 @@ internal object HostHelpers {
           download(url, headers) {
             return globalThis.orknux.http.request({ url, method: 'GET', headers, binary: true });
           },
+
+          /**
+           * Talks to a WebSocket: opens it, sends each message in turn and
+           * waits for one text reply to each, then closes it - all inside
+           * this one call, so the guest still never holds a socket.
+           *
+           * Under the request door's grant and rules, because the reach is
+           * the same: an address this server can get to, through the proxy
+           * rules, asked about first. An object message is sent as JSON.
+           * Answers `{ replies, json }`, `json` holding each reply parsed or
+           * null; or `{ error, replies }` with what arrived before it failed.
+           */
+          websocket(url, messages, options) {
+            const host = globalThis.__orknuxHost;
+            if (host === undefined || host.network_request === undefined) {
+              return { error: '$absent', replies: [] };
+            }
+            const list = (Array.isArray(messages) ? messages : [messages])
+              .map((message) => (typeof message === 'string' ? message : JSON.stringify(message)));
+            const asked = options === null || typeof options !== 'object' ? {} : options;
+            const answer = JSON.parse(
+              host.network_request(
+                JSON.stringify({
+                  op: 'websocket',
+                  url: url ?? null,
+                  messages: list,
+                  headers: asked.headers ?? {},
+                  timeoutMs: asked.timeoutMs ?? null,
+                }),
+              ),
+            );
+            if (!Array.isArray(answer.replies)) answer.replies = [];
+            answer.json = answer.replies.map((reply) => {
+              try {
+                return JSON.parse(reply);
+              } catch (ignored) {
+                return null;
+              }
+            });
+            return answer;
+          },
         },
     """.trimIndent()
 

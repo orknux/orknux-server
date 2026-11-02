@@ -242,4 +242,34 @@ class ScriptHttpTest {
 
         assertThat((answer as ScriptResult.Returned).json).contains("cannot make requests from a function")
     }
+
+    /**
+     * A WebSocket goes through the same door, as an object that says so, and
+     * every message crosses as text - an object as its JSON.
+     */
+    @Test
+    fun `a websocket exchange crosses as one call, and each reply arrives parsed`() {
+        val runner = runnerAnswering("""{"replies":["{\"result\":\"pong\"}","not json"]}""")
+
+        val answer = runner.call(
+            """
+            export default function talk(url) {
+              const r = orknux.http.websocket(url, [{ action: 'ping' }, 'raw'], { timeoutMs: 500 });
+              return [r.json[0].result, r.json[1], r.replies[1]];
+            }
+            """.trimIndent(),
+            "talk",
+            listOf("\"ws://localhost:8765\""),
+            on = 12,
+        )
+
+        assertThat((answer as ScriptResult.Returned).json).isEqualTo("[\"pong\",null,\"not json\"]")
+        val (capability, argument, _) = asked.single()
+        assertThat(capability).isEqualTo(PluginCapability.NETWORK_REQUEST)
+        assertThat(argument)
+            .contains("\"op\":\"websocket\"")
+            .contains("\"url\":\"ws://localhost:8765\"")
+            .contains("\"messages\":[\"{\\\"action\\\":\\\"ping\\\"}\",\"raw\"]")
+            .contains("\"timeoutMs\":500")
+    }
 }

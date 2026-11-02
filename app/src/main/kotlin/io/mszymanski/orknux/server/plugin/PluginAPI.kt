@@ -1827,6 +1827,19 @@ class PluginUploadAPI(
                  * Capped at 5 MB of bytes.
                  */
                 download(url: string, headers?: Record<string, string>): OrknuxBinaryResponse;
+
+                /**
+                 * Opens a WebSocket (ws, wss, or an http or https address spoken
+                 * as one), sends each message and waits for one text reply to
+                 * it, then closes it - all within this call. An object message
+                 * is sent as JSON. At most 50 messages; `timeoutMs` is the wait
+                 * for each reply, 30 seconds at most.
+                 */
+                websocket(
+                  url: string,
+                  messages: string | object | Array<string | object>,
+                  options?: { headers?: Record<string, string>; timeoutMs?: number },
+                ): OrknuxSocketExchange;
               };
 
               connections: {
@@ -1913,6 +1926,15 @@ class PluginUploadAPI(
               | { error: string; status?: undefined; headers?: undefined; body?: undefined; json?: undefined };
 
             /** A binary answer: the bytes as base64, and what they claim to be. */
+            /**
+             * What a websocket exchange came to: a reply per message, and each
+             * parsed as JSON or null; or why it stopped, with the replies that
+             * came before it did.
+             */
+            type OrknuxSocketExchange =
+              | { replies: string[]; json: unknown[]; error?: undefined }
+              | { error: string; replies: string[]; json: unknown[] };
+
             type OrknuxBinaryResponse =
               | {
                   status: number;

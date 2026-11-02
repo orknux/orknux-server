@@ -67,6 +67,13 @@ class GuardedFetch(private val probe: ConnectionProbe) {
      * [most] rather than refused - a page read for its text is still worth its
      * first part.
      */
+    /**
+     * The same question [fetch] asks of every hop, for a call that is not a
+     * fetch - a WebSocket, whose address is asked about as the http or https
+     * one its handshake is made to. Null where it may be reached.
+     */
+    fun refusalFor(uri: URI): String? = probe.vet(uri.toString())?.let { "${uri.host}: $it" }
+
     fun fetch(
         client: HttpClient,
         request: HttpRequest,

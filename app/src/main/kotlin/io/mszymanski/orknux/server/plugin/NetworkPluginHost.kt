@@ -14,6 +14,13 @@ import java.net.http.HttpClient
 import java.util.concurrent.atomic.AtomicReference
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.http.WebSocket
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 
@@ -129,6 +136,14 @@ class NetworkPluginHost(
     fun request(argument: String): String {
         val given = runCatching { mapper.readTree(argument) }.getOrNull()
             ?: return refusal("the arguments were not JSON")
+        /*
+         * Two calls through one door, told apart by the shape of what arrives,
+         * as the PDF door tells its two apart: a request has always been an
+         * array, and a WebSocket exchange is an object saying so. One grant,
+         * because the reach is one reach - an address this server can get to,
+         * through the same rules.
+         */
+        if (given.isObject && given.path("op").takeIf { it.isTextual }?.asString() == "websocket") return socket(given)
         if (!given.isArray || given.size() < 2) return refusal("that call takes a url and a method")
 
         val address = given.get(0)?.takeIf { it.isTextual }?.asString()?.trim()
@@ -213,6 +228,157 @@ class NetworkPluginHost(
     }
 
     /**
+     * `{ op: "websocket", url, messages, headers, timeoutMs }`: opens the
+     * socket, sends each message and waits for one whole text reply to it,
+     * then closes - so the socket lives inside this call and never reaches
+     * the guest, which is what the request door promises too.
+     *
+     * Wanted for the desktop applications that are driven over a local
+     * WebSocket rather than HTTP - MuseScore's plugin API serves one - and for
+     * anything else that only speaks it.
+     *
+     * One reply per message is the protocol this assumes, and the one those
+     * services speak: a command and its answer. A service that pushes frames
+     * of its own would have them taken as answers; it is not what this is for.
+     *
+     * Asked about the way a request is: the address its handshake goes to is
+     * vetted first, and the client is the request door's own, so the proxy
+     * rules and the trusted authorities hold. A handshake is not redirected,
+     * so there is only the one address to ask about. Each reply is bounded as
+     * a text answer is, and a failure partway answers what came back before it.
+     */
+    private fun socket(given: JsonNode): String {
+        val address = given.path("url").takeIf { it.isTextual }?.asString()?.trim()
+            ?: return refusal("a websocket call takes a url")
+        val asked = runCatching { URI.create(address) }.getOrNull()
+            ?: return refusal("\"$address\" is not a url")
+        // http and https are accepted and spoken as ws and wss: a connection's address is stored as one of those.
+        val secure = when (asked.scheme?.lowercase()) {
+            "ws", "http" -> false
+            "wss", "https" -> true
+            else -> return refusal("only ws, wss, http and https can be opened as a websocket, and that is ${asked.scheme ?: "no scheme"}")
+        }
+        val target = URI(if (secure) "wss" else "ws", null, asked.host, asked.port, asked.path, asked.query, null)
+        val handshake = URI(if (secure) "https" else "http", null, asked.host, asked.port, asked.path, asked.query, null)
+        fetch.refusalFor(handshake)?.let { return refusal("that address may not be reached: $it") }
+
+        val sent = given.path("messages")
+        val messages = when {
+            sent.isTextual -> listOf(sent.asString())
+            sent.isArray -> (0 until sent.size()).map {
+                sent.get(it)?.takeIf { one -> one.isTextual }?.asString()
+                    ?: return refusal("message ${it + 1} is not text")
+            }
+            else -> return refusal("a websocket call takes the messages to send")
+        }
+        if (messages.isEmpty()) return refusal("there is nothing to send")
+        if (messages.size > MOST_MESSAGES) return refusal("one call sends at most $MOST_MESSAGES messages, and that was ${messages.size}")
+
+        val wait = given.path("timeoutMs").takeIf { it.isNumber }?.asLong()
+            ?.coerceIn(1, READ_TIMEOUT.toMillis())?.let(Duration::ofMillis) ?: READ_TIMEOUT
+        val most = tuning[Tunable.PLUGIN_HTTP_BODY_MB] * 1024L * 1024L
+        val replies = mutableListOf<String>()
+        val listener = Replies(most)
+
+        val socket = try {
+            val builder = client().newWebSocketBuilder().connectTimeout(CONNECT_TIMEOUT)
+            headers(given.path("headers"))
+                .filterKeys { !it.lowercase().startsWith("sec-websocket-") }
+                .forEach { (name, value) -> builder.header(name, value) }
+            builder.buildAsync(target, listener).get(CONNECT_TIMEOUT.toMillis() + 1000, TimeUnit.MILLISECONDS)
+        } catch (failure: Exception) {
+            if (failure is InterruptedException) Thread.currentThread().interrupt()
+            return refusal("could not open $target: ${reason(failure)}")
+        }
+
+        return try {
+            for ((index, message) in messages.withIndex()) {
+                val reply = listener.expect()
+                try {
+                    socket.sendText(message, true).get(wait.toMillis(), TimeUnit.MILLISECONDS)
+                    replies += reply.get(wait.toMillis(), TimeUnit.MILLISECONDS)
+                } catch (_: TimeoutException) {
+                    return refusal("no reply to message ${index + 1} came within ${wait.toMillis()} ms", replies)
+                } catch (failure: ExecutionException) {
+                    return refusal("message ${index + 1} got no reply: ${reason(failure)}", replies)
+                }
+            }
+            val answer = mapper.createObjectNode()
+            val held = answer.putArray("replies")
+            replies.forEach { held.add(it) }
+            mapper.writeValueAsString(answer)
+        } catch (failure: InterruptedException) {
+            Thread.currentThread().interrupt()
+            refusal("the exchange was interrupted", replies)
+        } finally {
+            runCatching { socket.sendClose(WebSocket.NORMAL_CLOSURE, "").get(1, TimeUnit.SECONDS) }
+            socket.abort()
+        }
+    }
+
+    /**
+     * Gathers a socket's text into one reply at a time.
+     *
+     * A reply may arrive in pieces; it is whole at `last`. Anything else the
+     * far side does while a reply is awaited - a binary frame, a close, an
+     * error, a reply past the bound - fails the one awaited, in words.
+     */
+    private class Replies(private val most: Long) : WebSocket.Listener {
+        private val text = StringBuilder()
+        private val awaited = AtomicReference(CompletableFuture<String>())
+
+        /** The next reply, to be awaited after the message it answers is sent. */
+        fun expect(): CompletableFuture<String> = CompletableFuture<String>().also { awaited.set(it) }
+
+        override fun onText(socket: WebSocket, data: CharSequence, last: Boolean): CompletionStage<*>? {
+            text.append(data)
+            when {
+                text.length > most -> {
+                    awaited.get().completeExceptionally(IOException("the reply was larger than ${most / (1024 * 1024)} MB"))
+                    socket.abort()
+                    return null
+                }
+                last -> {
+                    awaited.get().complete(text.toString())
+                    text.setLength(0)
+                }
+            }
+            socket.request(1)
+            return null
+        }
+
+        override fun onBinary(socket: WebSocket, data: java.nio.ByteBuffer, last: Boolean): CompletionStage<*>? {
+            awaited.get().completeExceptionally(IOException("it answered with binary, and only text replies are read"))
+            socket.request(1)
+            return null
+        }
+
+        override fun onClose(socket: WebSocket, statusCode: Int, reason: String): CompletionStage<*>? {
+            awaited.get().completeExceptionally(IOException("it closed the socket ($statusCode${if (reason.isBlank()) "" else ", $reason"})"))
+            return null
+        }
+
+        override fun onError(socket: WebSocket, error: Throwable) {
+            awaited.get().completeExceptionally(error)
+        }
+    }
+
+    /** The sentence under a failure, unwrapped from the futures it travelled through. */
+    private fun reason(failure: Throwable): String {
+        var cause: Throwable = failure
+        while ((cause is ExecutionException || cause is CompletionException) && cause.cause != null) cause = cause.cause!!
+        return cause.message?.takeIf { it.isNotBlank() } ?: cause.javaClass.simpleName
+    }
+
+    private fun refusal(why: String, replies: List<String>): String {
+        val answer = mapper.createObjectNode().put("error", why)
+        val held = answer.putArray("replies")
+        replies.forEach { held.add(it) }
+        log.debug("A plugin's websocket exchange was refused: {}", why)
+        return mapper.writeValueAsString(answer)
+    }
+
+    /**
      * The headers a plugin asked for, minus the ones it may not set.
      *
      * Dropped rather than refused: a plugin setting `Host` is much more likely
@@ -247,6 +413,9 @@ class NetworkPluginHost(
         val ALLOWED = setOf("http", "https")
 
         val METHODS = setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD")
+
+        /** Messages one websocket call sends: room for a batch of commands, not a stream. */
+        const val MOST_MESSAGES = 50
 
         /**
          * Headers the caller does not get to set.
