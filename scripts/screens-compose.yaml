@@ -4,16 +4,19 @@
 # `seed-demo.mjs` builds a workspace by deleting and rebuilding it, so pointed at
 # somebody's own server it edits somebody's own data — which is why the pictures
 # were taken of a purpose-built container for a year, at twenty minutes a build.
-# The server itself no longer needs one: `screenshots.ps1` runs the jar the
-# reactor has just produced, on the host, against a SQLite file in a temporary
-# directory. What is left here is what could not be a jar.
+# The server itself no longer needs one: `screenshots.ps1` (`screenshots.sh` on
+# Linux) runs the jar the reactor has just produced, on the host, against a
+# SQLite file in a temporary directory. What is left here is what could not be
+# a jar.
 #
 # Everything is on ports nobody else here is on, under a project name of its own,
 # so `docker compose up` in this directory and `docker compose up` in orknux-ui
 # never see each other's containers. Every published port is a variable, and
 # screenshots.ps1 -Lane hands each run its own ports and its own project name
 # (`-p orknux-screens-<lane>`), so several runs can be up at once (#684). Started, used and thrown away by
-# scripts/screenshots.ps1; there is no reason to run it by hand.
+# scripts/screenshots.ps1 and scripts/screenshots.sh, the latter adding
+# screens-compose.rootless.yaml on rootless Docker; there is no reason to run it
+# by hand.
 name: orknux-screens
 
 services:

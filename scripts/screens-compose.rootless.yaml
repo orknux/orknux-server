@@ -1,0 +1,27 @@
+# The interface on the host's network: what rootless Docker needs.
+#
+# screens-compose.yaml has the interface container reach the jar on the host as
+# host.docker.internal, which is Docker's `host-gateway` - and under rootless
+# Docker that address is the gateway of rootlesskit's own network namespace,
+# where nothing listens: every call from vite's proxy to the server answers
+# "connection refused", and the page signs nobody in. A container on the host's
+# network is in that same namespace, and from there `localhost` does reach a
+# process on the machine (rootlesskit with gvisor-tap-vsock forwards it; this
+# was tested, and is what screenshots.sh relies on).
+#
+# So on rootless Docker the interface is run there instead. The port stays the
+# one number it always was - it is now simply the port vite listens on - and
+# the published-port and extra-hosts lines are dropped rather than ignored,
+# because compose refuses the first on a host-network service.
+#
+# Added by scripts/screenshots.sh after screens-compose.yaml, and only when
+# `docker info` says rootless; rootful Docker keeps the file as it is, where
+# host-gateway is the host. Never run on its own.
+services:
+  ui:
+    network_mode: host
+    ports: !reset []
+    extra_hosts: !reset []
+    environment:
+      # The jar, on the host, which is where localhost now leads.
+      ORKNUX_SERVER_URL: http://localhost:${ORKNUX_SCREENS_SERVER_PORT:-8181}

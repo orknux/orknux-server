@@ -561,11 +561,20 @@ CI does the rest: `.github/workflows/ci.yml` builds, runs the suite, runs
 is tagged `sha-<commit>`, which is the only tag that never moves.
 
 **The manual's pictures are retaken at a minor release, in one command.**
-`scripts/screenshots.ps1`, and from PowerShell — under Git Bash, MSYS rewrites
-the paths it hands out and the damage turns up inside an image rather than as an
-error. Bump `orknux-ui/package.json` before running it: the footer prints that
-version on every signed-in screen, and the script refuses to start while it
-disagrees with the pom.
+`scripts/screenshots.ps1` on Windows, and from PowerShell — under Git Bash, MSYS
+rewrites the paths it hands out and the damage turns up inside an image rather
+than as an error — or `scripts/screenshots.sh` on Linux, which takes the same
+options and does the same steps in the same order; a step changed in one is
+changed in both, or the manual depends on which machine photographed it. Bump
+`orknux-ui/package.json` before running either: the footer prints that version
+on every signed-in screen, and both refuse to start while it disagrees with the
+pom. The model is the scripted stand-in the installation brings
+(`--endpoint http://localhost:8299 --model writer --provider-type LLAMA_CPP`,
+the `-Endpoint` spelling on Windows, plus `-Lane` if a lane moves the port):
+the seed and the capture wait for its fixed answers, and a real model writes
+others. Under rootless Docker a container has no route to the host's
+loopback, so the Linux script puts the interface container on the host's network;
+`scripts/screens-compose.rootless.yaml` says why.
 
 It photographs an installation it builds, never this machine's. `seed-demo.mjs`
 deletes and rebuilds the workspace it wants, so aimed at a development database

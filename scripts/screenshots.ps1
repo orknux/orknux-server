@@ -11,6 +11,9 @@
     The pictures land in orknux-ui/public/screens in this working copy. Commit
     them there and move the submodule pin, as any other change to the interface.
 
+    On Linux this is scripts/screenshots.sh: the same options, the same steps
+    in the same order. A step changed here is changed there as well.
+
     Five minutes, of which half is the seed talking to a model and the capture
     walking fifty pages; seven the first time, while the interface container
     fetches its dependencies and a browser into volumes it then keeps.
