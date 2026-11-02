@@ -67,6 +67,8 @@ class ImportChoicesTest(
     @Autowired val actions: WorkflowActionRepository,
     @Autowired val functions: WorkflowFunctionRepository,
     @Autowired val factory: EntityManagerFactory,
+    @Autowired val triggers: io.mszymanski.orknux.server.trigger.WorkflowTriggerRepository,
+    @Autowired val firings: io.mszymanski.orknux.server.trigger.TriggerFiringRepository,
 ) {
 
     private var from: Long = 0
@@ -74,6 +76,10 @@ class ImportChoicesTest(
 
     @BeforeEach
     fun reset() {
+        // A trigger holds its auth function, with no delete rule on either database: GithubWebhookTest leaves
+        // one whose function is the github plugin's, and where it ran first neither that plugin nor any function could be deleted.
+        firings.deleteAll()
+        triggers.deleteAll()
         actions.deleteAll()
         agents.deleteAll()
         tools.deleteAll()

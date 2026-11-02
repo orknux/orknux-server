@@ -50,6 +50,8 @@ class ComponentTemplateAPITest(
     @Autowired val mapper: ObjectMapper,
     @Autowired val workflows: io.mszymanski.orknux.server.workflow.WorkflowRepository,
     @Autowired val actions: io.mszymanski.orknux.server.action.WorkflowActionRepository,
+    @Autowired val triggers: io.mszymanski.orknux.server.trigger.WorkflowTriggerRepository,
+    @Autowired val firings: io.mszymanski.orknux.server.trigger.TriggerFiringRepository,
 ) {
 
     private var from: Long = 0
@@ -58,6 +60,10 @@ class ComponentTemplateAPITest(
     @BeforeEach
     fun reset() {
         templates.deleteAll()
+        // A trigger holds its auth function, with no delete rule on either database: GithubWebhookTest leaves
+        // one whose function is the github plugin's, and where it ran first neither that plugin nor any function could be deleted.
+        firings.deleteAll()
+        triggers.deleteAll()
         // What points at a function first, or SQLite refuses the delete wherever an earlier class left a workflow.
         workflows.deleteAll()
         actions.deleteAll()

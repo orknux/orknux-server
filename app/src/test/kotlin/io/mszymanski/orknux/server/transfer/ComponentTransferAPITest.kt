@@ -53,6 +53,8 @@ class ComponentTransferAPITest(
     @Autowired val mapper: ObjectMapper,
     @Autowired val workflows: io.mszymanski.orknux.server.workflow.WorkflowRepository,
     @Autowired val actions: io.mszymanski.orknux.server.action.WorkflowActionRepository,
+    @Autowired val triggers: io.mszymanski.orknux.server.trigger.WorkflowTriggerRepository,
+    @Autowired val firings: io.mszymanski.orknux.server.trigger.TriggerFiringRepository,
 ) {
 
     private var from: Long = 0
@@ -63,6 +65,10 @@ class ComponentTransferAPITest(
         // An action points at its function, and a class run before this one in
         // the same JVM (StreamOutputTest, AgentNodeRunnerTest) leaves one behind:
         // its workflow first, then the action, or no function can be deleted.
+        // A trigger holds its auth function, with no delete rule on either database: GithubWebhookTest leaves
+        // one whose function is the github plugin's, and where it ran first neither that plugin nor any function could be deleted.
+        firings.deleteAll()
+        triggers.deleteAll()
         workflows.deleteAll()
         actions.deleteAll()
         conditions.deleteAll()
