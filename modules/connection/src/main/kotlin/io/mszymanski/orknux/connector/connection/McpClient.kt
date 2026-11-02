@@ -497,13 +497,48 @@ class McpClient(
 
         val blocks = answer.path("result").path("content") as? ArrayNode
             ?: return mapper.writeValueAsString(mapOf("result" to answer.path("result")))
+        /*
+         * Bytes - an image, audio, an embedded file - are handed up beside the
+         * text with a mark where each stood, because what to do with them
+         * depends on a session this module knows nothing of. Said as "content
+         * which cannot be read as text" instead, six pictures a Jira server
+         * sent came back as six sentences and nothing to look at.
+         */
+        val binaries = mutableListOf<Map<String, String?>>()
+        fun held(kind: String, mimeType: String?, data: String, uri: String?): String {
+            binaries += mapOf("kind" to kind, "mimeType" to mimeType, "data" to data, "uri" to uri)
+            return binaryMark(binaries.size - 1)
+        }
         val text = blocks.joinToString("\n") { block ->
-            when (block.path("type").stringValue()) {
-                "text" -> block.path("text").stringValue().orEmpty()
-                else -> "[${block.path("type").stringValue() ?: "unknown"} content, which cannot be read as text]"
+            val type = block.path("type").stringValue(null)
+            val data = block.path("data").stringValue(null)?.takeIf { it.isNotEmpty() }
+            val resource = block.path("resource")
+            when {
+                type == "text" -> block.path("text").stringValue().orEmpty()
+                (type == "image" || type == "audio") && data != null ->
+                    held(type, block.path("mimeType").stringValue(null), data, null)
+                type == "resource" && resource.path("text").stringValue(null) != null ->
+                    resource.path("text").stringValue()
+                type == "resource" && !resource.path("blob").stringValue(null).isNullOrEmpty() ->
+                    held(
+                        "resource",
+                        resource.path("mimeType").stringValue(null),
+                        resource.path("blob").stringValue(),
+                        resource.path("uri").stringValue(null),
+                    )
+                type == "resource_link" -> {
+                    val uri = block.path("uri").stringValue(null) ?: "an address it did not give"
+                    "[a link to ${block.path("name").stringValue(null) ?: uri}: $uri]"
+                }
+                else -> "[${type ?: "unknown"} content, which cannot be read as text]"
             }
         }
-        return mapper.writeValueAsString(mapOf("result" to text))
+        return mapper.writeValueAsString(
+            buildMap {
+                put("result", text)
+                if (binaries.isNotEmpty()) put(BINARIES, binaries)
+            },
+        )
     }
 
     /**
@@ -701,21 +736,31 @@ class McpClient(
 
     private fun failure(reason: String): String = mapper.writeValueAsString(mapOf("error" to reason))
 
-    private companion object {
+    companion object {
+        /**
+         * Where a tool's answer carries the bytes it sent, each `{kind,
+         * mimeType, data, uri}`, for the caller to keep and replace the
+         * [binaryMark] it left in the text with.
+         */
+        const val BINARIES = "binaries"
+
+        /** What stands in the text where the [index]th binary was. */
+        fun binaryMark(index: Int): String = "{{mcp-binary:$index}}"
+
         /** The revision of the protocol this speaks. */
-        const val PROTOCOL_VERSION = "2025-06-18"
-        const val SESSION_HEADER = "Mcp-Session-Id"
-        const val CLIENT_NAME = "ordilumen"
-        const val CLIENT_VERSION = "1.0"
-        val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(10)
+        private const val PROTOCOL_VERSION = "2025-06-18"
+        private const val SESSION_HEADER = "Mcp-Session-Id"
+        private const val CLIENT_NAME = "ordilumen"
+        private const val CLIENT_VERSION = "1.0"
+        private val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** How much of a server's own words is worth repeating. */
-        const val DETAIL_LENGTH = 300
+        private const val DETAIL_LENGTH = 300
 
         /** How many pages of a listing are followed before the rest is left unread. */
-        const val MOST_PAGES = 20
-        val WHITESPACE = Regex("\\s+")
+        private const val MOST_PAGES = 20
+        private val WHITESPACE = Regex("\\s+")
 
-        val log = LoggerFactory.getLogger(McpClient::class.java)
+        private val log = LoggerFactory.getLogger(McpClient::class.java)
     }
 }

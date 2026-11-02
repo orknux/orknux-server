@@ -93,7 +93,7 @@ class McpToolCaller(
         RESOURCES, READ_RESOURCE -> when (val listing = client.tools(server)) {
             is McpListing.Tools ->
                 if (listing.tools.any { it.name == tool }) {
-                    client.call(server, tool, arguments)
+                    kept(client.call(server, tool, arguments), sessionId)
                 } else if (tool == RESOURCES) {
                     listResources(server)
                 } else {
@@ -101,7 +101,59 @@ class McpToolCaller(
                 }
             is McpListing.Failed -> failure("${server.name} could not be asked: ${listing.reason}")
         }
-        else -> client.call(server, tool, typed(server, tool, arguments))
+        else -> kept(client.call(server, tool, typed(server, tool, arguments)), sessionId)
+    }
+
+    /**
+     * A tool's answer with the bytes it sent kept in the session's store, and
+     * a sentence naming each one's key where it stood in the text. What makes
+     * bytes answers a key: a picture a server sent is then one `picture_view`
+     * shows and any uploading tool takes, where it used to be described as
+     * content that could not be read and was gone - a Jira server's six issue
+     * pictures came back as six such sentences.
+     */
+    private fun kept(answer: String, sessionId: Long?): String {
+        val read = runCatching { mapper.readTree(answer) }.getOrNull() ?: return answer
+        val binaries = read.path(McpClient.BINARIES).takeIf { it.isArray && !it.isEmpty } ?: return answer
+        var text = read.path("result").stringValue(null) ?: return answer
+        val keys = mutableListOf<String>()
+        binaries.toList().forEachIndexed { index, binary ->
+            val kind = binary.path("kind").stringValue(null) ?: "file"
+            val mimeType = binary.path("mimeType").stringValue(null)
+            val picture = kind == "image" || mimeType?.startsWith("image/") == true
+            val what = if (picture) "a picture" else "a ${mimeType ?: kind} file"
+            val said = if (sessionId == null) {
+                "[$what the server sent, which cannot be kept here because there is no session to keep it in]"
+            } else {
+                val key = (if (picture) "picture." else "resource.") +
+                    java.lang.Long.toString(System.nanoTime(), 36) + index
+                val refused = scratch.put(
+                    sessionId,
+                    key,
+                    mapper.writeValueAsString(binary.path("data").stringValue("")),
+                    StoredKind(mimeType ?: if (picture) null else "application/octet-stream", true),
+                )
+                when {
+                    refused != null -> "[$what the server sent, which could not be kept: $refused]"
+                    else -> {
+                        keys += key
+                        val from = binary.path("uri").stringValue(null)?.let { " ($it)" }.orEmpty()
+                        if (picture) {
+                            "[a picture$from, kept under contentKey $key - picture_view shows it to you]"
+                        } else {
+                            "[$what$from, kept under contentKey $key for any tool that takes a file]"
+                        }
+                    }
+                }
+            }
+            text = text.replace(McpClient.binaryMark(index), said)
+        }
+        return mapper.writeValueAsString(
+            buildMap {
+                put("result", text)
+                if (keys.isNotEmpty()) put("contentKeys", keys)
+            },
+        )
     }
 
     /**

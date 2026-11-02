@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
 import org.springframework.security.test.context.support.WithMockUser
+import tools.jackson.databind.ObjectMapper
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
@@ -39,6 +40,9 @@ class McpToolCallTest(
     @Autowired val agents: AgentRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
+    @Autowired val store: io.mszymanski.orknux.server.llm.LlmSessionStore,
+    @Autowired val mapper: ObjectMapper,
 ) {
 
     private var workspaceId: Long = 0
@@ -83,6 +87,42 @@ class McpToolCallTest(
         // The handshake happened before anything was asked of it.
         assertThat(methods).startsWith("initialize")
         assertThat(methods).contains("tools/list", "tools/call")
+    }
+
+    /**
+     * A picture a tool's answer carries is kept in the session under a key the
+     * agent can look at, where it used to come back as "image content, which
+     * cannot be read as text" and nothing else - six Jira issue pictures were
+     * lost that way.
+     */
+    @Test
+    fun `pictures and files a tool answers with are kept under keys the agent can use`() {
+        val address = serve()
+        mcpServer("Jira", address)
+        val agent = agent("Reader", granted = "Jira")
+        val session = recorder.open(workspaceId, "chat", "mcp-pictures-${System.nanoTime()}")
+
+        val answer = mapper.readTree(
+            tools.run(agent, ToolCall(id = "c1", name = "jira__get_issue_images", arguments = """{"issue":"PRI-1"}"""), session),
+        )
+        val text = answer.path("result").stringValue()
+        assertThat(text).startsWith("Found 2 attachments on PRI-1").doesNotContain("cannot be read as text").doesNotContain("mcp-binary")
+        val keys = answer.path("contentKeys").toList().map { it.stringValue() }
+        assertThat(keys).hasSize(2)
+        assertThat(keys[0]).startsWith("picture.")
+        assertThat(keys[1]).startsWith("resource.")
+        assertThat(text).contains("kept under contentKey ${keys[0]} - picture_view shows it to you")
+        assertThat(text).contains("https://jira.example/a/2").contains(keys[1])
+        assertThat(store.kindOf(session, keys[1])).isEqualTo(io.mszymanski.orknux.workflow.script.StoredKind("application/pdf", true))
+
+        // And the picture is one picture_view shows.
+        val viewed = tools.run(agent, ToolCall(id = "c2", name = AgentTools.VIEW, arguments = """{"contentKey":"${keys[0]}"}"""), session)
+        assertThat(mapper.readTree(viewed).path("error").isMissingNode).withFailMessage(viewed).isTrue()
+        assertThat(viewed).contains(PIXEL)
+
+        // Outside a session there is nowhere to keep it, and that is said rather than the bytes handed over.
+        val bare = tools.run(agent, ToolCall(id = "c3", name = "jira__get_issue_images", arguments = "{}"))
+        assertThat(bare).contains("no session to keep it in").doesNotContain(PIXEL)
     }
 
     /**
@@ -267,8 +307,16 @@ class McpToolCallTest(
                           "required":["items"]}}]}}"""
 
                 "tools/call" -> calls.add(body).let {
-                    """{"jsonrpc":"2.0","id":3,"result":{"content":[
-                       {"type":"text","text":"Nothing found, which is the point"}]}}"""
+                    if ("get_issue_images" in body) {
+                        // A one-pixel PNG, and a PDF embedded as a resource - what an issue tracker's server sends.
+                        """{"jsonrpc":"2.0","id":3,"result":{"content":[
+                           {"type":"text","text":"Found 2 attachments on PRI-1"},
+                           {"type":"image","mimeType":"image/png","data":"$PIXEL"},
+                           {"type":"resource","resource":{"uri":"https://jira.example/a/2","mimeType":"application/pdf","blob":"JVBERi0="}}]}}"""
+                    } else {
+                        """{"jsonrpc":"2.0","id":3,"result":{"content":[
+                           {"type":"text","text":"Nothing found, which is the point"}]}}"""
+                    }
                 }
 
                 // The initialized notification expects no reply.
@@ -307,5 +355,9 @@ class McpToolCallTest(
             """mutation { updateAgent(id: $id, input: { name: "$name"$grant }) { mcpServers } }""",
         ).execute()
         return requireNotNull(agents.findByIdOrNull(id))
+    }
+
+    private companion object {
+        const val PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
     }
 }
