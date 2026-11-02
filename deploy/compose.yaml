@@ -158,10 +158,10 @@ services:
   # ---------------------------------------------------------------------------
   orknux-server:
     # Pinned, so what you bring up today is what you bring up next week.
-    # ORKNUX_SERVER_TAG moves it: a release (`1.2`, `1.2.0`), `sha-<commit>`
+    # ORKNUX_SERVER_TAG moves it: a release (`1.3`, `1.3.0`), `sha-<commit>`
     # which never moves, or `latest` to follow main and accept that an upgrade
     # can happen to you. The interface is inside the image, so it moves with it.
-    image: orknux/orknux-server:${ORKNUX_SERVER_TAG:-1.2}
+    image: orknux/orknux-server:${ORKNUX_SERVER_TAG:-1.3}
     restart: unless-stopped
     depends_on:
       postgres:

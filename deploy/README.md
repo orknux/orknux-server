@@ -307,7 +307,7 @@ or in a `.env` file next to `compose.yaml`.
 | `ORKNUX_AUTH_METHOD` | `LDAP` | `LDAP`, `INTERNAL`, `OIDC`, or `NONE` to turn authentication off - see below. |
 | `ORKNUX_BOOTSTRAP_ADMIN_USERNAME` | *empty* | The first internal administrator, created at startup if nobody has that name. Empty seeds nobody. See above. |
 | `ORKNUX_BOOTSTRAP_ADMIN_PASSWORD` | *empty* | What they sign in with the first time. At least 12 characters, and something to change and unset once you are in. |
-| `ORKNUX_SERVER_TAG` | `1.0` | Which `orknux/orknux-server` image. |
+| `ORKNUX_SERVER_TAG` | `1.3` | Which `orknux/orknux-server` image. |
 | `ORKNUX_TEMPORAL_UI_URL` | *empty* | Where a run links out to. Empty offers no links, which is right while the Temporal UI is not running. |
 | `ORKNUX_ALLOWED_ORIGINS` | *empty* | Cross-origin callers to allow. Empty is correct here, since the page and the API come from the same server. |
 | `ORKNUX_TEMPORAL_UI_PORT` | `8233` | Only with `--profile debug`. |
@@ -370,7 +370,7 @@ upgrade happens to you rather than being something you did. Set
 `ORKNUX_SERVER_TAG` to move deliberately, and to `sha-<commit>` if you want to
 be certain to the commit.
 
-Both repositories are at `1.2`/`1.2.9`, released together, and that is what
+Both repositories are at `1.3`/`1.3.0`, released together, and that is what
 this file uses. The interface is built into the server image, so one tag is the
 whole product and the two halves cannot be pinned apart. Check what exists
 before reaching for a different one:
