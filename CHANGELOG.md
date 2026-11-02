@@ -15,6 +15,26 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.3.1
+
+### ✨ Added
+
+- **Sheets have catalogs**, like Design's images, wireframes and videos: a General catalog in every workspace, others made beside it, and a sheet filed in the one being looked at and moved between them from its row.
+- **The desktop app updates its own package.** Admin › Updates shows the version the app is and asks orknux.ai for a newer one. **Download and install** fetches it, checks it against its SHA-512, stops the server, installs it silently and opens Orknux again. This works for the Windows installer (`Orknux-Setup`), the AppImage and the `.deb`. An MSI install or a store build says it cannot update itself, and why. Orknux Client updates the same way. **Install 1.3.1 by hand once**: an older app has no updater, and from 1.3.1 on it updates itself.
+- **A plugin can talk to a WebSocket.** `orknux.http.websocket(url, messages)` opens the socket, sends each message, waits for one reply to each and closes it, all within the call. It needs the same `NETWORK_REQUEST` grant and follows the same proxy rules as a request. It is how a plugin reaches a desktop application driven over a local socket, such as MuseScore's plugin API.
+
+### 🔧 Changed
+
+- **The desktop app no longer replaces its server jar from Updates.** It updates as a whole package instead. In the app, Admin › Updates shows only the app's own package: no official jar list, no upload, no URL and no kept releases. A release chosen there before keeps nothing running: the app runs the jar it came with. The Windows app is to ship its server as a native image, which has no jar to swap.
+- **A workspace copy carries what its plugins were told.** Each plugin parameter comes with its value, a secret one too. One that read a workspace variable or named a connection now points at the copy's own. If that variable or connection was left out of the copy, the parameter is listed as needing to be set; it never points at the original's.
+
+### 🐛 Fixed
+
+- **Design's Images, Wireframes and Videos pages no longer open on INTERNAL_ERROR** in a workspace made, or copied, since their catalogs arrived. Its General catalogs were made on first view and the page's two requests both tried. They are now made with the workspace, and the upgrade gives them to every workspace without them.
+- **The Updates page no longer misreports a release that did not run.** When the server came back on another version than the one chosen, the page said it "was not started by the image", even where something had just restarted it. It now gives the release's own reason, such as a database migrated past what it can run, and says "Going back to" for a release older than the one running.
+- **An update from an older version no longer haunts Updates.** A finished download of a version older than the one running is put away at start; one was shown as "Updating to 1.2.5" on a server at 1.3.0, long after the server had moved past it. A release chosen under an older image is also let go at start once the image is newer - what the launcher already did, but not every start asks the launcher.
+- **An MCP tool's pictures and files reach the agent.** A picture, a sound or an embedded file a server sends back is kept in the session under a key. `picture_view` shows a picture, and any tool that uploads takes a file. Before, each was replaced with a sentence saying it could not be read.
+
 ## 1.3.0
 
 ### ✨ Added
