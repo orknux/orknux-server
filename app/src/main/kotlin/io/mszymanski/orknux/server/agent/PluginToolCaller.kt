@@ -13,9 +13,12 @@ import io.mszymanski.orknux.server.plugin.PluginParameters
 import io.mszymanski.orknux.server.plugin.PluginRepository
 import io.mszymanski.orknux.workflow.script.ScriptOrigin
 import io.mszymanski.orknux.workflow.script.ScriptResult
+import io.mszymanski.orknux.server.plugin.PluginRateLimits
+import io.mszymanski.orknux.server.tuning.Tunable
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
+import java.time.Duration
 
 /**
  * Calling a plugin's tool, as an agent does it.
@@ -48,6 +51,8 @@ class PluginToolCaller(
     /** The one reading of an agent's connection grants; an argument is held to it. */
     private val connectionGrants: ConnectionTools,
     private val mapper: ObjectMapper,
+    /** How long and how often a rate-limited tool is waited out. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
 ) {
 
     /**
@@ -155,6 +160,52 @@ class PluginToolCaller(
 
         val positional = argumentsFor(tool.params, arguments)
 
+        /*
+         * A service's rate limit, waited out here rather than left to the
+         * model. See [PluginRateLimits]: the door noted when the limit lifts,
+         * and this is the one place with no wall clock on it. Only where the
+         * tool then failed - a plugin that met a limit on one request and
+         * answered anyway has answered.
+         */
+        return PluginRateLimits.waitedOut(
+            longest = Duration.ofSeconds(tuning[Tunable.PLUGIN_RATE_LIMIT_WAIT_SECONDS].toLong()),
+            attempts = tuning[Tunable.PLUGIN_RATE_LIMIT_ATTEMPTS],
+            failed = ::failed,
+            said = ::withWhen,
+            waited = { limited, left -> log.info("Plugin tool {} met {}'s rate limit; asking again in {}s", tool.name, limited.host, left.toSeconds() + 1) },
+        ) { once(agent, tool, positional, sessionId) }
+    }
+
+    /** Whether a tool's answer is an error - the shape [once] gives a failure, or a plugin's own. */
+    private fun failed(answer: String): Boolean = runCatching {
+        val read = mapper.readTree(answer)
+        read.isObject && read.has("error") && !read.path("error").isNull
+    }.getOrDefault(false)
+
+    /**
+     * The tool's error, with when the limit lifts said after it. An agent told
+     * only "rate limit exceeded" treated it as the end of the road and asked a
+     * person; told the time, it can come back to it - set itself a reminder,
+     * or do something else first.
+     */
+    private fun withWhen(answer: String, limited: PluginRateLimits.Limited, left: Duration?): String = runCatching {
+        val read = mapper.readTree(answer) as tools.jackson.databind.node.ObjectNode
+        read.put(
+            "rateLimit",
+            if (left == null) {
+                "${limited.host} is limiting how often it is asked and did not say for how long. " +
+                    "This is temporary: try again in a minute or two rather than giving up."
+            } else {
+                "${limited.host} is limiting how often it is asked; the limit lifts at ${limited.until} " +
+                    "(in ${left.toSeconds() + 1} s). This is temporary: call the tool again after that " +
+                    "- set yourself a reminder if there is nothing else to do meanwhile - rather than giving up."
+            },
+        )
+        mapper.writeValueAsString(read)
+    }.getOrDefault(answer)
+
+    /** One run of the tool, as it always was. */
+    private fun once(agent: Agent, tool: PluginTool, positional: List<String>, sessionId: Long?): String {
         val result = if (tool.declared.proxyOf != null) {
             /*
              * The tool is a front for one of the plugin's functions, so the

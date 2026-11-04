@@ -12,6 +12,8 @@ import io.mszymanski.orknux.server.plugin.PluginRepository
 import io.mszymanski.orknux.server.plugin.PluginSources
 import io.mszymanski.orknux.server.variable.VariableArguments
 import io.mszymanski.orknux.workflow.script.PluginRunner
+import io.mszymanski.orknux.server.plugin.PluginRateLimits
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.workflow.script.ScriptResult
 import io.mszymanski.orknux.workflow.script.ScriptRunner
 import org.springframework.data.repository.findByIdOrNull
@@ -39,6 +41,8 @@ import org.springframework.stereotype.Service
  */
 @Service
 class FunctionCaller(
+    /** How long a plugin's rate limit is waited out, and how many times; the same tunables an agent's tool call reads. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
     private val scripts: ScriptRunner,
     private val scriptImports: ScriptImports,
     private val pluginRunner: PluginRunner,
@@ -283,7 +287,7 @@ class FunctionCaller(
             )
         }
 
-        return pluginRunner.call(
+        return waitingOutRateLimits("${plugin.key} action $actionName") { pluginRunner.call(
             pluginSources.sourceOf(plugin),
             actionName,
             listOf(input, context),
@@ -296,8 +300,37 @@ class FunctionCaller(
             // The function bound, which is what a workflow's step waits on; a
             // plugin's action has no row of its own to carry one.
             timeoutMillis = timeouts.forFunction(null, workspaceId),
-        )
+        ) }
     }
+
+    /**
+     * A plugin's function or action, with a service's rate limit waited out.
+     *
+     * What an agent's plugin tool already had: a workflow step that called
+     * GitHub's search once too often failed the step, where the same call an
+     * agent made would have waited the half minute and gone on. The door notes
+     * when the limit lifts (see [PluginRateLimits]); a limit further off than
+     * the tunable's wait, or still there after its attempts, fails the step
+     * with when it lifts said, and is not settled, so a node's retry policy
+     * tries again.
+     */
+    private fun waitingOutRateLimits(what: String, call: () -> ScriptResult): ScriptResult =
+        PluginRateLimits.waitedOutFor(
+            longest = java.time.Duration.ofSeconds(tuning[Tunable.PLUGIN_RATE_LIMIT_WAIT_SECONDS].toLong()),
+            attempts = tuning[Tunable.PLUGIN_RATE_LIMIT_ATTEMPTS],
+            failed = { it is ScriptResult.Failed },
+            said = { answer, limited, left ->
+                val failed = answer as ScriptResult.Failed
+                val lifts = if (left == null) {
+                    "${limited.host} is limiting how often it is asked and did not say for how long"
+                } else {
+                    "${limited.host} is limiting how often it is asked; the limit lifts at ${limited.until} (in ${left.toSeconds() + 1} s)"
+                }
+                failed.copy(reason = "${failed.reason} ($lifts)", settled = false)
+            },
+            waited = { limited, left -> log.info("Plugin function {} met {}'s rate limit; asking again in {}s", what, limited.host, left.toSeconds() + 1) },
+            call = call,
+        )
 
     /**
      * Runs a function one of the plugins declared.
@@ -358,7 +391,7 @@ class FunctionCaller(
             is ConnectionArguments.Handed -> resolved.arguments
         }
 
-        return pluginRunner.call(
+        return waitingOutRateLimits(function.name) { pluginRunner.call(
             pluginSources.sourceOf(plugin),
             declared,
             handed,
@@ -377,6 +410,10 @@ class FunctionCaller(
             // The function bound, which is what a workflow's step waits on; see
             // the note on the tool call above.
             timeoutMillis = timeouts.forFunction(function.timeoutSeconds, workspaceId),
-        )
+        ) }
+    }
+
+    private companion object {
+        val log = org.slf4j.LoggerFactory.getLogger(FunctionCaller::class.java)
     }
 }

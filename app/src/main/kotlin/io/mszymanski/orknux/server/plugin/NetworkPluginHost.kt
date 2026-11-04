@@ -198,6 +198,8 @@ class NetworkPluginHost(
                     return refusal("the answer was larger than $mostMb MB")
                 is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Answered -> fetched
             }
+            // Handed back as it came, and remembered: the caller decides whether to wait it out.
+            PluginRateLimits.noticed(uri.host.orEmpty(), answered.status, answered.headers)
             if (wantBytes) {
                 val held = answered.bytes
 

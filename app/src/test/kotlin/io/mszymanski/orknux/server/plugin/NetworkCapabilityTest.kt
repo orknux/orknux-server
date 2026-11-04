@@ -54,6 +54,26 @@ class NetworkCapabilityTest(@Autowired val host: SlackPluginHost, @Autowired val
     }
 
     /**
+     * A rate limit is handed back as it came, and noticed on the way: GitHub's
+     * answer when its search allowance is spent, a 403 saying none remain and
+     * when they come back. The plugin still sees the 403 - the door does not
+     * decide for it - and whoever ran the plugin learns when to ask again.
+     */
+    @Test
+    fun `a rate limit is handed back and noticed, with when it lifts`() {
+        val (answered, limited) = PluginRateLimits.watching { ask("http://${where()}/limited", "GET", emptyMap<String, String>(), null) }
+
+        assertThat(answered["status"]).isEqualTo(403)
+        assertThat(limited).isNotNull()
+        assertThat(limited!!.host).isEqualTo(server.address.hostString)
+        assertThat(limited.until).isEqualTo(java.time.Instant.ofEpochSecond(RESET))
+
+        // And an ordinary answer is not a limit.
+        val (_, none) = PluginRateLimits.watching { ask("http://${where()}/hello", "GET", emptyMap<String, String>(), null) }
+        assertThat(none).isNull()
+    }
+
+    /**
      * The one refusal that matters most.
      *
      * `file:` would read the filesystem this sandbox is built to be kept off,
@@ -150,6 +170,9 @@ class NetworkCapabilityTest(@Autowired val host: SlackPluginHost, @Autowired val
 
     companion object {
 
+        /** When the stub's rate limit says it lifts, as epoch seconds. */
+        const val RESET = 1_893_456_000L
+
         /** What the last request carried, so the headers can be looked at. */
         val seen = mutableMapOf<String, String>()
 
@@ -167,6 +190,16 @@ class NetworkCapabilityTest(@Autowired val host: SlackPluginHost, @Autowired val
                     val body = """{"said":"hello"}""".toByteArray(StandardCharsets.UTF_8)
                     exchange.responseHeaders.add("Content-Type", "application/json")
                     exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.use { it.write(body) }
+                    exchange.close()
+                }
+                // GitHub's spent search allowance, as it answers it.
+                createContext("/limited") { exchange ->
+                    val body = """{"message":"API rate limit exceeded"}""".toByteArray(StandardCharsets.UTF_8)
+                    exchange.responseHeaders.add("Content-Type", "application/json")
+                    exchange.responseHeaders.add("x-ratelimit-remaining", "0")
+                    exchange.responseHeaders.add("x-ratelimit-reset", RESET.toString())
+                    exchange.sendResponseHeaders(403, body.size.toLong())
                     exchange.responseBody.use { it.write(body) }
                     exchange.close()
                 }
