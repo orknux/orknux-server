@@ -191,7 +191,9 @@ class PageBlocks(
             return Result.failure(IllegalArgumentException("that chart block's values are not numbers"))
         }
 
-        return when (val drawn = charts.svg(kind, points, title)) {
+        val across = asked.path("labelAxis").takeIf { it.isTextual }?.stringValue()
+        val up = asked.path("valueAxis").takeIf { it.isTextual }?.stringValue()
+        return when (val drawn = charts.svg(kind, points, title, across = across, up = up)) {
             is ChartRenderer.Drawing.Drawn -> Result.success(drawn.svg)
             is ChartRenderer.Drawing.Refused -> Result.failure(IllegalArgumentException(drawn.reason))
         }

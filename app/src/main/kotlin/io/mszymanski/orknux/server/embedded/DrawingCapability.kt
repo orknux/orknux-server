@@ -150,6 +150,8 @@ class ChartCapability(
                 EmbeddedParam(KIND, ValueType.STRING, "One of ${ChartRenderer.Kind.offered()}.", required = true),
                 EmbeddedParam(VALUES, ValueType.MAP, "A label and a number each.", required = true),
                 EmbeddedParam(TITLE, ValueType.STRING, "What the chart is called."),
+                EmbeddedParam(LABEL_AXIS, ValueType.STRING, "What the labels are, written along their axis, like \"Cluster\". Left out, that axis has no title."),
+                EmbeddedParam(VALUE_AXIS, ValueType.STRING, "What the numbers are, with their unit, written along their axis. Left out, that axis has no title."),
                 EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" (the default) or \"svg\". Either way the answer is a contentKey, not the picture."),
                 SHOW_PICTURE,
             ),
@@ -187,8 +189,10 @@ class ChartCapability(
             ?: return refusal("Give $VALUES as a label and a number each, like {\"Rent\":45,\"Food\":30}.")
         val kind = asked.path(KIND).takeIf { it.isTextual }?.stringValue()?.trim().orEmpty()
         val title = asked.path(TITLE).takeIf { it.isTextual }?.stringValue()?.trim()?.ifEmpty { null }
+        val across = asked.path(LABEL_AXIS).takeIf { it.isTextual }?.stringValue()
+        val up = asked.path(VALUE_AXIS).takeIf { it.isTextual }?.stringValue()
 
-        val drawn = when (val answered = charts.svg(kind.ifEmpty { "bar" }, points, title)) {
+        val drawn = when (val answered = charts.svg(kind.ifEmpty { "bar" }, points, title, across = across, up = up)) {
             is ChartRenderer.Drawing.Refused -> return refusal(answered.reason)
             is ChartRenderer.Drawing.Drawn -> answered
         }
@@ -237,6 +241,8 @@ class ChartCapability(
         const val VALUES = "values"
         const val TITLE = "title"
         const val FORMAT = "format"
+        const val LABEL_AXIS = "labelAxis"
+        const val VALUE_AXIS = "valueAxis"
     }
 }
 

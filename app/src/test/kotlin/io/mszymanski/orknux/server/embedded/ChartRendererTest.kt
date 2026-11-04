@@ -49,6 +49,110 @@ class ChartRendererTest {
         assertThat(drawn("column")).contains("Where the money went")
     }
 
+    /* ------------------------------------------------------------ its words */
+
+    private val kafka = listOf(
+        ChartRenderer.Point("Kafka 1 (+7)", 7.0),
+        ChartRenderer.Point("Kafka 2 (-35)", -35.0),
+        ChartRenderer.Point("Kafka 3 (+35)", 35.0),
+    )
+
+    /** Every piece of text the SVG draws, in order. */
+    private fun words(svg: String): List<String> =
+        Regex(">([^<>]+)<").findAll(svg).map { it.groupValues[1].trim() }.filter { it.isNotEmpty() }.toList()
+
+    /**
+     * Reported from a picture of a column chart: "label" under the axis, "value"
+     * up its side, and a legend titled "label" repeating the three names the
+     * axis already showed. The first two are this class's own column names.
+     */
+    @Test
+    fun `no chart says label or value, which are only the renderer's column names`() {
+        ChartRenderer.Kind.entries.forEach { kind ->
+            val points = if (kind.asked in setOf("pie", "donut")) spend else kafka
+            val said = words((renderer.svg(kind.asked, points, title = "Max") as ChartRenderer.Drawing.Drawn).svg)
+            assertThat(said).describedAs("${kind.asked}: $said").doesNotContain("label", "value")
+        }
+    }
+
+    @Test
+    fun `a column names each label once, along its axis, and draws no legend repeating them`() {
+        listOf("column", "bar").forEach { kind ->
+            val said = words((renderer.svg(kind, kafka) as ChartRenderer.Drawing.Drawn).svg)
+            kafka.forEach { point ->
+                assertThat(said.count { it == point.label }).describedAs("$kind: $said").isEqualTo(1)
+            }
+        }
+    }
+
+    @Test
+    fun `a pie keeps the legend that names its slices`() {
+        val said = words(drawn("pie"))
+        assertThat(said).contains("Rent", "Food", "Rest")
+    }
+
+    /** A pie had a blue grid behind it, with x and y axes running -0.4 to 0.4. */
+    @Test
+    fun `a pie draws no axes, grid or numbers round it`() {
+        listOf("pie", "donut").forEach { kind ->
+            val said = words(drawn(kind))
+            assertThat(said).describedAs("$kind: $said").doesNotContain("x", "y", "0", "0.2", "-0.2", "0.4")
+        }
+    }
+
+    @Test
+    fun `axes are titled where the caller names them, on a bar too`() {
+        listOf("column", "bar").forEach { kind ->
+            val svg = (renderer.svg(kind, kafka, across = "Cluster", up = "Samples over the limit") as ChartRenderer.Drawing.Drawn).svg
+            assertThat(words(svg)).describedAs(kind).contains("Cluster", "Samples over the limit")
+        }
+    }
+
+    /**
+     * One axis named and not the other, on a bar too. A bar is a column turned
+     * on its side, and the titles are left out by where they sit on the page
+     * while the names are given by what they measure - so a mix-up would blank
+     * the one named and print the column's own name, "label" or "value", on the
+     * other. Both titles given, as above, cannot show that.
+     */
+    @Test
+    fun `one axis named and the other not names only that one, on a bar too`() {
+        listOf("column", "bar").forEach { kind ->
+            val valueOnly = words((renderer.svg(kind, kafka, up = "Samples over the limit") as ChartRenderer.Drawing.Drawn).svg)
+            assertThat(valueOnly).describedAs("$kind, value axis named").contains("Samples over the limit").doesNotContain("label", "value")
+            val labelOnly = words((renderer.svg(kind, kafka, across = "Cluster") as ChartRenderer.Drawing.Drawn).svg)
+            assertThat(labelOnly).describedAs("$kind, label axis named").contains("Cluster").doesNotContain("label", "value")
+        }
+    }
+
+    /**
+     * How far down the picture [label] is drawn: the translation of its tick,
+     * the last one before its text that moves only down. The text itself sits
+     * in a group of its own moved only to the left of the tick.
+     */
+    private fun heightOf(svg: String, label: String): Double {
+        val at = svg.indexOf(">$label<")
+        assertThat(at).describedAs(label).isPositive()
+        val move = Regex("""translate\(\s*([-0-9.]+)[ ,]+([-0-9.]+)""").findAll(svg.substring(0, at))
+            .last { it.groupValues[1].toDouble() == 0.0 }
+        return move.groupValues[2].toDouble()
+    }
+
+    /**
+     * Reported by a model looking at its own picture: five fruits given apples
+     * first, drawn with apples at the bottom and figs at the top. A bar is a
+     * column turned on its side, and turned, the first label lies lowest.
+     */
+    @Test
+    fun `a bar chart lists its labels top down in the order given`() {
+        val fruit = listOf("Apples" to 40.0, "Pears" to 22.0, "Plums" to 15.0, "Cherries" to 31.0, "Figs" to 7.0)
+            .map { (label, value) -> ChartRenderer.Point(label, value) }
+        val svg = (renderer.svg("bar", fruit) as ChartRenderer.Drawing.Drawn).svg
+        val heights = fruit.map { heightOf(svg, it.label) }
+        assertThat(heights).describedAs(heights.toString()).isSorted()
+        assertThat(heights.toSet()).hasSize(fruit.size)
+    }
+
     /* ------------------------------------------------------- what it refuses */
 
     @Test

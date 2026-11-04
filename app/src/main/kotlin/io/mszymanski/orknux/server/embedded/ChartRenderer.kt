@@ -72,12 +72,16 @@ class ChartRenderer {
      *
      * @param width in points, which is what a page is measured in; the height
      *   follows from it so a caller cannot ask for a shape nothing reads.
+     * @param across what the labels are, written under them; none where null.
+     * @param up what the numbers are, written beside them; none where null.
      */
     fun svg(
         kind: String,
         points: List<Point>,
         title: String? = null,
         width: Int = WIDE,
+        across: String? = null,
+        up: String? = null,
     ): Drawing {
         val drawn = Kind.of(kind)
             ?: return Drawing.Refused("there is no chart kind called \"$kind\"; this draws ${Kind.offered()}")
@@ -100,7 +104,7 @@ class ChartRenderer {
             return Drawing.Refused("a ${drawn.asked} cannot show a negative value; use a bar or a column chart")
         }
 
-        val spec = specOf(drawn, points, title, width)
+        val spec = specOf(drawn, points, title, width, across?.trim()?.ifEmpty { null }, up?.trim()?.ifEmpty { null })
         return try {
             val svg = PlotSvgExportCommon.buildSvgImageFromRawSpecs(
                 spec,
@@ -129,7 +133,14 @@ class ChartRenderer {
      * builder tree on the classpath to produce something this can write in
      * twenty lines.
      */
-    private fun specOf(kind: Kind, points: List<Point>, title: String?, width: Int): MutableMap<String, Any> {
+    private fun specOf(
+        kind: Kind,
+        points: List<Point>,
+        title: String?,
+        width: Int,
+        across: String?,
+        up: String?,
+    ): MutableMap<String, Any> {
         val labels = points.map { it.label }
         val values = points.map { it.value }
 
@@ -177,19 +188,61 @@ class ChartRenderer {
             spec["coord"] = mapOf("name" to "flip")
         }
         /*
-         * No legend for the round kinds and the bars: the slice or the bar is
-         * labelled where it is drawn, and a legend repeating the same words
-         * down the side takes a third of the width for nothing.
+         * "label" and "value" are this class's own column names, and lets-plot
+         * writes a column's name as an axis title and a legend title unless
+         * told otherwise - so every chart read "label" under its axis and
+         * "value" up its side, words that describe nothing to whoever reads
+         * it. An axis has a title only where the caller gave one.
+         *
+         * A pie has no axes, so its legend is what names the slices, and it
+         * keeps one - without a title, which would be "label" again. Every
+         * other kind names its points along an axis already, so a legend there
+         * is the same words a second time, in a third of the width.
          */
+        val theme = mutableMapOf<String, Any>()
         if (kind in ROUND) {
-            spec["theme"] = mapOf("name" to "none")
+            // No axes and no grid. "none", which this used to ask for, is
+            // lets-plot's bare debugging theme - a blue grid and x and y axes
+            // from -0.5 to 0.5 round every pie - and this version has no
+            // "void", so the plain theme is taken and the axes put out.
+            theme["name"] = "minimal"
+            listOf("axis", "axis_title", "axis_text", "axis_ticks", "axis_line", "panel_grid", "legend_title")
+                .forEach { theme[it] = BLANK }
+        } else {
+            theme["legend_position"] = "none"
+            /*
+             * By what each axis measures, not by where it is drawn: a bar is a
+             * column flipped, and lets-plot's axis_title_x follows the x
+             * aesthetic across the flip, as a scale's name does. Blanked by
+             * position instead, a bar with only its value axis named lost that
+             * name and printed the column's own, "label", on the other.
+             */
+            val scales = mutableListOf<Map<String, Any>>()
+            val x = mutableMapOf<String, Any>()
+            if (across == null) theme["axis_title_x"] = BLANK else x["name"] = across
+            /*
+             * Flipped, the first label lies at the bottom: a bar chart of five
+             * fruits given apples first read figs first, upside down from the
+             * list it was drawn from. Reversed, it reads top down as given.
+             */
+            if (kind == Kind.BAR) {
+                x["discrete"] = true
+                x["reverse"] = true
+            }
+            if (x.isNotEmpty()) scales += mapOf("aesthetic" to "x") + x
+            if (up == null) theme["axis_title_y"] = BLANK else scales += mapOf("aesthetic" to "y", "name" to up)
+            if (scales.isNotEmpty()) spec["scales"] = scales
         }
+        spec["theme"] = theme
         return spec
     }
 
     private companion object {
         const val LABEL = "label"
         const val VALUE = "value"
+
+        /** How lets-plot is told to leave a part of the theme out. */
+        val BLANK = mapOf("blank" to true)
 
         /** A column of a page, in points, which is what the PDF writer will ask for. */
         const val WIDE = 480
