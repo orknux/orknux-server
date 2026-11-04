@@ -60,6 +60,10 @@ class DocumentChat(
         session?.let { held -> said.lastOrNull { it.role == "user" }?.let { sessions.userSaid(held, asker, it.content) } }
 
         val rounds = settings.chatMaxRounds()
+        // Whether anything this turn wrote to the document, and whether the model has been told it did not.
+        var wrote = false
+        var reminded = false
+        var firstAnswer: String? = null
         repeat(rounds) { round ->
             // The last round is asked without tools, so it has to say what it did.
             val last = round == rounds - 1
@@ -71,8 +75,27 @@ class DocumentChat(
                 }
 
                 is ChatCompletion.Answered -> {
-                    session?.let { sessions.agentSaid(it, SPEAKER, answer.content) }
-                    return answer.content
+                    /*
+                     * Told once, where a turn that could write changed nothing: a model asked to
+                     * translate a document read it and answered "I have rewritten it in Polish",
+                     * twice, having called nothing that writes - and the person saw the same page
+                     * and was told it was done. It is reminded what was asked and which tool
+                     * writes. Still writing nothing, its first answer is what the person reads,
+                     * with the fact under it: told the bare reminder, a model answered only
+                     * "Understood. No changes were made", which answers nobody.
+                     */
+                    if (!readOnly && !wrote && !reminded && !last) {
+                        reminded = true
+                        firstAnswer = answer.content
+                        val asked = said.lastOrNull { it.role == "user" }?.content.orEmpty()
+                        conversation += ChatTurn(role = "assistant", content = answer.content)
+                        conversation += ChatTurn(role = "user", content = unchanged(asked, offered))
+                        session?.let { sessions.note(it, "The answer came with nothing written to the document; the model was reminded once.") }
+                        return@repeat
+                    }
+                    val shown = firstAnswer?.takeIf { !wrote }?.let { it.trimEnd() + "\n\n" + NOTHING_WRITTEN } ?: answer.content
+                    session?.let { sessions.agentSaid(it, SPEAKER, shown) }
+                    return shown
                 }
 
                 is ChatCompletion.CalledTools -> {
@@ -81,7 +104,9 @@ class DocumentChat(
                         val line = session?.let { sessions.toolCalled(it, call.name, call.arguments) }
                         // Only the document tools, whatever the model asked for: they are all it was offered.
                         val got = if (offered.any { it.name == call.name }) {
-                            orknux.run(scope, call.name, call.arguments)
+                            orknux.run(scope, call.name, call.arguments).also { said ->
+                                if (call.name !in DocumentTools.READING && !said.contains("\"error\"")) wrote = true
+                            }
                         } else {
                             """{"error":"There is no tool called ${call.name} here"}"""
                         }
@@ -224,12 +249,35 @@ class DocumentChat(
         }
     }
 
+    /**
+     * What a model that answered without writing is told, once: what the person
+     * asked, in their words, that nothing was written, and which tool writes.
+     */
+    private fun unchanged(asked: String, offered: List<ToolSpec>): String {
+        val writing = offered.map { it.name }.filter { it !in DocumentTools.READING }
+        val whole = DocumentTools.WRITE.takeIf { it in writing }
+        return buildString {
+            append("Your answer was not carried out: no tool that writes was called, so the document is exactly as it was. ")
+            append("The person asked: \"").append(asked.take(ASKED_MOST)).append("\". ")
+            append("If that needs the document changed, change it now by calling ")
+            append(whole?.let { "`$it` (the whole document, as Markdown)" } ?: "one of the tools that write")
+            if (writing.size > 1) append(" or ").append(writing.filter { it != whole }.joinToString(", ") { "`$it`" })
+            append(", and answer only once it has been written. If it only asked a question, give the same answer again.")
+        }
+    }
+
     private companion object {
         /** What the editor's sessions are filed under. */
         const val SESSION_PREFIX = "document"
 
         /** The name every answer this loop writes stands under. */
         const val SPEAKER = "Document chat"
+
+        /** Under an answer that changed nothing after being reminded: what is true, whatever the answer says. */
+        /** How much of what the person asked is repeated to the model. */
+        const val ASKED_MOST = 500
+
+        const val NOTHING_WRITTEN = "_Nothing in the document was changed._"
 
         val log = LoggerFactory.getLogger(DocumentChat::class.java)
     }

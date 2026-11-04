@@ -82,9 +82,9 @@ class EditorChatFilesTest(
             """mutation { askDocument(id: $id, modelId: $modelId, messages: [
                  {role: "user", content: "Write it up", attachmentIds: [$picture, $notes, $pdf, $sheet, $theirs]}
                ]) { answer } }""",
-        ).execute().path("askDocument.answer").entity(String::class.java).isEqualTo("Done.")
+        ).execute().path("askDocument.answer").entity(String::class.java).satisfies { assertThat(it).startsWith("Done.") }
 
-        val asked = lastUserTurn(received.single())
+        val asked = lastUserTurn(received.first())
         assertThat(images(asked)).singleElement().asString().startsWith("data:image/png;base64,")
         assertThat(text(asked)).contains(
             "Write it up",
@@ -107,9 +107,9 @@ class EditorChatFilesTest(
                  {role: "assistant", content: "A red square."},
                  {role: "user", content: "Describe it in the document"}
                ]) { answer } }""",
-        ).execute().path("askDocument.answer").entity(String::class.java).isEqualTo("Done.")
+        ).execute().path("askDocument.answer").entity(String::class.java).satisfies { assertThat(it).startsWith("Done.") }
 
-        val users = mapper.readTree(received.single()).path("messages").filter { it.path("role").stringValue() == "user" }
+        val users = mapper.readTree(received.first()).path("messages").filter { it.path("role").stringValue() == "user" }
         assertThat(users).hasSize(2)
         assertThat(images(users.first())).hasSize(1)
     }

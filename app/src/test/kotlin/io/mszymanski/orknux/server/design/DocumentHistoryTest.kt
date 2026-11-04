@@ -174,6 +174,50 @@ class DocumentHistoryTest(
         assertThat(kept(id).map { it.door }).containsExactly("CHAT", "EDITOR")
     }
 
+    /**
+     * A model asked to translate a document read it and answered that it had
+     * rewritten it, calling nothing that writes, and the person saw the same
+     * page. Told once that nothing changed, it makes the change; a turn that
+     * only answers a question is told the same and answers again, no more.
+     */
+    @Test
+    fun `an answer that changed nothing is told so once, and the change is then made`() {
+        val id = create("Spec", "Hello")
+        val modelId = model(
+            serve { _ ->
+                when (received.size) {
+                    1 -> """{"choices":[{"message":{"role":"assistant","content":"Przetłumaczyłem cały dokument."}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}"""
+                    2 -> {
+                        val arguments = mapper.writeValueAsString(mapOf("document" to id.toString(), "heading" to "Witaj", "markdown" to "Tekst."))
+                        """{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[
+                           {"id":"call_1","type":"function","function":{"name":"${DocumentTools.APPEND}","arguments":${mapper.writeValueAsString(arguments)}}}
+                         ]}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}"""
+                    }
+                    else -> """{"choices":[{"message":{"role":"assistant","content":"Gotowe."}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}"""
+                }
+            },
+        )
+        val ask = """mutation { askDocument(id: $id, modelId: $modelId, messages: [{role: "user", content: "translate the whole document"}]) { changed answer } }"""
+        graphQlTester.document(ask).execute().path("askDocument.changed").entity(Boolean::class.java).isEqualTo(true)
+        assertThat(received[1]).contains("no tool that writes was called").contains("translate the whole document").contains(DocumentTools.WRITE)
+        assertThat(documents.findById(id).get().plainText).contains("Witaj")
+        assertThat(received).hasSize(3)
+    }
+
+    @Test
+    fun `an answer that still changes nothing is shown as first given, with the fact under it`() {
+        val id = create("Spec", "Hello")
+        val modelId = model(
+            serve { _ ->
+                """{"choices":[{"message":{"role":"assistant","content":"It says hello."}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}"""
+            },
+        )
+        val ask = """mutation { askDocument(id: $id, modelId: $modelId, messages: [{role: "user", content: "what does it say?"}]) { changed answer } }"""
+        graphQlTester.document(ask).execute().path("askDocument.changed").entity(Boolean::class.java).isEqualTo(false)
+            .path("askDocument.answer").entity(String::class.java).isEqualTo("It says hello.\n\n_Nothing in the document was changed._")
+        assertThat(received).hasSize(2)
+    }
+
     @Test
     fun `a version restored is a save of its own, keeps what it replaced and is audited`() {
         val id = create("Charter", "Original")
