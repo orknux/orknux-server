@@ -26,6 +26,10 @@ class InstallationSettingsAPI(
     private val models: io.mszymanski.orknux.connector.model.ModelService,
     /** Switching the flag tools' marks puts agents back too; see SessionFlagToolMarks. */
     private val flagToolMarks: io.mszymanski.orknux.server.flag.SessionFlagToolMarks,
+    /** For the one tunable every browser needs to read; see [InstallationSettingsView.liveLetGoSeconds]. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
+    /** Asked to look again at once when Slack is switched, rather than at its next pass. */
+    private val slackListener: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.connector.connection.SlackListener>,
 ) {
 
     @QueryMapping
@@ -44,6 +48,11 @@ class InstallationSettingsAPI(
         metricsAnonymousConfigured = settings.metricsAnonymousConfigured(),
         revisionRetentionDays = settings.revisionRetentionDays(),
         revisionRetentionDaysConfigured = settings.revisionRetentionDaysConfigured(),
+        liveLetGoSeconds = tuning[io.mszymanski.orknux.server.tuning.Tunable.LIVE_LET_GO_SECONDS],
+        diagramPicturesInternal = settings.diagramPicturesInternal(),
+        diagramPicturesInternalConfigured = settings.diagramPicturesInternalConfigured(),
+        slackListening = settings.slackListening(),
+        slackListeningConfigured = settings.slackListeningConfigured(),
         executionRetentionDays = settings.executionRetentionDays(),
         executionRetentionDaysConfigured = settings.executionRetentionDaysConfigured(),
         taskSweepMinutes = settings.taskSweepMinutes(),
@@ -421,6 +430,28 @@ class InstallationSettingsAPI(
             WorkspaceAuditCategory.WORKSPACE,
             "A conversation sends up to $count reviews",
         )
+        return installationSettings()
+    }
+
+    /** Whether a diagram's picture at an address on this machine or its network is fetched for its exports. */
+    @MutationMapping
+    fun setDiagramPicturesInternal(@Argument allowed: Boolean): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setDiagramPicturesInternal(allowed, currentUser())
+        auditRecorder.record(
+            null, WorkspaceAuditCategory.WORKSPACE,
+            if (allowed) "Diagram pictures are fetched from internal addresses" else "Diagram pictures are fetched from public addresses only",
+        )
+        return installationSettings()
+    }
+
+    /** Whether this server listens to Slack; the sockets follow within a reconcile pass. */
+    @MutationMapping
+    fun setSlackListening(@Argument on: Boolean): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setSlackListening(on, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, if (on) "This server listens to Slack" else "This server stops listening to Slack")
+        slackListener.ifAvailable?.let { listener -> runCatching { listener.reconcile() } }
         return installationSettings()
     }
 
@@ -1334,6 +1365,12 @@ data class InstallationSettingsView(
     val revisionRetentionDays: Int,
     /** What a fresh installation would keep - ORKNUX_REVISION_RETENTION_DAYS. */
     val revisionRetentionDaysConfigured: Int,
+    /**
+     * How long a tab is out of sight before it lets go of its live stream.
+     * A tunable, so set under Admin -> Settings -> Limits; carried here because
+     * every browser needs it and tunables are read by administrators only.
+     */
+    val liveLetGoSeconds: Int,
     /** How long a finished run is kept, and what a fresh installation would keep. */
     val executionRetentionDays: Int,
     val executionRetentionDaysConfigured: Int,
@@ -1617,4 +1654,9 @@ data class InstallationSettingsView(
     /** The longest that wait grows to, in seconds. */
     val releaseDownloadBackoffMaxSeconds: Int,
     val releaseDownloadBackoffMaxSecondsConfigured: Int,
+    /** Whether a diagram's picture on this machine or its network is fetched for its exports, and what the file says. */
+    val diagramPicturesInternal: Boolean = true,
+    val diagramPicturesInternalConfigured: Boolean = true,
+    val slackListening: Boolean = true,
+    val slackListeningConfigured: Boolean = true,
 )

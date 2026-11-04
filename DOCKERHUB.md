@@ -145,7 +145,7 @@ request.
 | `ORKNUX_OIDC_USERNAME_CLAIM` | The claim to show as somebody's name. The subject is the fallback. | `preferred_username` | No |
 | `ORKNUX_OIDC_ROLES_CLAIM` | The claim carrying group or role membership. Keycloak and Okta say `groups`, Entra `groups` or `roles`. | `groups` | No |
 | `ORKNUX_OIDC_DISPLAY_NAME` | What the sign-in button says. | `single sign-on` | No |
-| `ORKNUX_OIDC_AUDIENCES` | Which audiences a bearer token may name, comma separated. **Read the paragraph below before upgrading an OIDC installation.** | *the client id* | **Conditional** - see below |
+| `ORKNUX_OIDC_AUDIENCES` | Audiences a bearer token may name, comma separated. **Read the paragraph below before upgrading an OIDC installation.** | *the client id* | **Conditional** - see below |
 
 **`ORKNUX_OIDC_AUDIENCES` locks scripts out**, because Keycloak and Entra do not
 write the audience an empty setting expects - a 401 on every API call while
@@ -284,7 +284,7 @@ must be signed with the release key this image carries. **On by default.**
 | `ORKNUX_CONNECTION_PROBE_TIMEOUT_SECONDS` | How long a check may take to find out whether anything is listening. | `5` | No |
 | `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses (cloud metadata) are refused unless this is on; private and loopback always reach. | `false` | No |
 | `ORKNUX_CONNECTION_ENTRA_AUTHORITY` | Where an Entra ID token is asked for; a sovereign cloud has its own. | `https://login.microsoftonline.com` | No |
-| `ORKNUX_SLACK_ENABLED` | One Socket Mode websocket per Slack connection holding an app-level token. | `true` | No |
+| `ORKNUX_SLACK_ENABLED` | Whether a new installation listens to Slack; then Admin › Settings › Slack. | `true` | No |
 | `ORKNUX_SLACK_RECONCILE_SECONDS` | How often open sockets are matched to stored connections, so a new token needs no restart. | `30` | No |
 | `ORKNUX_SLACK_RETRY_FAILED_SECONDS` | How long a connection Slack refused is left alone; a new token or Reconnect clears it. | `300` | No |
 | `ORKNUX_SLACK_QUIET_PERIOD` | How long a socket may be silent before a ping; unanswered, it is reopened. `0` is off. | `10m` | No |
@@ -308,14 +308,12 @@ Networking** match the request URL and carry every outbound HTTP call; an
 | `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's cap on one file; above the largest upload. | `-1` (none) | No |
 | `ORKNUX_UPLOAD_MAX_REQUEST_SIZE` | The cap on one upload request. | `-1` (none) | No |
 
-The tracker uses the chat's attachments.
-
 ORKNUX_CHAT_MAX_ROUNDS, ORKNUX_CHAT_RETITLE_EVERY, ORKNUX_CHAT_TITLE_SECONDS, ORKNUX_CHAT_MAX_SUBAGENTS, ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH, ORKNUX_OBJECT_MAX_DEPTH,
 ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS, ORKNUX_CHAT_COMPLETION_MAX_TOKENS, ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS, ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS, ORKNUX_CHAT_REPLY_SUGGESTIONS, ORKNUX_CHAT_REPLY_SUGGESTIONS_MAX_TOKENS,
 ORKNUX_CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS, ORKNUX_CHAT_VIDEO_MAX_MB, ORKNUX_GRAMMAR_SERVER_URL,
 ORKNUX_IMAGE_MAX_PROMPT, ORKNUX_IMAGE_DRAWS_AT_ONCE, ORKNUX_IMAGE_HARMONIZE_STRENGTH, ORKNUX_IMAGE_HARMONIZE_SIZE, ORKNUX_MUSIC_SOUNDFONT, ORKNUX_COMMAND_MARKER, ORKNUX_LDAP_GROUP_SEARCH_SUBTREE, ORKNUX_MODEL_CHECK_INITIAL_DELAY,
 ORKNUX_CONNECTION_CHECK_INITIAL_DELAY, ORKNUX_SCHEDULER_THREADS, ORKNUX_SCHEDULER_POLLING_INTERVAL,
-ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL,
+ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL, ORKNUX_DIAGRAM_PICTURES_INTERNAL,
 ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_SESSIONS_DUE_SWEEP, ORKNUX_TASK_SWEEP_ENABLED,
 ORKNUX_TASK_SWEEP_INITIAL_DELAY, ORKNUX_WATCHER_MAX_SECONDS, ORKNUX_WATCHER_MIN_INTERVAL_SECONDS,
 ORKNUX_WATCHER_MAX_PER_AGENT, ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS,

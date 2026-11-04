@@ -9,7 +9,6 @@ import com.slack.api.model.event.MessageEvent
 import com.slack.api.model.event.MessageFileShareEvent
 import jakarta.annotation.PreDestroy
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
@@ -56,7 +55,6 @@ import java.util.concurrent.atomic.AtomicReference
  * nothing short of a changed token ever closed it.
  */
 @Component
-@ConditionalOnProperty(prefix = "orknux.slack", name = ["enabled"], havingValue = "true", matchIfMissing = true)
 class SlackListener(
     private val workspaceConnections: WorkspaceConnectionRepository,
     private val events: ApplicationEventPublisher,
@@ -77,6 +75,13 @@ class SlackListener(
      * nothing says otherwise.
      */
     private val leader: ClusterLeader = ClusterLeader.alone(),
+    /**
+     * Whether to listen at all, asked on every pass: an administrator's switch
+     * on the settings screen, `orknux.slack.enabled` until one is given. It
+     * was a bean that did not exist where the property said false, so a server
+     * started without Slack could not be given it back without a restart.
+     */
+    private val listening: SlackListeningSwitch = SlackListeningSwitch { properties.enabled },
 ) {
 
     /** Open sockets by workspace connection id. */
@@ -172,6 +177,11 @@ class SlackListener(
      * would rather not wait for the timer.
      */
     fun reconcile() = synchronized(lock) {
+        // Switched off: whatever is open goes, and nothing is asked of the database.
+        if (!listening.on()) {
+            sessions.keys.toList().forEach(::close)
+            return@synchronized
+        }
         val slack = workspaceConnections.findByType(ConnectionType.SLACK)
 
         /*
@@ -856,6 +866,9 @@ class SlackListener(
         dispatcher.shutdown()
         sessions.keys.toList().forEach(::close)
     }
+
+    /** Whether this server listens to Slack now. */
+    fun listens(): Boolean = listening.on()
 
     /** Which connections are listening, for the monitoring screen and the tests. */
     fun listeningConnectionIds(): Set<Long> = sessions.keys.toSet()

@@ -61,6 +61,10 @@ object SettingNames {
 
     /** Whether a chat answer's shell blocks carry a Run button. */
     const val CHAT_RUN_COMMANDS = "chat.run.commands"
+
+    /** Whether a diagram's picture on this machine or its network is fetched for its exports. */
+    const val DIAGRAM_PICTURES_INTERNAL = "diagram.pictures.internal"
+    const val SLACK_LISTENING = "slack.listening"
     const val USAGE_TRACKING = "usage.tracking"
     const val CHAT_COMPLETION_MODEL = "chat.completion.model"
     const val SESSION_RATINGS = "session.ratings"
@@ -268,7 +272,39 @@ class InstallationSettings(
     /** Where a fresh installation starts on the cluster lease - ORKNUX_CLUSTER_LEASE_SECONDS. Issue #597. */
     @Value("\${orknux.cluster.lease-seconds:$DEFAULT_CLUSTER_LEASE_SECONDS}")
     private val clusterLeaseSecondsFile: Long = DEFAULT_CLUSTER_LEASE_SECONDS,
+    /** Where a fresh installation starts on fetching diagram pictures from its own network - ORKNUX_DIAGRAM_PICTURES_INTERNAL. */
+    @Value("\${orknux.diagram.pictures-internal:true}")
+    private val diagramPicturesInternalFile: Boolean = true,
+    /** Where a fresh installation starts on listening to Slack - ORKNUX_SLACK_ENABLED. */
+    @Value("\${orknux.slack.enabled:true}")
+    private val slackListeningFile: Boolean = true,
 ) {
+
+    /**
+     * Whether this server opens Socket Mode to the Slack connections that hold
+     * an app-level token: the screen's answer once an administrator has given
+     * one, the file's until then. It was the file's alone, so turning a test
+     * server's Slack on or off took a restart with a different environment.
+     */
+    fun slackListening(): Boolean =
+        settings.findByIdOrNull(SettingNames.SLACK_LISTENING)?.value?.toBooleanStrictOrNull() ?: slackListeningFile
+
+    fun slackListeningConfigured(): Boolean = slackListeningFile
+
+    fun setSlackListening(on: Boolean, by: String) = hold(SettingNames.SLACK_LISTENING, on, by)
+
+    /**
+     * Whether a diagram's picture at an address on this machine or its network
+     * is fetched for the diagram's exports: the screen's answer once an
+     * administrator has given one, the file's until then. See
+     * `DiagramWebPictures`, which never fetches a link-local address either way.
+     */
+    fun diagramPicturesInternal(): Boolean =
+        settings.findByIdOrNull(SettingNames.DIAGRAM_PICTURES_INTERNAL)?.value?.toBooleanStrictOrNull() ?: diagramPicturesInternalFile
+
+    fun diagramPicturesInternalConfigured(): Boolean = diagramPicturesInternalFile
+
+    fun setDiagramPicturesInternal(allowed: Boolean, by: String) = hold(SettingNames.DIAGRAM_PICTURES_INTERNAL, allowed, by)
 
     /**
      * Whether this installation has a chat at all.

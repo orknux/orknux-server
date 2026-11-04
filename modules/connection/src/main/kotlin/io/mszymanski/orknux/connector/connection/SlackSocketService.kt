@@ -18,7 +18,7 @@ enum class SlackSocketStatus {
     /** No app-level token, so it sends and does not listen. */
     NOT_LISTENING,
 
-    /** This server listens to no Slack at all - `orknux.slack.enabled` is false. */
+    /** This server listens to no Slack at all - switched off on the settings screen, or by `orknux.slack.enabled`. */
     DISABLED,
 
     /**
@@ -63,7 +63,7 @@ class SlackSocketService(
 
     /** Closes and reopens the socket everywhere, and answers how it stands here. */
     fun reconnect(connectionId: Long): SlackSocketState {
-        val here = listener.ifAvailable ?: run {
+        val here = listener.ifAvailable?.takeIf { it.listens() } ?: run {
             reconnects.request(connectionId)
             return SlackSocketState(SlackSocketStatus.DISABLED)
         }
@@ -71,5 +71,5 @@ class SlackSocketService(
     }
 
     fun stateOf(connectionId: Long): SlackSocketState =
-        listener.ifAvailable?.stateOf(connectionId) ?: SlackSocketState(SlackSocketStatus.DISABLED)
+        listener.ifAvailable?.takeIf { it.listens() }?.stateOf(connectionId) ?: SlackSocketState(SlackSocketStatus.DISABLED)
 }

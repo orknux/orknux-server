@@ -68,6 +68,32 @@ class SlackReconnectAPITest(
             .contains("Slack connection Support Slack reconnected")
     }
 
+    /**
+     * Listening is the settings screen's to switch, not only the environment's:
+     * a server started with Slack off is given it back without a restart. The
+     * connection here has no app-level token, so switched on it answers that it
+     * does not listen for want of one - and nothing dials Slack.
+     */
+    @Test
+    @WithMockUser(username = "alice", roles = ["ADMINS"])
+    fun `listening to Slack is switched on the settings screen, and the socket's state follows`() {
+        val status = { graphQlTester.document("query { workspaceConnection(id: $slackId) { slackSocket { status } } }").execute()
+            .path("workspaceConnection.slackSocket.status").entity(String::class.java).get() }
+        graphQlTester.document("query { installationSettings { slackListening slackListeningConfigured } }").execute()
+            .path("installationSettings.slackListening").entity(Boolean::class.java).isEqualTo(false)
+            .path("installationSettings.slackListeningConfigured").entity(Boolean::class.java).isEqualTo(false)
+        assertThat(status()).isEqualTo("DISABLED")
+        try {
+            graphQlTester.document("mutation { setSlackListening(on: true) { slackListening } }").execute()
+                .path("setSlackListening.slackListening").entity(Boolean::class.java).isEqualTo(true)
+            assertThat(status()).isEqualTo("NOT_LISTENING")
+            assertThat(audit.findAll().map { it.message }).contains("This server listens to Slack")
+        } finally {
+            graphQlTester.document("mutation { setSlackListening(on: false) { slackListening } }").execute()
+        }
+        assertThat(status()).isEqualTo("DISABLED")
+    }
+
     @Test
     @WithMockUser(username = "alice", roles = ["ADMINS"])
     fun `the connection answers its socket's state, and only a Slack one has one`() {
