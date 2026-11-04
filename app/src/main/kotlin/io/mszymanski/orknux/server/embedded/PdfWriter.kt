@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.embedded
 
+import com.openhtmltopdf.outputdevice.helper.BaseRendererBuilder.FontStyle
 import com.openhtmltopdf.outputdevice.helper.ExternalResourceControlPriority
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder
 import com.openhtmltopdf.svgsupport.BatikSVGDrawer
@@ -7,6 +8,7 @@ import org.jsoup.Jsoup
 import org.jsoup.helper.W3CDom
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
 /**
@@ -26,9 +28,20 @@ import java.io.ByteArrayOutputStream
  * before the appendix - and every one of those was silently nothing.
  *
  * openhtmltopdf lays out real CSS 2.1 into the PDFBox document this build
- * already carried for reading them. Tables work. Page breaks work. Fonts come
- * from the JVM rather than from a base64 subset compiled into a bundle, so the
- * alphabets that used to come back blank come back.
+ * already carried for reading them. Tables work. Page breaks work.
+ *
+ * ## Fonts are the jar's own
+ *
+ * Liberation Sans and Mono, under `fonts/`, embedded in every document. Left
+ * to itself openhtmltopdf uses the fourteen fonts every PDF reader has built
+ * in, which hold Western European letters and nothing else, and draws `#` for
+ * the rest - a Polish report came back as "bie##cego" and "na#o#on#", every
+ * ą, ę, ł, ś, ż, ź, ć and ń gone while ó survived. A font of the machine's is
+ * no answer, since the image carries none and a document should not depend on
+ * which machine made it. So the bundled faces are registered under the names
+ * a page is likely to ask for as well as their own - Arial and Helvetica,
+ * Times, Courier, and the generic families - because any of those not
+ * registered is answered by a built-in font, with the same `#` in it.
  *
  * ## The page is prepared before it is laid out
  *
@@ -88,13 +101,16 @@ class PdfWriter(private val blocks: PageBlocks) {
             val made = ByteArrayOutputStream()
             PdfRendererBuilder()
                 .useFastMode()
+                .also { builder -> FACES.forEach { face -> face.registerOn(builder) } }
                 /*
                  * Batik draws the inline SVG the diagrams and charts became.
                  * Without it they lay out as empty boxes - which is the failure
                  * that looks like success, since the document is produced and
                  * the drawing is simply absent.
                  */
-                .useSVGDrawer(BatikSVGDrawer())
+                // Pictures inside a drawing are data addresses, and only those are let through:
+                // by default each was refused as a fetch, and the whole drawing with it.
+                .useSVGDrawer(BatikSVGDrawer(BatikSVGDrawer.SvgScriptMode.SECURE, setOf("data")))
                 /*
                  * Nothing is fetched. Every picture is already a data URI by
                  * the time this runs, so a reference to anywhere else is a page
@@ -150,7 +166,46 @@ class PdfWriter(private val blocks: PageBlocks) {
         return page.outerHtml()
     }
 
+    /** One bundled font file, and every family name a page may reach it by. */
+    private class Face(file: String, val weight: Int, val style: FontStyle, val names: List<String>) {
+        // Read once: the same bytes go into every document, a few hundred kilobytes each.
+        private val bytes: ByteArray = requireNotNull(PdfWriter::class.java.getResourceAsStream("/fonts/$file")) {
+            "The font $file is missing from the jar"
+        }.use { it.readBytes() }
+
+        fun registerOn(builder: PdfRendererBuilder) = names.forEach { name ->
+            // Subset: a document carries only the letters it uses, not the whole face.
+            builder.useFont({ ByteArrayInputStream(bytes) }, name, weight, style, true)
+        }
+    }
+
     private companion object {
+        /**
+         * What a page's `font-family` may say and mean an ordinary sans-serif
+         * face. With the spellings openhtmltopdf turns the generic keywords
+         * into before it looks one up - `sans-serif` is asked for as
+         * `SansSerif`, `serif` as `Serif` and `monospace` as `Monospaced` - so
+         * registering only the keyword registers a name nothing asks for.
+         */
+        val SANS = listOf(
+            "Liberation Sans", "sans-serif", "SansSerif", "serif", "Serif", "Dialog",
+            "Arial", "Helvetica", "Times", "Times New Roman", "system-ui",
+        )
+
+        /** And a fixed-width one. */
+        val MONO = listOf("Liberation Mono", "monospace", "Monospaced", "DialogInput", "Courier", "Courier New", "Consolas", "Menlo")
+
+        val FACES by lazy {
+            listOf(
+                Face("LiberationSans-Regular.ttf", 400, FontStyle.NORMAL, SANS),
+                Face("LiberationSans-Bold.ttf", 700, FontStyle.NORMAL, SANS),
+                Face("LiberationSans-Italic.ttf", 400, FontStyle.ITALIC, SANS),
+                Face("LiberationSans-BoldItalic.ttf", 700, FontStyle.ITALIC, SANS),
+                Face("LiberationMono-Regular.ttf", 400, FontStyle.NORMAL, MONO),
+                Face("LiberationMono-Bold.ttf", 700, FontStyle.NORMAL, MONO),
+            )
+        }
+
         /** Past this it is a book, and the layout will take minutes over it. */
         const val MOST_CHARS = 2_000_000
 
@@ -164,7 +219,7 @@ class PdfWriter(private val blocks: PageBlocks) {
          */
         val HOUSE = """
             @page { size: A4; margin: 18mm 16mm; }
-            body { font-family: sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1a1a1a; }
+            body { font-family: "Liberation Sans", sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1a1a1a; }
             h1, h2, h3, h4 { line-height: 1.25; page-break-after: avoid; }
             h1 { font-size: 20pt; margin: 0 0 12pt; }
             h2 { font-size: 15pt; margin: 18pt 0 8pt; }
@@ -174,7 +229,7 @@ class PdfWriter(private val blocks: PageBlocks) {
             table { border-collapse: collapse; width: 100%; margin: 0 0 10pt; page-break-inside: avoid; }
             th, td { border: 0.5pt solid #b9b9b9; padding: 4pt 6pt; text-align: left; vertical-align: top; }
             th { background: #f1f1f1; font-weight: 600; }
-            code, pre { font-family: monospace; font-size: 9.5pt; }
+            code, pre { font-family: "Liberation Mono", monospace; font-size: 9.5pt; }
             pre { background: #f6f6f6; padding: 6pt; page-break-inside: avoid; white-space: pre-wrap; }
             hr { border: none; border-top: 0.5pt solid #b9b9b9; margin: 12pt 0; }
             svg { max-width: 100%; page-break-inside: avoid; }

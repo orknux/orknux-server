@@ -85,6 +85,23 @@ class PdfWriterTest {
      * layout - cells arrived as one line and a reader could not tell columns
      * apart.
      */
+    /**
+     * Polish, and the rest of what is not Western European, comes out as
+     * written. A report came back as "bie##cego" and "na#o#on#": with no font
+     * registered every letter outside Latin-1 was drawn as `#`. Asked for by
+     * the names a model writes in its own stylesheet too, since each of those
+     * not registered would be answered by a built-in font with the same hole.
+     */
+    @Test
+    fun `letters outside Western Europe are drawn, whatever font the page asks for`() {
+        val said = "Zażółć gęślą jaźń. Ограничение. Ελληνικά."
+        listOf(null, "sans-serif", "serif", "monospace", "Arial, Helvetica, sans-serif", "Helvetica", "Times New Roman", "Courier New").forEach { family ->
+            val style = family?.let { """ style="font-family: $it"""" } ?: ""
+            val text = textOf(made("<p$style>$said</p><p$style><b>$said</b> <i>$said</i></p>").pdf)
+            assertThat(text).withFailMessage("font-family %s gave: %s", family, text).contains(said).doesNotContain("#")
+        }
+    }
+
     @Test
     fun `a table lays out as a table`() {
         val made = made(
