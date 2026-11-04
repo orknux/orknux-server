@@ -565,7 +565,7 @@ class WorkspaceDuplicateTest(
                 "smtpUsername", "smtpFrom", "smtpSecurity", "headers",
             ),
             io.mszymanski.orknux.connector.connection.McpServer::class.java to setOf(
-                "name", "address", "authType", "headers",
+                "name", "address", "description", "authType", "headers",
             ),
             io.mszymanski.orknux.connector.model.ModelProvider::class.java to setOf(
                 "name", "type", "endpoint", "authMethod", "apiVersion", "deploymentName", "region", "tenantId",

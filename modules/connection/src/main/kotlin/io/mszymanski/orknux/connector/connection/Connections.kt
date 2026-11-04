@@ -404,6 +404,15 @@ class McpServer(
     @Column(nullable = false, length = 1000)
     var address: String,
 
+    /**
+     * What this server is for, in a sentence: "the team's Confluence, read
+     * only". Shown under its name on the list, and told to an agent beside the
+     * server whose tools it holds - a tool named `wiki__search` says little
+     * about which wiki, or when to reach for it.
+     */
+    @Column(length = 500)
+    var description: String? = null,
+
     @Enumerated(EnumType.STRING)
     @Column(name = "auth_type", nullable = false, length = 16)
     var authType: AuthType = AuthType.NONE,

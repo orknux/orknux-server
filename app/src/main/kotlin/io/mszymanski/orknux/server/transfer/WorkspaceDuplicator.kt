@@ -766,6 +766,7 @@ class WorkspaceDuplicator(
                     workspaceId = into,
                     name = held.name,
                     address = held.address,
+                    description = held.description,
                     authType = held.authType,
                     headers = held.headers.map {
                         io.mszymanski.orknux.connector.connection.HttpHeader(it.name, it.value)

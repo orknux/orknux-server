@@ -344,7 +344,7 @@ class UserAPI(
      */
     @MutationMapping
     @Transactional
-    fun createUserToken(@Argument id: Long?, @Argument name: String, @Argument readOnly: Boolean?): NewTokenView {
+    fun createUserToken(@Argument id: Long?, @Argument name: String, @Argument readOnly: Boolean?, @Argument tools: List<String>? = null): NewTokenView {
         /*
          * Not with a token. A token that can mint tokens is one that, once
          * leaked, makes itself a replacement nobody revoking the first knows
@@ -359,8 +359,18 @@ class UserAPI(
         }
         if (held.type != UserType.INTERNAL) throw TokenNotIssuableException(held.username)
 
-        val (stored, secret) = internal.mint(held, name.trim().ifEmpty { "Token" }, readOnly = readOnly == true)
-        val access = if (stored.readOnly) " (read-only)" else ""
+        // Custom: a list of tool names, kept as given; one that names nothing is simply never offered.
+        val chosen = tools?.map { it.trim() }?.filter { it.isNotEmpty() }?.distinct()?.sorted()
+        val (stored, secret) = internal.mint(
+            held, name.trim().ifEmpty { "Token" },
+            readOnly = readOnly == true && chosen == null,
+            tools = chosen?.let { TOKEN_JSON.writeValueAsString(it) },
+        )
+        val access = when {
+            chosen != null -> " (custom: ${chosen.size} tools)"
+            stored.readOnly -> " (read-only)"
+            else -> ""
+        }
         audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Access token ${stored.name}$access created for ${held.username}")
         return NewTokenView(describe(stored), secret)
     }
@@ -394,6 +404,7 @@ class UserAPI(
         createdAt = token.createdAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         lastUsedAt = token.lastUsedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         readOnly = token.readOnly,
+        tools = token.tools?.let { held -> runCatching { TOKEN_JSON.readValue(held, Array<String>::class.java).toList() }.getOrNull() },
     )
 
     /** Resolved now rather than trusted: a role id that is not a role is a typo, not a grant. */
@@ -481,6 +492,8 @@ data class TokenView(
     val lastUsedAt: String?,
     /** Whether it may only read. */
     val readOnly: Boolean = false,
+    /** Custom: the MCP tools it may call, and no others; null for a token that is not Custom. */
+    val tools: List<String>? = null,
 )
 
 /** A token and its secret, which is returned exactly once. */
@@ -492,3 +505,6 @@ data class UserInput(
     val displayName: String?,
     val roleIds: List<Long>?,
 )
+
+/** How a Custom token's list of tools is written and read: a JSON array of names. */
+private val TOKEN_JSON = tools.jackson.databind.json.JsonMapper.builder().build()

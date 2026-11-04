@@ -60,6 +60,14 @@ class McpServerAPI(
         return servers.checkMcpServer(id)
     }
 
+    /** The settings form's Check: the saved server as the form now holds it, saving nothing. */
+    @MutationMapping
+    fun checkMcpServerChanges(@Argument id: Long, @Argument input: UpdateMcpServerInput): McpServerCheck {
+        val server = servers.mcpServer(id) ?: throw McpServerNotFoundException(id)
+        requireWorkspaceAccess(server.workspaceId)
+        return servers.checkMcpServerChanges(id, input)
+    }
+
     /** The add dialog's Test: the same check on what the form holds, saving nothing. */
     @MutationMapping
     fun checkMcpServerDraft(@Argument input: CreateMcpServerInput): McpServerCheck {

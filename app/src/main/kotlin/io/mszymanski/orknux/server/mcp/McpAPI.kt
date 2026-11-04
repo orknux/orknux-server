@@ -69,7 +69,35 @@ class McpAPI(
     private val access: WorkspaceAccess,
     private val mapper: ObjectMapper,
     private val skills: SkillTool,
+    /** Where a Custom token's own list of tools is read from. */
+    private val userTokens: io.mszymanski.orknux.server.user.AppUserTokenRepository,
+    /** The agents' tools offered here too: the ones a workspace alone can run. */
+    private val lent: McpLentTools,
 ) {
+
+    /**
+     * The tools a Custom token may call, or null for any other caller.
+     *
+     * Read and write were the only two answers a token could give, and a
+     * client wanted for one job - filing issues, say - was either kept from
+     * writing at all or handed every tool that writes. A Custom token names its
+     * tools; it is offered those and nothing else, and a call to another is
+     * refused as though the tool were not there.
+     */
+    /** Whether a Custom token chose [name]: by name, or by `<server>__*` for every tool one MCP server offers. */
+    private fun chosen(custom: Set<String>, name: String): Boolean =
+        name in custom || custom.any { it.endsWith("__*") && name.startsWith(it.removeSuffix("*")) }
+
+    /** Who is signed in, by the name a memory they save is then by. */
+    private fun signedIn(): String =
+        org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.name.orEmpty()
+
+    private fun customTools(): Set<String>? {
+        val details = org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.details
+        val tokenId = (details as? io.mszymanski.orknux.server.user.ByToken)?.tokenId ?: return null
+        val held = userTokens.findByIdOrNull(tokenId)?.tools ?: return null
+        return runCatching { mapper.readValue(held, Array<String>::class.java).toSet() }.getOrDefault(emptySet())
+    }
 
     @PostMapping("/mcp/{workspaceId}", produces = [MediaType.APPLICATION_JSON_VALUE])
     fun rpc(@PathVariable workspaceId: Long, @RequestBody body: JsonNode): CompletableFuture<ResponseEntity<Any>> {
@@ -94,7 +122,9 @@ class McpAPI(
             )
 
         // A read-only access token is offered only the tools that read. See TokenAccess.
-        val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = !io.mszymanski.orknux.server.security.TokenAccess.readOnly())
+        // A Custom one may write, but only with the tools it names.
+        val custom = customTools()
+        val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = custom != null || !io.mszymanski.orknux.server.security.TokenAccess.readOnly())
         val id = requestId
 
         /*
@@ -109,8 +139,8 @@ class McpAPI(
 
         return when (method) {
             "initialize" -> done(ok(id, initialize()))
-            "tools/list" -> done(ok(id, mapOf("tools" to tools.specs(scope).map(::described))))
-            "tools/call" -> call(scope, body.path("params")).thenApply { answered -> ok(id, answered) }
+            "tools/list" -> done(ok(id, mapOf("tools" to (tools.specs(scope) + lent.specs(workspaceId, signedIn(), scope.mayWrite)).distinctBy { it.name }.filter { custom == null || chosen(custom, it.name) }.map(::described))))
+            "tools/call" -> call(scope, body.path("params"), custom).thenApply { answered -> ok(id, answered) }
             "ping" -> done(ok(id, emptyMap<String, Any>()))
             "prompts/list" -> done(ok(id, mapOf("prompts" to offered(workspaceId).map { (name, skill) -> prompt(name, skill) })))
             "prompts/get" -> done(promptGot(id, workspaceId, body.path("params")))
@@ -217,8 +247,37 @@ class McpAPI(
      * JSON-RPC error: the protocol reserves those for the call not happening at
      * all, and a model needs to read what went wrong to try something else.
      */
-    private fun call(scope: OrknuxScope, params: JsonNode): CompletableFuture<Map<String, Any>> {
+    private fun call(scope: OrknuxScope, params: JsonNode, custom: Set<String>?): CompletableFuture<Map<String, Any>> {
         val name = params.path("name").stringValue(null).orEmpty()
+        if (custom != null && !chosen(custom, name)) {
+            return CompletableFuture.completedFuture(content("There is no tool called $name", failed = true))
+        }
+        if (!tools.handles(name)) {
+            val arguments = params.path("arguments").takeUnless { it.isMissingNode || it.isNull }
+            val answer = lent.run(scope.workspaceId, name, arguments?.let(mapper::writeValueAsString) ?: "{}", signedIn(), scope.mayWrite)
+            val read = runCatching { mapper.readTree(answer) }.getOrNull()
+            val refused = read?.has("error") == true
+            /*
+             * A drawing comes back as a picture a client can show, not as base64
+             * inside text: with no conversation to keep it in, the tool answers
+             * the bytes themselves, which a client would otherwise paste as a
+             * page of letters.
+             */
+            val picture = read?.path("picture")?.takeIf { it.isTextual }?.stringValue()
+            if (!refused && picture != null && read is tools.jackson.databind.node.ObjectNode) {
+                val rest = read.deepCopy().apply { remove("picture") }
+                return CompletableFuture.completedFuture(
+                    mapOf(
+                        "content" to listOf(
+                            mapOf("type" to "image", "data" to picture, "mimeType" to (read.path("contentType").stringValue(null) ?: "image/png")),
+                            mapOf("type" to "text", "text" to mapper.writeValueAsString(rest)),
+                        ),
+                        "isError" to false,
+                    ),
+                )
+            }
+            return CompletableFuture.completedFuture(content(answer, failed = refused))
+        }
         if (!tools.handles(name)) {
             return CompletableFuture.completedFuture(content("There is no tool called $name", failed = true))
         }

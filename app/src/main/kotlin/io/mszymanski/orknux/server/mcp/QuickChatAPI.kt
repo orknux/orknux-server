@@ -571,6 +571,7 @@ class QuickChatAPI(
     private val workspaces: WorkspaceRepository,
     private val quickChat: QuickChat,
     private val access: WorkspaceAccess,
+    private val quickChatModels: QuickChatModels,
 ) {
 
     @PostMapping("/api/workspaces/{workspaceId}/quick-chat")
@@ -580,7 +581,7 @@ class QuickChatAPI(
     ): ResponseEntity<Any> {
         val workspace = access.requireVisible(workspaceId)
 
-        val modelId = workspace.quickChatModelId
+        val modelId = quickChatModels.of(workspace)
             ?: return refuse(HttpStatus.CONFLICT, "This workspace has no quick chat model.")
 
         val turns = asked.messages

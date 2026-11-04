@@ -147,6 +147,7 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("description", { it.description }, { w, v -> w.description = v }, TEXT_OR_NULL),
     FileField("compactAfterTokens", { it.compactAfterTokens }, { w, v -> w.compactAfterTokens = v }, WHOLE_OR_NULL),
     FileField("compactionSummaryTokens", { it.compactionSummaryTokens }, { w, v -> w.compactionSummaryTokens = v }, WHOLE_OR_NULL),
+    FileField("quickChatModelAny", { it.quickChatModelAny }, { w, v -> w.quickChatModelAny = v }, YES_NO),
     FileField("quickChatMayWrite", { it.quickChatMayWrite }, { w, v -> w.quickChatMayWrite = v }, YES_NO),
     FileField("chatShowTimestamps", { it.chatShowTimestamps }, { w, v -> w.chatShowTimestamps = v }, YES_NO),
     FileField("voiceButtonHidden", { it.voiceButtonHidden }, { w, v -> w.voiceButtonHidden = v }, YES_NO),
@@ -220,6 +221,7 @@ internal val CONNECTION_FIELDS: List<FileField<WorkspaceConnection, *>> = listOf
 )
 
 internal val MCP_SERVER_FIELDS: List<FileField<McpServer, *>> = listOf(
+    FileField("description", { it.description }, { s, v -> s.description = v }, TEXT_OR_NULL),
     FileField("authType", { it.authType }, { s, v -> s.authType = v }, choice<AuthType>()),
     FileField("headers", { it.headers }, { s, v -> s.headers = v }, HEADERS),
 )

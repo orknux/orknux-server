@@ -125,6 +125,41 @@ class McpServerService(
         )
     }
 
+    /**
+     * The same check on a saved server as its settings form holds it now,
+     * changes not yet saved included: the editor's Check.
+     *
+     * It used to check what was stored. Somebody who opened a server, chose
+     * API key and pasted the key pressed Check before Save, and the server was
+     * asked with what was saved - no key, or the old one - and answered 401,
+     * while the add dialog, which checks the form, connected with the same key.
+     * A credential left untouched in the form is the stored one, as a save
+     * would leave it; nothing is saved or recorded, as for a draft.
+     */
+    fun checkMcpServerChanges(id: Long, input: UpdateMcpServerInput): McpServerCheck {
+        val stored = servers.findByIdOrNull(id) ?: throw McpServerNotFoundException(id)
+        val address = Addresses.withScheme(input.address)
+        if (address.isEmpty()) throw McpServerAddressInvalidException()
+        val own = input.secret?.trim()
+        val variable = references.bind(stored.workspaceId, input.secretVariableId, own?.ifEmpty { null })
+        val (secret, secretVariable) = when {
+            variable != null -> null to variable
+            own != null -> own.ifEmpty { null } to null
+            else -> stored.secret to stored.secretVariableId
+        }
+        return runCheck(
+            McpServer(
+                workspaceId = stored.workspaceId,
+                name = input.name.trim().ifEmpty { stored.name },
+                address = address,
+                authType = input.authType ?: stored.authType,
+                secret = secret,
+                secretVariableId = secretVariable,
+                headers = input.headers?.toHttpHeaders() ?: stored.headers.toMutableList(),
+            ),
+        )
+    }
+
     @Transactional
     fun createMcpServer(input: CreateMcpServerInput): McpServerView {
         val name = input.name.trim()
@@ -141,6 +176,7 @@ class McpServerService(
                 workspaceId = input.workspaceId,
                 name = name,
                 address = address,
+                description = input.description.described(),
                 authType = input.authType ?: AuthType.NONE,
                 secret = if (variable == null) own else null,
                 secretVariableId = variable,
@@ -165,6 +201,7 @@ class McpServerService(
 
         server.name = name
         server.address = address
+        input.description?.let { server.description = it.described() }
         input.authType?.let { server.authType = it }
 
         // A value given keeps a copy and drops any reference; a variable given
@@ -239,6 +276,8 @@ data class CreateMcpServerInput(
     val workspaceId: Long,
     val name: String,
     val address: String,
+    /** What it is for, in a sentence; blank is none. */
+    val description: String? = null,
     val authType: AuthType? = null,
     val secret: String? = null,
     /** A workspace secret to read the credential from instead of keeping a copy. */
@@ -249,6 +288,8 @@ data class CreateMcpServerInput(
 data class UpdateMcpServerInput(
     val name: String,
     val address: String,
+    /** Null leaves it as it is; blank clears it. */
+    val description: String? = null,
     val authType: AuthType? = null,
     /** Null leaves the stored credential alone; empty clears it, reference and all. */
     val secret: String? = null,
@@ -265,6 +306,7 @@ data class McpServerView(
     val workspaceId: Long,
     val name: String,
     val address: String,
+    val description: String?,
     val authType: AuthType,
     val headers: List<HttpHeaderView>,
     /** Whether the server holds a credential of its own. False for one reading a variable. */
@@ -294,6 +336,7 @@ data class McpServerView(
         workspaceId = server.workspaceId,
         name = server.name,
         address = server.address,
+        description = server.description,
         authType = server.authType,
         headers = server.headers.map { HttpHeaderView(it.name, it.value) },
         secretSet = !server.secret.isNullOrBlank(),

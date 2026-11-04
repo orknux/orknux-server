@@ -267,6 +267,16 @@ class AppUserToken(
     /** Whether it may only read; see [io.mszymanski.orknux.server.security.TokenAccess]. Chosen when it is made. */
     @Column(name = "read_only", nullable = false)
     val readOnly: Boolean = false,
+
+    /**
+     * Custom: the MCP tools it may call, by name, as a JSON array, and no
+     * others - reading and writing chosen tool by tool. Null for a token that
+     * is not Custom. Outside MCP a Custom token is held to reading, as a
+     * read-only one is: what it may change is said in tools, and GraphQL has
+     * no tools.
+     */
+    @Column(name = "tools")
+    val tools: String? = null,
 )
 
 interface AppUserTokenRepository : JpaRepository<AppUserToken, Long> {

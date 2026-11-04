@@ -159,10 +159,20 @@ class Workspace(
      * Kept apart from the companion model because the jobs are not the same one:
      * naming a chat is a single cheap completion, while this answers questions
      * about the installation and calls orknux's own tools to do it. Null means
-     * the button is not offered.
+     * [quickChatModelAny] decides.
      */
     @Column(name = "quick_chat_model_id")
     var quickChatModelId: Long? = null,
+
+    /**
+     * Whether having no quick chat model of its own means any chat model the
+     * workspace has, rather than no Ask AI button. On by default: the button
+     * sends nothing until somebody asks it something, and a workspace that had
+     * to find a setting before Ask AI appeared mostly never did. Off is None,
+     * chosen. See [io.mszymanski.orknux.server.mcp.QuickChatModels].
+     */
+    @Column(name = "quick_chat_model_any", nullable = false)
+    var quickChatModelAny: Boolean = true,
 
     /**
      * The model that suggests how a sentence typed in the chat goes on. Issue

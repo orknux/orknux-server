@@ -115,6 +115,8 @@ data class OrknuxScope(
      * saves are each a version.
      */
     val documentTurn: String? = null,
+    /** The same for a diagram editor's chat: what one turn saves keeps one version of the diagram. */
+    val diagramTurn: String? = null,
 )
 
 /**
@@ -230,6 +232,8 @@ class OrknuxTools(
     private val documentTools: DocumentTools,
     /** Searching, reading, drawing and exporting diagrams; see [DiagramTools]. */
     private val diagramTools: DiagramTools,
+    /** Listing, reading, writing and changing the workspace's skills; see [SkillTools]. */
+    private val skillTools: SkillTools,
     /** Reading and filling in sheets; see [SheetTools]. */
     private val sheetTools: SheetTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
@@ -308,7 +312,7 @@ class OrknuxTools(
 
     /** What to offer, which depends on whether this caller may start anything. */
     fun specs(scope: OrknuxScope): List<ToolSpec> =
-        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + documentTools.specs(scope) + sheetTools.specs(scope) + manualTools.specs()
+        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + skillTools.specs(scope) + documentTools.specs(scope) + sheetTools.specs(scope) + manualTools.specs()
 
     /**
      * The orknux_* tools an agent starts with hidden, which its owner turns on
@@ -1000,8 +1004,31 @@ class OrknuxTools(
      *
      * Never throws: a model that asked for something impossible is told so and
      * can try something else, which beats ending the conversation.
+     *
+     * An argument the tool does not take is said in the answer, under
+     * `ignored`, with the ones it does: left unsaid, `orknux_update_agent`
+     * handed `agents` instead of `mayAsk` answered "updated", and the model
+     * and the person behind it took that for done. Said rather than refused,
+     * since a model adds a stray field to a good call often enough that
+     * refusing would cost more calls than it saves.
      */
-    fun run(scope: OrknuxScope, name: String, arguments: String): String = try {
+    fun run(scope: OrknuxScope, name: String, arguments: String): String {
+        val answer = answered(scope, name, arguments)
+        val spec = runCatching { specs(scope).firstOrNull { it.name == name } }.getOrNull() ?: return answer
+        val asked = runCatching { mapper.readTree(arguments.ifBlank { "{}" }) }.getOrNull()?.takeIf { it.isObject } ?: return answer
+        val taken = spec.parameters.map { it.name }.toSet()
+        val unknown = asked.propertyNames().filter { it !in taken }
+        if (unknown.isEmpty()) return answer
+        val tree = runCatching { mapper.readTree(answer) }.getOrNull() as? tools.jackson.databind.node.ObjectNode ?: return answer
+        tree.put(
+            "ignored",
+            "$name does not take ${unknown.joinToString(", ")}, so nothing was done with " +
+                (if (unknown.size == 1) "it" else "them") + ". It takes: ${taken.joinToString(", ")}.",
+        )
+        return mapper.writeValueAsString(tree)
+    }
+
+    private fun answered(scope: OrknuxScope, name: String, arguments: String): String = try {
         when (name) {
             "orknux_workflows" -> workflows(scope)
             "orknux_executions" -> executions(scope, arguments)
@@ -1018,7 +1045,8 @@ class OrknuxTools(
             "orknux_function" -> function(scope, arguments)
             "orknux_tools" -> toolList(scope)
             "orknux_tool" -> tool(scope, arguments)
-            "orknux_suggest_tool_code" -> suggestTool(scope, arguments)
+            // Only where somebody is watching, as only there is it listed: elsewhere it answered "shown" with nobody to see it.
+            "orknux_suggest_tool_code" -> if (scope.watched) suggestTool(scope, arguments) else refuse("There is no tool called $name")
             /*
              * The tracker lives in its own service: writing on an issue
              * touches its comments, which are lazy, so those calls need a
@@ -1040,7 +1068,7 @@ class OrknuxTools(
             "orknux_set_issue_status" -> issueTools.setStatus(scope, arguments)
             "orknux_update_issue" -> issueTools.update(scope, arguments)
             "orknux_delete_issue" -> issueTools.delete(scope, arguments)
-            "orknux_suggest_function_code" -> suggest(scope, arguments)
+            "orknux_suggest_function_code" -> if (scope.watched) suggest(scope, arguments) else refuse("There is no tool called $name")
             "orknux_run_workflow" -> runWorkflow(scope, arguments)
             "orknux_start_task" -> startTask(scope, arguments)
             START_RESEARCH -> startResearch(scope, arguments)
@@ -1063,6 +1091,8 @@ class OrknuxTools(
                 access.actingIn(scope.workspaceId, scope.actor) { wireframeTools.run(scope, name, arguments) }
             } else if (documentTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { documentTools.run(scope, name, arguments) }
+            } else if (skillTools.handles(name)) {
+                access.actingIn(scope.workspaceId, scope.actor) { skillTools.run(scope, name, arguments) }
             } else if (diagramTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { diagramTools.run(scope, name, arguments) }
             } else if (sheetTools.handles(name)) {
@@ -1350,6 +1380,8 @@ class OrknuxTools(
                 "orknuxAccess" to view.orknuxAccess,
                 "mayAskForTools" to view.mayAskForTools,
                 "maxRounds" to view.maxRounds,
+                "maxSubagentsAtOnce" to view.maxSubagentsAtOnce,
+                "reasoningEffort" to view.reasoningEffort,
                 "chattiness" to view.chattiness.name,
                 "memoryShare" to view.memoryShare,
                 "url" to agentLink(scope.workspaceId, view.id),
@@ -1552,6 +1584,8 @@ class OrknuxTools(
                 icon = view.icon,
                 memoryShare = view.memoryShare,
                 maxRounds = view.maxRounds,
+                maxSubagentsAtOnce = view.maxSubagentsAtOnce,
+                reasoningEffort = view.reasoningEffort,
             ),
         )
     }

@@ -64,7 +64,8 @@ class InternalAuthentication(
         tokens.save(held)
         // Marked, so a door that must not be opened by a token can tell. #588.
         val signedIn = tokenFor(owner).apply { details = ByToken(requireNotNull(held.id)) }
-        if (!held.readOnly) return signedIn
+        // A Custom token is held to reading everywhere but the MCP tools it names; see AppUserToken.tools.
+        if (!held.readOnly && held.tools == null) return signedIn
         // The owner as they are, held to reading. See TokenAccess.
         return UsernamePasswordAuthenticationToken(
             signedIn.name,
@@ -81,11 +82,11 @@ class InternalAuthentication(
      * anonymous string nobody dares touch.
      */
     @Transactional
-    fun mint(user: AppUser, name: String, readOnly: Boolean = false): Pair<AppUserToken, String> {
+    fun mint(user: AppUser, name: String, readOnly: Boolean = false, tools: String? = null): Pair<AppUserToken, String> {
         val secret = "orkx_" + Base64.getUrlEncoder().withoutPadding()
             .encodeToString(ByteArray(32).also(random::nextBytes))
         val stored = tokens.save(
-            AppUserToken(userId = requireNotNull(user.id), name = name, tokenHash = hash(secret), readOnly = readOnly),
+            AppUserToken(userId = requireNotNull(user.id), name = name, tokenHash = hash(secret), readOnly = readOnly, tools = tools),
         )
         log.info("Token \"{}\" minted for {}", name, user.username)
         return stored to secret

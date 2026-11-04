@@ -43,6 +43,7 @@ class McpToolCallTest(
     @Autowired val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
     @Autowired val store: io.mszymanski.orknux.server.llm.LlmSessionStore,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val lent: io.mszymanski.orknux.server.mcp.McpLentTools,
 ) {
 
     private var workspaceId: Long = 0
@@ -87,6 +88,27 @@ class McpToolCallTest(
         // The handshake happened before anything was asked of it.
         assertThat(methods).startsWith("initialize")
         assertThat(methods).contains("tools/list", "tools/call")
+    }
+
+    /**
+     * Over Orknux's own MCP endpoint the workspace's servers are offered
+     * through, with no agent behind the call: what an agent reaches by grant,
+     * a client signed in to the workspace reaches by being there. A tool that
+     * does not say it only reads is held back from a caller that may not write.
+     */
+    @Test
+    fun `the workspace's MCP servers are offered through Orknux's own MCP, and calling one reaches it`() {
+        val address = serve()
+        mcpServer("Brave Search", address)
+
+        assertThat(lent.specs(workspaceId, "alice", mayWrite = true).map { it.name }).contains("brave_search__web_search", "brave_search__place_order")
+        // A reader gets what the server says only reads, and not the order it would place.
+        assertThat(lent.specs(workspaceId, "alice", mayWrite = false).map { it.name })
+            .contains("brave_search__web_search").doesNotContain("brave_search__place_order")
+        assertThat(lent.run(workspaceId, "brave_search__place_order", """{"items":["x"]}""", "alice", mayWrite = false)).contains("There is no tool called")
+        val answer = lent.run(workspaceId, "brave_search__web_search", """{"query":"ordilumen"}""", "alice", mayWrite = true)
+        assertThat(answer).contains("Nothing found, which is the point")
+        assertThat(methods).contains("tools/call")
     }
 
     /**

@@ -205,6 +205,85 @@ class McpServerCheckTest(
         .document("mutation { checkMcpServer(id: $id) { reachable detail tools } }")
         .execute()
 
+    /* ---------------------------------------------------- an API key */
+
+    /**
+     * Reported: on the add dialog an MCP server with an API key connected, and
+     * the same server's settings page answered 401. The page's Check asked what
+     * was saved, and the key was on the screen, not yet saved.
+     */
+    @Test
+    fun `a saved server with an API key connects on its own Check`() {
+        val address = keyed("sk-mcp-1")
+        val id = graphQlTester.document(
+            """mutation { createMcpServer(input: { workspaceId: $workspaceId, name: "Keyed", address: "$address",
+                 authType: API_KEY, secret: "sk-mcp-1" }) { id } }""",
+        ).execute().path("createMcpServer.id").entity(Long::class.java).get()
+
+        assertThat(check(id).path("checkMcpServer.reachable").entity(Boolean::class.java).get()).isTrue()
+    }
+
+    @Test
+    fun `the settings page checks the key on the screen before it is saved, and saves nothing`() {
+        val address = keyed("sk-mcp-2")
+        val id = mcpServer("Keyed", address)
+        // Saved with no key, so a check of what is stored is refused.
+        assertThat(check(id).path("checkMcpServer.reachable").entity(Boolean::class.java).get()).isFalse()
+
+        val onScreen = changes(id, """name: "Keyed", address: "$address", authType: API_KEY, secret: "sk-mcp-2"""")
+        assertThat(onScreen.path("checkMcpServerChanges.reachable").entity(Boolean::class.java).get()).isTrue()
+        val held = servers.findById(id).orElseThrow()
+        assertThat(held.secret).describedAs("nothing saved").isNull()
+    }
+
+    /** A key not touched on the page is the saved one, as a save would leave it. */
+    @Test
+    fun `an untouched key is the saved one`() {
+        val address = keyed("sk-mcp-3")
+        val id = graphQlTester.document(
+            """mutation { createMcpServer(input: { workspaceId: $workspaceId, name: "Keyed", address: "$address",
+                 authType: API_KEY, secret: "sk-mcp-3" }) { id } }""",
+        ).execute().path("createMcpServer.id").entity(Long::class.java).get()
+
+        val onScreen = changes(id, """name: "Keyed renamed", address: "$address", authType: API_KEY""")
+        assertThat(onScreen.path("checkMcpServerChanges.reachable").entity(Boolean::class.java).get()).isTrue()
+        val wrong = changes(id, """name: "Keyed", address: "$address", authType: API_KEY, secret: "sk-wrong"""")
+        assertThat(wrong.path("checkMcpServerChanges.reachable").entity(Boolean::class.java).get()).isFalse()
+    }
+
+    private fun changes(id: Long, input: String) = graphQlTester
+        .document("mutation { checkMcpServerChanges(id: $id, input: { $input }) { reachable detail tools } }")
+        .execute()
+
+    /** A stub that answers only a request carrying [key] as its Authorization, as an API-key server does. */
+    private fun keyed(key: String): String {
+        val started = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        started.createContext("/rpc") { exchange ->
+            val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            val method = Regex("\"method\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
+            val authorised = exchange.requestHeaders.getFirst("Authorization") == key
+            val answer = when {
+                !authorised -> """{"error":"unauthorized"}"""
+                method == "initialize" ->
+                    """{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"stub","version":"1"}}}"""
+                method == "tools/list" -> """{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}"""
+                else -> ""
+            }
+            val bytes = answer.toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            if (bytes.isEmpty()) {
+                exchange.sendResponseHeaders(202, -1)
+            } else {
+                exchange.sendResponseHeaders(if (authorised) 200 else 401, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            exchange.close()
+        }
+        started.start()
+        server = started
+        return "http://${started.address.hostString}:${started.address.port}/rpc"
+    }
+
     /**
      * A stub speaking the protocol, with one hole in it.
      *

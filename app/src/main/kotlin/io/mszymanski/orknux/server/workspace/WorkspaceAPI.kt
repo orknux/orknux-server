@@ -48,6 +48,7 @@ import org.springframework.transaction.annotation.Transactional
 @Controller
 class WorkspaceAPI(
     private val completionModels: io.mszymanski.orknux.server.chat.CompletionModels,
+    private val quickChatModels: io.mszymanski.orknux.server.mcp.QuickChatModels,
     private val repository: WorkspaceRepository,
     private val roles: RoleRepository,
     private val auditRecorder: WorkspaceAuditRecorder,
@@ -497,6 +498,11 @@ class WorkspaceAPI(
     fun chatMaxRoundsDefault(workspaces: List<Workspace>): List<Int> =
         installation.chatMaxRounds().let { value -> workspaces.map { value } }
 
+    /** How many asked agents an agent here may have working at once when it says nothing itself: Admin -> Settings. */
+    @BatchMapping(typeName = "Workspace")
+    fun agentMaxSubagentsAtOnceDefault(workspaces: List<Workspace>): List<Int> =
+        installation.agentMaxSubagentsAtOnce().let { value -> workspaces.map { value } }
+
     /** How many follow-up questions a research here suggests when the workspace has said nothing: Admin -> Settings. */
     @BatchMapping(typeName = "Workspace")
     fun researchFollowUpsDefault(workspaces: List<Workspace>): List<Int> =
@@ -730,19 +736,34 @@ class WorkspaceAPI(
      *
      * A chat model, unlike the two above: this one is asked questions and calls
      * orknux's own tools to answer them, so a model that only listens or only
-     * reads aloud would have nothing to do here. Null takes the button away.
+     * reads aloud would have nothing to do here. Null takes the button away;
+     * [useAny] hands the choice to whichever chat model the workspace has
+     * ([io.mszymanski.orknux.server.mcp.QuickChatModels]), which is where a new
+     * workspace starts.
      */
     @MutationMapping
     @Transactional
-    fun setWorkspaceQuickChatModel(@Argument workspaceId: Long, @Argument modelId: Long?): Workspace {
+    fun setWorkspaceQuickChatModel(
+        @Argument workspaceId: Long,
+        @Argument modelId: Long?,
+        @Argument useAny: Boolean?,
+    ): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
         access.requireAdministers(workspace)
+
+        if (useAny == true) {
+            workspace.quickChatModelId = null
+            workspace.quickChatModelAny = true
+            auditRecorder.record(workspaceId, WorkspaceAuditCategory.MODEL, "Quick chat model set to any chat model")
+            return workspace
+        }
 
         val chosen = modelId?.let { models.model(it) ?: throw ModelNotFoundForWorkspaceException(it) }
         if (chosen != null && chosen.workspaceId != workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
         if (chosen != null && chosen.kind != ModelKind.CHAT) throw ModelNotChatException(chosen.name)
 
         workspace.quickChatModelId = chosen?.id
+        workspace.quickChatModelAny = false
         auditRecorder.record(
             workspaceId,
             WorkspaceAuditCategory.MODEL,
@@ -990,6 +1011,15 @@ class WorkspaceAPI(
      * the installation's. A yes or no rather than the model, because an ordinary
      * person cannot read the installation's settings.
      */
+    /**
+     * Whether Ask AI is offered here: a model of the workspace's own, or any
+     * chat model where it is set to Any. A yes or no, so the button does not
+     * need to know how the choice was made.
+     */
+    @BatchMapping(typeName = "Workspace")
+    fun quickChatAvailable(workspaces: List<Workspace>): List<Boolean> =
+        workspaces.map { quickChatModels.of(it) != null }
+
     @BatchMapping(typeName = "Workspace")
     fun completionAvailable(workspaces: List<Workspace>): List<Boolean> =
         workspaces.map { completionModels.of(it) != null }
