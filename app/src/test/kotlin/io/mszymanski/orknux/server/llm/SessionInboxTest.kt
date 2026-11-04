@@ -84,6 +84,18 @@ class SessionInboxTest(
             .contains("first", "second")
     }
 
+    /** One message, one reader: once read it cannot be taken back, and once taken back it cannot be read. */
+    @Test
+    fun `an event is either read or taken back, never both`() {
+        val read = inbox.postArrived(session, "od razu lepiej")
+        assertThat(inbox.take(session)).hasSize(1)
+        assertThat(inbox.withdraw(session, read)).isFalse()
+
+        val takenBack = inbox.postArrived(session, "to weź też")
+        assertThat(inbox.withdraw(session, takenBack)).isTrue()
+        assertThat(inbox.take(session)).isEmpty()
+    }
+
     @Test
     fun `a reminder not yet due is pending, not read, and not announced`() {
         val later = OffsetDateTime.now().plusMinutes(10)

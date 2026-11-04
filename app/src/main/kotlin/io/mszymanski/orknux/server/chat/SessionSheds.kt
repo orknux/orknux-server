@@ -37,6 +37,7 @@ class SessionSheds(
     private val links: LinkTools,
     private val ratings: io.mszymanski.orknux.server.rating.RatingTools,
     private val flags: io.mszymanski.orknux.server.flag.SessionFlagTools,
+    private val usage: SessionUsageTools,
 ) {
 
     /**
@@ -66,6 +67,8 @@ class SessionSheds(
         ratings.shed(agent, session),
         // Flagging this conversation for the installation's administrators, kept from the person.
         flags.shed(agent, session),
+        // What the conversation has cost, as its page shows it. Last, so the tools before it keep their place.
+        usage.shed(session),
     )
 
     /**

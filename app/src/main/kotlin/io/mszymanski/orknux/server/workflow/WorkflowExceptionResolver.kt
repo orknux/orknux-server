@@ -299,6 +299,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.SleepTimesOutOfRangeException,
             /* How many other agents one may ask, set from Admin or a workspace. Issue #380. */
             is io.mszymanski.orknux.server.attachment.SubagentsOutOfRangeException,
+            /* And how many of them may be working at once, from Admin or on the agent itself. */
+            is io.mszymanski.orknux.server.attachment.SubagentsAtOnceOutOfRangeException,
             /* How many steps of one run may be running at once. Issue #285. */
             is io.mszymanski.orknux.server.attachment.StepsAtOnceOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.CallCheckSecondsOutOfRangeException,

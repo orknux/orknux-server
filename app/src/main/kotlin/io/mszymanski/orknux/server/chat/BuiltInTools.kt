@@ -302,6 +302,14 @@ class BuiltInTools(
              */
             io.mszymanski.orknux.server.flag.SessionFlagTools.FLAG,
             io.mszymanski.orknux.server.flag.SessionFlagTools.UNFLAG,
+            /*
+             * Stopping an agent it asked, and reading what the conversation has
+             * cost. Last for the reason the flags are: V648 and V649 mark them
+             * on the agents that predate them, after V636's names, and
+             * BasicToolsAlwaysTest reads the migrations in this order.
+             */
+            AgentRunTools.STOP,
+            SessionUsageTools.USAGE,
         )
 
         private val GRANTED_SET = GRANTED.toSet()

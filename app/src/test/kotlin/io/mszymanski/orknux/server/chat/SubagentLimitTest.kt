@@ -156,6 +156,24 @@ class SubagentLimitTest(
         assertThat(listed).doesNotContain("\"ask_agent\"").doesNotContain("Planner")
     }
 
+    /**
+     * And what it is lent by the conversation it is asked from. A subagent once
+     * said it could not write a scratchpad; the asker checked here, read no
+     * scratchpad tools - they come from the conversation, which this described
+     * without - and did every save itself for the rest of the day.
+     */
+    @Test
+    fun `agent_list asked from a conversation names the scratchpads the asked agent is lent`() {
+        val planner = asker()
+        val main = recorder.open(workspaceId, "chat", "planning")
+
+        val inConversation = asking.listed(planner, main)
+        val nowhere = asking.listed(planner)
+
+        assertThat(inConversation).contains("\"fromThisConversation\"").contains("\"scratchpad_write\"")
+        assertThat(nowhere).doesNotContain("\"scratchpad_write\"")
+    }
+
     /* ------------------------------------------------------- the count --- */
 
     @Test

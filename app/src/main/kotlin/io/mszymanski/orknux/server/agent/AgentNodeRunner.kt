@@ -148,7 +148,13 @@ class AgentNodeRunner(
          * another's turn waits for that turn to end and should not hold a place
          * while it does. See [SessionTurns].
          */
-        val outcome = turns.oneAtATime(sessionAhead(step, input, trigger), step.executionId, { questionOf(step, input, trigger) }) {
+        val ahead = sessionAhead(step, input, trigger)
+        val outcome = turns.oneAtATime(
+            ahead,
+            step.executionId,
+            { questionOf(step, input, trigger) },
+            delivered = { ahead != null && triedBefore(step) && sessions.heard(ahead, questionOf(step, input, trigger), runStart(step)) },
+        ) {
             bulkheads.turn({ why ->
                 throw StepFailedException(step.nodeKey, "${step.name} could not start: $why", permanent = false)
             }) { held(step, input, trigger) }
@@ -163,11 +169,32 @@ class AgentNodeRunner(
                     "Run #${outcome.executionId} was still answering in this session, so this message was handed to " +
                         "its turn and answered there",
                 )
-                // Nothing of its own to hand on, the way an agent that finished with nothing to add has none.
-                StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, ""))
+                /*
+                 * Nothing of its own to hand on, the way an agent that finished
+                 * with nothing to add has none - except what it said before it
+                 * parked, where it is a step woken from its own wait. That was
+                 * kept to go out with its answer on waking, and a step that
+                 * woke into another run's turn completed with an empty answer,
+                 * so it never reached the Slack thread at all.
+                 */
+                StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, allSaid(step, emptyList(), "")))
             }
         }
     }
+
+    /**
+     * Whether this pass is not the step's first go at its question: a retry
+     * after a failure or a restart, or a step woken after it waited.
+     */
+    private fun triedBefore(step: ExecutionStep): Boolean = step.attempts > 1 || step.agentSleeps > 0
+
+    /**
+     * When this step's run began: what [io.mszymanski.orknux.server.llm.LlmSessionRecorder.heard]
+     * counts from, so an earlier run's identical prompt is not this one's. The
+     * step's own start moves with every attempt; the run's does not.
+     */
+    private fun runStart(step: ExecutionStep): java.time.OffsetDateTime? =
+        executions.findByIdOrNull(step.executionId)?.startedAt
 
     /** The session a step will talk in, worked out before its turn so a second run can join the first. */
     private fun sessionAhead(step: ExecutionStep, input: String?, trigger: String?): Long? {
@@ -656,13 +683,34 @@ class AgentNodeRunner(
         val askedAlready = step.attempts > 1 &&
             sent?.lastOrNull()?.let { it.role == "user" && it.respondingTo == null && it.content == question } == true
 
+        /*
+         * Or asked, and the conversation has moved on since: another run's turn
+         * came in between, so the question is somewhere above rather than last.
+         * Added again at the end it read as the person writing it again - an
+         * hour-old Slack message, back as though new. What it is told instead
+         * is that this is another try at something above.
+         */
+        val askedEarlier = !askedAlready && session != null && triedBefore(step) &&
+            /*
+             * Above in what is about to be sent, not merely somewhere in the
+             * session: an attempt cut short by a restart recorded the question
+             * and the conversation started again from the log may not carry it,
+             * and told "another try at the question above" with nothing above,
+             * the model was never asked anything at all.
+             */
+            (sent.orEmpty() + remembered + recalled).any { it.role == "user" && it.content == question }
+
         val turns = buildList {
             instructed?.let { add(ChatTurn("system", it)) }
             standing?.let { add(ChatTurn("user", it)) }
             sent?.let { addAll(it) }
             addAll(remembered)
             addAll(recalled)
-            if (!askedAlready) add(ChatTurn("user", question, images = pictures))
+            when {
+                askedAlready -> Unit
+                askedEarlier -> add(ChatTurn("user", RETRIED))
+                else -> add(ChatTurn("user", question, images = pictures))
+            }
         }
 
         /*
@@ -1207,6 +1255,14 @@ class AgentNodeRunner(
     }
 
     companion object {
+        /**
+         * What a step tried again is told in place of its question, where the
+         * question is already above in the conversation. Not the question
+         * again, which reads as the person writing it again.
+         */
+        const val RETRIED = "Your answer to a message earlier in this conversation was cut short - a failure or a " +
+            "restart - and this is another try at it. The message is above; it is not new and nobody has written " +
+            "it again. Carry on with it from where you stopped. If it has been answered since, do not answer it again."
         /** What a written list of skill ids is split on. */
         val SEPARATORS = Regex("[,\\s]+")
 

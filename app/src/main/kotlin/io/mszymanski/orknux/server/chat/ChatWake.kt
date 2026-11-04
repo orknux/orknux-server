@@ -2,7 +2,6 @@ package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.server.llm.SessionEventDue
-import io.mszymanski.orknux.server.llm.SessionEventKind
 import io.mszymanski.orknux.server.llm.SessionInbox
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import org.slf4j.LoggerFactory
@@ -66,12 +65,21 @@ class ChatWake(
     fun due(event: SessionEventDue) {
         val chat = chats.findFirstByLlmSessionId(event.sessionId) ?: return
         /*
-         * A watcher on a run's conversation is the run's, even with a chat open
-         * on it. "Continue in chat" on a Slack thread's session made the chat
-         * its owner, so watchers the run's agent had set answered into that
-         * chat and never reached the thread. WatcherFollowUp takes those.
+         * A run's conversation is the run's, with a chat open on it or not:
+         * what arrives there - an agent it asked answering, a reminder, a
+         * watcher - wakes the run's agent, whose answer goes on to the run's
+         * next node. The chat answers what a person types into it, and nothing
+         * else.
+         *
+         * It used to stand back for a watcher only. "Continue in chat" on a
+         * Slack thread's session then made every answer start two turns - this
+         * one and the parked step's - which did the same work twice, doubled
+         * the rate-limit failures, and when the step's turn failed the chat's
+         * carried on and answered into a page nobody had open: the thread
+         * heard nothing for twenty minutes, until somebody asked whether it
+         * had finished. WatcherFollowUp and SessionWake take all of it now.
          */
-        if (inbox.pending(event.sessionId, SessionEventKind.WATCHER) && steps.existsBySessionId(event.sessionId)) return
+        if (steps.existsBySessionId(event.sessionId)) return
         val id = requireNotNull(chat.id)
         if (generations.answering(id) || !waking.add(id)) return
         turns.execute {

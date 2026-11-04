@@ -184,8 +184,18 @@ class BasicToolsAlwaysTest(
         const val SQLITE = "db/migration/sqlite/V280__basic_tools_always.sql"
 
         /** V600, and the migrations since that mark a built-in added later Always: flag_session and unflag_session. */
-        val POSTGRES_ALL = listOf(POSTGRES, "db/migration/postgresql/V636__session_flag.sql")
-        val SQLITE_ALL = listOf(SQLITE, "db/migration/sqlite/V316__session_flag.sql")
+        val POSTGRES_ALL = listOf(
+            POSTGRES,
+            "db/migration/postgresql/V636__session_flag.sql",
+            "db/migration/postgresql/V648__agent_stop.sql",
+            "db/migration/postgresql/V649__session_usage.sql",
+        )
+        val SQLITE_ALL = listOf(
+            SQLITE,
+            "db/migration/sqlite/V316__session_flag.sql",
+            "db/migration/sqlite/V328__agent_stop.sql",
+            "db/migration/sqlite/V329__session_usage.sql",
+        )
 
         /** Where the marking statement starts in a migration written in V600's shape. */
         const val MARKING = "WITH basic_name"

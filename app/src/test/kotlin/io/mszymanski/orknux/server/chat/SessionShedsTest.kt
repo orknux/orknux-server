@@ -151,6 +151,8 @@ class SessionShedsTest(
             // Flagging the conversation for the installation's administrators.
             io.mszymanski.orknux.server.flag.SessionFlagTools.FLAG,
             io.mszymanski.orknux.server.flag.SessionFlagTools.UNFLAG,
+            // What the conversation has cost, as its page shows it.
+            SessionUsageTools.USAGE,
         )
 
         val offered = linkedMapOf(

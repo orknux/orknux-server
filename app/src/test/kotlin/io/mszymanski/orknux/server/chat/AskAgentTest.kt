@@ -48,7 +48,13 @@ class AskAgentTest(
     @Autowired val models: io.mszymanski.orknux.connector.model.LlmModelRepository,
     @Autowired val providers: io.mszymanski.orknux.connector.model.ModelProviderRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
 ) {
+
+    /** Set, the stub holds every call open until released - a model still thinking. */
+    private var hanging = false
+    private val reached = java.util.concurrent.CountDownLatch(1)
+    private val release = java.util.concurrent.CountDownLatch(1)
 
     private var workspaceId: Long = 0
     private var otherWorkspaceId: Long = 0
@@ -77,6 +83,7 @@ class AskAgentTest(
 
     @org.junit.jupiter.api.AfterEach
     fun stop() {
+        release.countDown()
         server?.stop(0)
         server = null
     }
@@ -93,6 +100,10 @@ class AskAgentTest(
         )
         started.createContext("/chat/completions") { exchange ->
             exchange.requestBody.reader(java.nio.charset.StandardCharsets.UTF_8).use { it.readText() }
+            if (hanging) {
+                reached.countDown()
+                release.await(30, java.util.concurrent.TimeUnit.SECONDS)
+            }
             // With a thought, streamed the way a reasoning model answers: the reasoning, then the answer.
             val bytes = if (thought != null) {
                 listOf(
@@ -335,6 +346,57 @@ class AskAgentTest(
         assertThat(thinking.single().actor).isEqualTo("Librarian")
         assertThat(thinking.single().content).isEqualTo("Two policies mention a review cycle.")
         assertThat(thinking.single().millis).describedAs("settled, not left reading as still thinking").isNotNull()
+    }
+
+    /* ------------------------------------------------------- stopping one */
+
+    /**
+     * An agent stops what it asked and no longer wants. Reported from a Slack
+     * thread: the person changed the subject, and Summarizer went on for twenty
+     * minutes and then reported back into a turn about something else, because
+     * nothing the asker could do would end it.
+     */
+    @Test
+    fun `an agent stops a subagent still working, and nothing comes back from it`() {
+        hanging = true
+        val modelId = model()
+        val specialist = agent("Librarian", model = modelId)
+        val asker = agent("Support", asks = listOf(requireNotNull(specialist.id)), model = modelId)
+        val main = recorder.open(workspaceId, "chat", "stop-${System.nanoTime()}")
+        assertThat(tools.specsFor(asker).map { it.name }).contains(AgentRunTools.STOP)
+
+        asking.run(asker, """{"agent":"Librarian","question":"Read every policy there is."}""", parent = main)
+        val child = requireNotNull(sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main).single().id)
+        assertThat(reached.await(15, java.util.concurrent.TimeUnit.SECONDS)).describedAs("the model was asked").isTrue()
+        val listed = mapper.readTree(asking.asked(asker, main)).path("asks").single()
+        assertThat(listed.path("working").booleanValue()).isTrue()
+        assertThat(listed.path("session").longValue()).isEqualTo(child)
+
+        val stopped = mapper.readTree(asking.stop(asker, main, """{"session":"$child"}"""))
+        assertThat(stopped.path("stopped").values().map { it.path("session").longValue() }).containsExactly(child)
+
+        val after = mapper.readTree(asking.asked(asker, main)).path("asks").single()
+        assertThat(after.path("working").booleanValue()).isFalse()
+        assertThat(after.path("stopped").stringValue()).isEqualTo("Stopped by Support before it answered.")
+        assertThat(after.has("answer")).isFalse()
+
+        // The model answering now changes nothing: the call was hung up on, and the asker is told nothing.
+        release.countDown()
+        Thread.sleep(1500)
+        assertThat(inbox.pending(main)).describedAs("no answer left to wake the asker").isFalse()
+        assertThat(mapper.readTree(asking.stop(asker, main, "{}")).path("stopped").isEmpty).isTrue()
+    }
+
+    /** Only its own asks: a session under another conversation is not one it can name. */
+    @Test
+    fun `an agent cannot stop an ask that is not its own`() {
+        val specialist = agent("Librarian")
+        val asker = agent("Support", asks = listOf(requireNotNull(specialist.id)))
+        val mine = recorder.open(workspaceId, "chat", "mine-${System.nanoTime()}")
+        val theirs = recorder.openUnder(recorder.open(workspaceId, "chat", "theirs-${System.nanoTime()}"), "Theirs")
+
+        assertThat(said(asking.stop(asker, mine, """{"session":$theirs}"""))).contains("You asked nothing in session $theirs")
+        assertThat(said(asking.stop(asker, mine, """{"agent":"Librarian"}"""))).contains("You have not asked Librarian")
     }
 
     /* --------------------------------------------------- setting the grant */

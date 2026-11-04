@@ -644,7 +644,31 @@ interface LlmSessionEventCount {
 
 interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
 
+    /** Whether these exact words were said to the agent in this session; see [LlmSessionRecorder.heard]. */
+    fun existsBySessionIdAndKindAndContent(sessionId: Long, kind: LlmSessionEventKind, content: String): Boolean
+
+    /** The same, said no earlier than [since]: by this run, not an earlier one asking the same words. */
+    fun existsBySessionIdAndKindAndContentAndAtGreaterThanEqual(
+        sessionId: Long,
+        kind: LlmSessionEventKind,
+        content: String,
+        since: java.time.OffsetDateTime,
+    ): Boolean
+
     fun countBySessionId(sessionId: Long): Long
+
+    /** The newest line of [kind] in a session that starts with [prefix] - an ask's stop, for one. */
+    fun findFirstBySessionIdAndKindAndContentStartingWithOrderByIdDesc(
+        sessionId: Long,
+        kind: LlmSessionEventKind,
+        prefix: String,
+    ): LlmSessionEvent?
+
+    /** Whether a session holds a line of [kind] written after line [id]. */
+    fun existsBySessionIdAndKindAndIdGreaterThan(sessionId: Long, kind: LlmSessionEventKind, id: Long): Boolean
+
+    /** How many lines of one kind a session holds - the questions put to an asked agent, for one. */
+    fun countBySessionIdAndKind(sessionId: Long, kind: LlmSessionEventKind): Long
 
     /** One session's calls to these tools: what [io.mszymanski.orknux.server.flag.ConcealedTools.hiddenRows] reads. */
     fun findBySessionIdAndKindAndActorIn(sessionId: Long, kind: LlmSessionEventKind, actors: Collection<String>): List<LlmSessionEvent>

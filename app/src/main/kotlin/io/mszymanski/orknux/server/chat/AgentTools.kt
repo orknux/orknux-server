@@ -261,6 +261,8 @@ class AgentTools(
             // for is a sleep the model would eventually find a use for.
             // Nor in a conversation where it cannot wait; see [AgentRunTools.waits].
             if (canWait && BuiltInTools.granted(agent, AgentRunTools.WAIT)) add(agentTools.waitSpec())
+            // And ending what it no longer wants answered.
+            if (BuiltInTools.granted(agent, AgentRunTools.STOP)) add(agentTools.stopSpec())
         }
 
         /*
@@ -487,11 +489,13 @@ class AgentTools(
             // Told what the agent holds, so an answer names another tool only where it can be called. Issue #665.
             embedded.run(call.name, call.arguments, agent.workspaceId, sessionId) { BuiltInTools.granted(agent, it) }
         } else if (call.name == AgentRunTools.LIST) {
-            agentTools.listed(agent)
+            agentTools.listed(agent, sessionId)
         } else if (call.name == AgentRunTools.ASKS) {
             agentTools.asked(agent, sessionId)
         } else if (call.name == AgentRunTools.WAIT) {
             agentTools.waited(agent, sessionId, call.arguments)
+        } else if (call.name == AgentRunTools.STOP) {
+            agentTools.stop(agent, sessionId, call.arguments)
         } else if (agentTools.handles(call.name)) {
             /*
              * Asking another agent, checked here as well as left off the menu -

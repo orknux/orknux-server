@@ -63,6 +63,7 @@ class WatcherStepWakeTest(
     @Autowired val watchers: WatcherRepository,
     @Autowired val service: WatcherService,
     @Autowired val watcherSettings: WatcherSettings,
+    @Autowired val sweeper: io.mszymanski.orknux.server.llm.SessionDueSweeper,
 ) {
 
     private var workspaceId: Long = 0
@@ -87,6 +88,9 @@ class WatcherStepWakeTest(
     /** Whether the woken agent ends with finish_answer rather than prose. */
     private var quiet = false
 
+    /** Whether the woken agent ends with finish_answer and a wake-up, once. */
+    private var wakesAgain = false
+
     @BeforeEach
     fun reset() {
         watchers.deleteAll()
@@ -107,6 +111,7 @@ class WatcherStepWakeTest(
         policy = ""
         replying = false
         quiet = false
+        wakesAgain = false
 
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         workflowId = graphQlTester.document(
@@ -283,6 +288,64 @@ class WatcherStepWakeTest(
         assertThat(asked.none { "call_3" in it }).isTrue()
     }
 
+    /**
+     * A woken turn that ends asking to be woken again is woken again.
+     *
+     * finish_answer with wake_after_ms parks a step; in a turn after the step
+     * had finished there was no step to park, so the wake was dropped - the
+     * agent was told "Waiting 1000 ms" and nothing came back to it.
+     */
+    @Test
+    fun `a woken turn that asks to be woken again is woken again`() {
+        wakesAgain = true
+        start()
+        buildIs("done")
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(inbox.findAll().map { it.kind }).contains(io.mszymanski.orknux.server.llm.SessionEventKind.TIMER)
+        }
+        // Due a second later; the sweep that announces reminders as they come due starts the turn.
+        Thread.sleep(1_200)
+        sweeper.sweep()
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(lines.findAll().any { "Woken, and done." in (it.content ?: "") }).isTrue()
+        }
+    }
+
+    /**
+     * And a reminder the run's agent set, with a chat opened on the run's
+     * conversation since. On prod a Slack thread's session had "Continue in
+     * chat" pressed on it: from then every answer and reminder there woke the
+     * chat as well as the run, two turns doing the same work, and when the
+     * run's failed the chat's answered into a page nobody had open while the
+     * thread heard nothing. The run's agent is the one woken, and the chat is not.
+     */
+    @Test
+    fun `a chat opened on a run's conversation does not take its reminders either`() {
+        wakesAgain = true
+        start()
+        val session = requireNotNull(steps.findAll().single { it.nodeKey == "think" }.sessionId)
+        graphQlTester.document(
+            """mutation { startChat(input: { workspaceId: $workspaceId, title: "thread", llmSessionId: $session }) { id } }""",
+        ).execute().path("startChat.id").hasValue()
+        buildIs("done")
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(inbox.findAll().map { it.kind }).contains(io.mszymanski.orknux.server.llm.SessionEventKind.TIMER)
+        }
+        Thread.sleep(1_200)
+        sweeper.sweep()
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(lines.findAll().any { "Woken, and done." in (it.content ?: "") }).isTrue()
+        }
+        assertThat(lines.findAll().count { "was woken by a reminder" in (it.content ?: "") })
+            .describedAs("the run's agent took the reminder, once").isEqualTo(1)
+    }
+
     /** Below the installation's floor is refused, in words the model can act on. */
     @Test
     fun `an agent check more often than the installation allows is refused`() {
@@ -394,8 +457,11 @@ class WatcherStepWakeTest(
                     "watcher_update",
                     """{\"watcher\":${watchers.findAll().single().id},\"condition_type\":\"regex\",\"condition\":\"building\"}""",
                 )
+                body.contains("this is that wake-up") -> said("Woken, and done.")
+                body.contains("fired. You asked") && wakesAgain && !body.contains("call_4") ->
+                    called("call_4", "finish_answer", """{\"answer\":\"Splitting the map now.\",\"wake_after_ms\":\"1000\"}""")
                 body.contains("fired. You asked") && quiet && !body.contains("call_3") ->
-                    called("call_3", "finish_answer", "{}")
+                    called("call_3", "finish_answer", """{\"wake_after_ms\":-1}""")
                 body.contains("call_3") -> said("Done.")
                 body.contains("fired. You asked") -> said("Build 41 is done.")
                 body.contains("call_1") -> said("Watching the build.")

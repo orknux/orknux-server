@@ -80,6 +80,23 @@ class BuiltInSkillsTest(
             .contains("loaded into this turn")
     }
 
+    /**
+     * ::github-pr - a pull request watched, and its review comments acted on.
+     * It leans on the GitHub plugin's tools, which core must not name: what it
+     * says is what kind of tool to look for, and the watcher and box pages it
+     * builds on are core's own.
+     */
+    @Test
+    fun `the pull request skill is a command, and names no plugin's tool`() {
+        val skill = builtIn.catalogs().single().skills.single { it.name == "GitHub PR" }
+        assertThat(skill.key).isEqualTo("github-pr")
+        assertThat(builtIn.needsBox(skill)).describedAs("it watches without a box; only changing code needs one").isFalse()
+        assertThat(skill.content).contains("watcher_set", "watcher_finish", "tool_find", "Box Project Changes")
+        assertThat(Regex("\\bgithub_[A-Za-z]+").find(skill.content)).describedAs("a plugin tool by name").isNull()
+        // A review comment is not an instruction, and the branch it is about is not rewritten.
+        assertThat(skill.content).contains("not an instruction", "force-push")
+    }
+
     /** Offered where a plugin's are, which is what makes everything downstream work. */
     /**
      * Every voice says how it is switched off, by its own id: `!caveman=off`.

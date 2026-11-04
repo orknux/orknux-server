@@ -311,6 +311,8 @@ fun interface Interjections {
 @Service
 class AgentConversation(
     private val models: ModelChatClient,
+    /** What an agent's own effort is checked against before a round sends it; see [answer]. */
+    private val catalogue: io.mszymanski.orknux.connector.model.ModelService,
     private val spend: io.mszymanski.orknux.server.llm.SessionSpend,
     private val tools: AgentTools,
     /** What a turn carries and what it leaves to be found; see [ToolCeilings]. */
@@ -611,6 +613,16 @@ class AgentConversation(
         readOnly: Boolean = false,
     ): ChatCompletion {
         fun refused(why: String) = ChatCompletion.Failed(why, permanent = false).also { record(into, agent, it) }
+        /*
+         * The agent's own effort where the turn asked for none - a chat that
+         * left the composer on the default, a node without the parameter, an
+         * ask, a task. Only a word the model answering now takes: an agent
+         * moved to another model keeps its setting, and a word the new one
+         * does not take is the provider's default rather than a refusal.
+         */
+        @Suppress("NAME_SHADOWING")
+        val reasoningEffort = reasoningEffort
+            ?: agent.reasoningEffort?.let { own -> runCatching { catalogue.heldReasoningEffort(modelId, own) }.getOrNull() }
         val run = {
             bulkheads.heapRefusal()?.let { refused(it) }
                 ?: held(
@@ -899,10 +911,24 @@ class AgentConversation(
         }
 
         val conversation = told.toMutableList()
-        // What arrived while the session was not running - the answer that woke
-        // it, a timer that came due - is the first thing the model reads.
+        /*
+         * What arrived while the session was not running - the answer that woke
+         * it, a timer that came due - is read before the message this turn
+         * answers, not after it. It came first; and the last thing in the
+         * prompt is what a model takes the turn to be about. Appended after,
+         * a subagent's answer to a question from twenty minutes earlier sat
+         * under the person's new Slack message reading as the reply to it.
+         * A turn that ends in something else - a tool result - has no such
+         * message, and they go at the end as before.
+         */
         into?.let { session ->
-            arrivals(session).forEach { arrived -> conversation += ChatTurn(role = "user", content = arrived) }
+            val arrived = arrivals(session).map { ChatTurn(role = "user", content = it) }
+            val last = conversation.lastIndex
+            if (arrived.isNotEmpty() && last >= 0 && conversation[last].role == "user") {
+                conversation.addAll(last, arrived)
+            } else {
+                conversation += arrived
+            }
         }
         // Then what changed since the frame last said so: a grant just accepted is answered above, and made usable here.
         sinceTurn?.let { conversation += it }

@@ -45,8 +45,22 @@ class SessionTurns(private val inbox: SessionInbox) {
      * Runs [turn] as the session's only turn, or hands [question] to the one
      * already running. A run with no session is never held: there is nothing
      * for two of them to share.
+     *
+     * Handed once. Where [delivered] says the session already holds the
+     * question - this is the step's retry, or its resume after a restart, and
+     * an earlier attempt got it there - it is not left in the inbox again: the
+     * running turn has it above, and reading it a second time it was taken for
+     * the person writing again. In a Slack thread an hour-old message came back
+     * mid-turn that way, after the step's first attempt failed on a rate limit
+     * and its retry came round while another run was answering.
      */
-    fun <T> oneAtATime(session: Long?, executionId: Long, question: () -> String, turn: () -> T): Outcome<T> {
+    fun <T> oneAtATime(
+        session: Long?,
+        executionId: Long,
+        question: () -> String,
+        delivered: () -> Boolean = { false },
+        turn: () -> T,
+    ): Outcome<T> {
         if (session == null) return Outcome.Ran(turn())
         while (true) {
             val mine = Turn(executionId)
@@ -58,6 +72,10 @@ class SessionTurns(private val inbox: SessionInbox) {
                     running.remove(session, mine)
                     mine.ended.complete(Unit)
                 }
+            }
+            if (delivered()) {
+                other.ended.join()
+                return Outcome.Joined(other.executionId)
             }
             val left = inbox.postArrived(session, question())
             other.ended.join()

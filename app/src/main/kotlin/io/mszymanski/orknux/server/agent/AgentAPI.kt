@@ -14,8 +14,11 @@ import io.mszymanski.orknux.server.llm.ResolvedMemoryBudget
 import io.mszymanski.orknux.server.llm.SessionMemoryBudgets
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.attachment.ChatRoundsOutOfRangeException
+import io.mszymanski.orknux.server.attachment.MAX_AT_ONCE
 import io.mszymanski.orknux.server.attachment.MAX_CHAT_ROUNDS
+import io.mszymanski.orknux.server.attachment.MIN_AT_ONCE
 import io.mszymanski.orknux.server.attachment.MIN_CHAT_ROUNDS
+import io.mszymanski.orknux.server.attachment.SubagentsAtOnceOutOfRangeException
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.server.workflow.StepPictureTools
@@ -454,6 +457,21 @@ class AgentAPI(
             if (it !in MIN_CHAT_ROUNDS..MAX_CHAT_ROUNDS) throw ChatRoundsOutOfRangeException(it)
         }
         agent.maxRounds = input.maxRounds
+        // The same rule again: sent on every save, null following Admin -> Settings.
+        val atOnceWas = agent.maxSubagentsAtOnce
+        input.maxSubagentsAtOnce?.let {
+            if (it !in MIN_AT_ONCE..MAX_AT_ONCE) throw SubagentsAtOnceOutOfRangeException(it)
+        }
+        agent.maxSubagentsAtOnce = input.maxSubagentsAtOnce
+        /*
+         * And how hard its model thinks: sent on every save, null the
+         * provider's default. Checked against the model it answers with, as a
+         * chat's own effort is, so a word its provider does not take is refused
+         * here rather than by the provider on the first turn.
+         */
+        val effortWas = agent.reasoningEffort
+        val effort = input.reasoningEffort?.trim()?.ifEmpty { null }
+        agent.reasoningEffort = if (effort == null) null else agent.modelId?.let { models.heldReasoningEffort(it, effort) } ?: effort
 
         if (input.mcpServers != null) {
             // Keep the given order, dropping blanks and repeats.
@@ -723,6 +741,22 @@ class AgentAPI(
                 WorkspaceAuditCategory.AGENT,
                 agent.maxRounds?.let { "Agent ${agent.name} given $it rounds of tool calls" }
                     ?: "Agent ${agent.name} rounds reset to the installation's",
+            )
+        }
+        if (agent.reasoningEffort != effortWas) {
+            auditRecorder.record(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                agent.reasoningEffort?.let { "Agent ${agent.name} reasoning effort set to $it" }
+                    ?: "Agent ${agent.name} reasoning effort reset to the model's default",
+            )
+        }
+        if (agent.maxSubagentsAtOnce != atOnceWas) {
+            auditRecorder.record(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                agent.maxSubagentsAtOnce?.let { "Agent ${agent.name} may have $it asked agents working at once" }
+                    ?: "Agent ${agent.name} asked agents at once reset to the installation's",
             )
         }
         if (agent.memoryShare != previousShare) {
@@ -1068,6 +1102,17 @@ data class UpdateAgentInput(
      * the installation says" rather than "leave it alone".
      */
     val maxRounds: Int? = null,
+    /**
+     * How many of the agents it asked may be working at once in one of its
+     * conversations. Sent whenever the form saves, like the rounds, so null is
+     * "whatever the installation says".
+     */
+    val maxSubagentsAtOnce: Int? = null,
+    /**
+     * How hard its model thinks unless a chat or a node asks otherwise. Sent
+     * whenever the form saves, like the rounds, so null is the provider's default.
+     */
+    val reasoningEffort: String? = null,
     /** How much it says while it works; null leaves it alone. */
     val chattiness: Chattiness? = null,
 )
@@ -1119,6 +1164,10 @@ data class AgentView(
     val memoryShare: Int?,
     /** Its own ceiling on tool rounds; null follows the installation's. */
     val maxRounds: Int?,
+    /** Its own ceiling on asked agents working at once; null follows the installation's. */
+    val maxSubagentsAtOnce: Int?,
+    /** How hard its model thinks unless a chat or a node asks otherwise; null is the provider's default. */
+    val reasoningEffort: String?,
     /** How much it says while it works. */
     val chattiness: Chattiness,
 ) {
@@ -1166,6 +1215,8 @@ data class AgentView(
         icon = agent.icon,
         memoryShare = agent.memoryShare,
         maxRounds = agent.maxRounds,
+        maxSubagentsAtOnce = agent.maxSubagentsAtOnce,
+        reasoningEffort = agent.reasoningEffort,
         chattiness = agent.chattiness,
     )
 }
@@ -1296,14 +1347,16 @@ class AgentCatalogNotLentException(val grant: String) :
 /**
  * Five and a hundred tools.
  *
- * The floor is five because an agent that may carry fewer cannot hold
- * `find_tools` and the handful it uses constantly at the same time - it would
- * spend every round searching for what it just gave up. The ceiling is a
+ * The floor is nought: an agent that carries nothing up front holds only the
+ * tools that search and run the rest, and finds each one it needs. It was
+ * five, on the view that fewer means a round spent searching for what it just
+ * gave up - a cost the person setting it may well choose, to keep a long tool
+ * list out of every request. The ceiling is a
  * hundred because past it the number is the provider's problem rather than a
  * judgement anybody is making: 128 is where a request fails, and a ceiling
  * above that is a number that cannot be honoured.
  */
-const val MIN_AGENT_TOOLS = 5
+const val MIN_AGENT_TOOLS = 0
 // As high as a provider's own number may be set; the provider's number still caps what one request carries.
 const val MAX_AGENT_TOOLS = 1024
 

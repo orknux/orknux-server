@@ -218,6 +218,33 @@ class ChatReasoningEffortTest(
         assertThat(received.map(::completionsEffort)).containsOnly("medium")
     }
 
+    /**
+     * The agent's own effort, set on its page since V653: what every turn of
+     * that agent sends unless the turn asks for its own - a chat's composer, a
+     * node's parameter. Checked against its model when it is saved.
+     */
+    @Test
+    fun `an agent's own effort is sent unless the chat chose one, and a word its model does not take is refused`() {
+        val modelId = azureModel(serveResponses())
+        val agentId = agent("Reviewer", modelId)
+        graphQlTester.document("""mutation { updateAgent(id: $agentId, input: { name: "Reviewer", modelId: $modelId, reasoningEffort: "high" }) { reasoningEffort } }""")
+            .execute().errors().verify()
+            .path("updateAgent.reasoningEffort").entity(String::class.java).isEqualTo("high")
+        val chatId = chat(agentId)
+
+        assertThat(effortSent(send(chatId))).isEqualTo("high")
+
+        graphQlTester.document("""mutation { setChatReasoningEffort(id: $chatId, effort: "low") { id } }""")
+            .execute().errors().verify()
+        assertThat(effortSent(send(chatId))).describedAs("the chat's own wins").isEqualTo("low")
+
+        graphQlTester.document("""mutation { updateAgent(id: $agentId, input: { name: "Reviewer", modelId: $modelId, reasoningEffort: "enormous" }) { id } }""")
+            .execute().errors().satisfy { errors ->
+                assertThat(errors.first().extensions?.get("code")).isEqualTo("ModelParameterValueInvalid")
+            }
+        assertThat(requireNotNull(agents.findByIdOrNull(agentId)).reasoningEffort).isEqualTo("high")
+    }
+
     @Test
     fun `a model that takes no effort offers none and refuses one`() {
         val modelId = anthropicModel()

@@ -105,6 +105,29 @@ class Agent(
     @Column(name = "max_rounds")
     var maxRounds: Int? = null,
 
+    /**
+     * How many of the agents this one asked may be working at once, in one of
+     * its conversations; null is Admin -> Settings' number.
+     *
+     * On the agent because the limit that matters is usually its model's
+     * deployment, not the installation: a Slack bot on an Azure deployment with
+     * a capacity of 200 started five audits at once, every one of them failed
+     * on the token rate limit, and the people in the thread had to tell it to
+     * work one at a time - which it then broke by mistake an hour later. An
+     * ask past the number waits for one to finish, and the agent is told so.
+     */
+    @Column(name = "max_subagents_at_once")
+    var maxSubagentsAtOnce: Int? = null,
+
+    /**
+     * How hard its model thinks - `low`, `medium`, `high` or what its provider
+     * takes - unless a chat or a workflow node asks for its own; null is the
+     * provider's default. On the agent since V653, which carried each model's
+     * over: on the model, every agent sharing a deployment shared it.
+     */
+    @Column(name = "reasoning_effort", length = 16)
+    var reasoningEffort: String? = null,
+
     /** How much it says while it works; see [Chattiness]. A workflow node may override it. */
     @Enumerated(EnumType.STRING)
     @Column(name = "chattiness", nullable = false, length = 16)

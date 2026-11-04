@@ -9,6 +9,11 @@ import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentRepository
+import io.mszymanski.orknux.workflow.execution.RetryPolicy
+import io.mszymanski.orknux.workflow.execution.retryPolicy
+import java.time.Duration
+import java.time.Instant
+import kotlin.random.Random
 import org.springframework.beans.factory.ObjectProvider
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -149,6 +154,13 @@ class AgentRunTools(
     private val running = java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.Future<*>>()
 
     /**
+     * What ends each running ask's model call, by the session it runs in, for
+     * [stop]. An interrupt alone does not end a call blocked reading a stream;
+     * see [io.mszymanski.orknux.connector.model.Hangup].
+     */
+    private val hangups = java.util.concurrent.ConcurrentHashMap<Long, io.mszymanski.orknux.connector.model.Hangup>()
+
+    /**
      * How many of one conversation's asks may be working at once. Issue #461.
      *
      * A permit per asking conversation rather than a global pool: a global one
@@ -170,10 +182,52 @@ class AgentRunTools(
      * written inside the map's `compute`, so the count and the removal cannot
      * race an ask arriving for the same conversation.
      */
-    private class Gate(permits: Int) {
-        val permits = java.util.concurrent.Semaphore(permits)
+    private class Gate(val size: Int) {
+        val permits = java.util.concurrent.Semaphore(size)
         var users = 0
     }
+
+    /**
+     * Asks started and not yet given a permit: waiting for one of the asker's
+     * others to finish. Kept apart so `agent_asks` and the ask's own answer can
+     * say "waiting" rather than "working" - an agent told five asks were working
+     * when two were queued believed it had five running, and an agent that had
+     * been told to run one at a time could not see that it was.
+     */
+    private val waitingForSlot = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+
+    /**
+     * How many of [agent]'s asks may be working at once in one conversation: its
+     * own number where it has one, Admin -> Settings otherwise.
+     */
+    fun atOnceFor(agent: Agent): Int = agent.maxSubagentsAtOnce ?: installation.agentMaxSubagentsAtOnce()
+
+    /**
+     * The same for the conversation [parent], read off the agent whose session
+     * it is - for a subagent woken by its own timer, where nobody is asking.
+     */
+    private fun atOnceIn(parent: Long): Int {
+        val asker = held.findByIdOrNull(parent)?.agentDetails?.let { details ->
+            runCatching { mapper.readTree(details).path("agentId").takeIf { it.isNumber }?.asLong() }.getOrNull()
+        }?.let { agents.findByIdOrNull(it) }
+        return asker?.let(::atOnceFor) ?: installation.agentMaxSubagentsAtOnce()
+    }
+
+    /**
+     * Whether an ask started in [conversation] now would wait for a permit. Read
+     * before it is started, so it can be told; a guess, because another ask may
+     * finish in between - in which case it starts at once and was only told it
+     * might wait.
+     */
+    private fun wouldWait(conversation: Long, limit: Int): Boolean {
+        val gate = atOnce[conversation] ?: return limit < 1
+        return gate.users >= gate.size
+    }
+
+    /** What an ask's answer adds where it has to wait its turn. */
+    private fun waitNote(limit: Int): String =
+        " It is waiting its turn: you already have $limit asked agent${if (limit == 1) "" else "s"} working, " +
+            "which is as many as you may have at once, so it starts when one of them finishes."
 
     /** An ask of this conversation is over; the last one out takes the gate with it. */
     private fun letGo(conversation: Long) {
@@ -229,7 +283,11 @@ class AgentRunTools(
                 "file, a list of a hundred things - say in the question that it should be written " +
                 "into a scratchpad, and the answer will name the pad: you then read and " +
                 "edit that pad yourself instead of it being typed back at you. To see what each " +
-                "of them can do - its tools, skills and connections - call " + LIST + " first. You may ask: " +
+                "of them can do - its tools, skills and connections - call " + LIST + " first. " +
+                atOnceFor(agent).let { n ->
+                    if (n == 1) "Only one of them works at a time: a second ask waits until the first has answered. "
+                    else "At most $n of them work at once; an ask past that waits until one has answered. "
+                } + "You may ask: " +
                 named.joinToString(", ") { "${it.name} (${it.description ?: "no description"})" },
             parameters = listOf(
                 ToolParameterSpec(
@@ -247,8 +305,9 @@ class AgentRunTools(
                     name = FRESH,
                     description = "Asking an agent you have already asked in this conversation continues the " +
                         "conversation you had with it, so it remembers what it was asked and what it answered - " +
-                        "ask a follow-up as one. true starts a new conversation with it instead, for an " +
-                        "unrelated question.",
+                        "ask a follow-up as one. true starts a new conversation with it instead: for an " +
+                        "unrelated question, or a new job - the next repository, the next document - where what " +
+                        "it did before is only something it would have to read again on every round.",
                     required = false,
                     schema = mapOf("type" to "boolean"),
                 ),
@@ -269,7 +328,10 @@ class AgentRunTools(
         readOnly = true,
         description = "Lists the agents you may ask, with what each can do: its description, model, " +
             "tools, skills, memories and connections. Call it before asking, to pick the agent that " +
-            "holds the tool the work needs, rather than asking one and hearing it cannot.",
+            "holds the tool the work needs, rather than asking one and hearing it cannot. Under " +
+            "fromThisConversation are the tools it is lent when you ask it from here - this " +
+            "conversation's scratchpads among them. An agent that says it cannot do something these " +
+            "list has not tried: tell it which tool to use, rather than doing its work yourself.",
         parameters = emptyList(),
     )
 
@@ -284,16 +346,28 @@ class AgentRunTools(
      * it would be asked, so with no agents of its own, and without its prompt,
      * which is its instructions and not the asker's business.
      */
-    fun listed(agent: Agent): String {
+    fun listed(agent: Agent, parent: Long? = null): String {
         val described = granted(agent).map { asked ->
-            val setup = mapper.readTree(details.getObject().snapshot(without(asked), null, null))
+            val sub = without(asked)
+            val setup = mapper.readTree(details.getObject().snapshot(sub, null, null))
             val tools = (setup.path("tools").toList().map { it.stringValue() } + setup.path("findable").toList().map { it.stringValue() })
                 .distinct().sorted()
+            /*
+             * And what it is lent by the conversation it answers in - the
+             * scratchpads above all, which are this conversation's. Described
+             * without a conversation it held none of them, so when a subagent
+             * claimed it could not write a pad, the asker looked here, read
+             * "no tools", and saved every answer itself for the rest of the
+             * day. Only the specs are read; nothing is opened or written.
+             */
+            val lent = parent?.let { handing(sub, it)?.specs()?.map { spec -> spec.name } }.orEmpty()
+                .filterNot { it in tools }.distinct().sorted()
             linkedMapOf(
                 "name" to asked.name,
                 "description" to asked.description,
                 "model" to setup.path("model").takeIf { it.isTextual }?.stringValue(),
                 "tools" to tools,
+                "fromThisConversation" to lent,
                 "skills" to setup.path("skills").toList().map { it.stringValue() },
                 "memory" to setup.path("memory").toList().map { it.stringValue() },
                 "connections" to setup.path("connections").toList().map { it.stringValue() },
@@ -334,7 +408,90 @@ class AgentRunTools(
         ),
     )
 
-    fun handles(name: String): Boolean = name == ASK || name == ASKS || name == WAIT || name == LIST
+    /** What `agent_stop` is, to a model. */
+    fun stopSpec(): ToolSpec = ToolSpec(
+        name = STOP,
+        description = "Stops agents you asked that are still working, when their answer is no longer wanted: " +
+            "the person changed the question, you found the answer another way, or one is taking far too long. " +
+            "Give the session " + ASKS + " lists for one ask, or an agent's name for every ask of it still " +
+            "working; give neither to stop all of them. A stopped agent sends nothing back, and what it did " +
+            "before it was stopped stays done.",
+        parameters = listOf(
+            ToolParameterSpec(
+                SESSION,
+                "The session of one ask, as " + ASKS + " gives it.",
+                required = false,
+            ),
+            ToolParameterSpec(
+                AGENT,
+                "An agent's name, to stop every ask of it that is still working.",
+                required = false,
+            ),
+        ),
+    )
+
+    /**
+     * Stops what this conversation asked and no longer wants.
+     *
+     * An asked agent ran until it answered or ran out of rounds, and nothing
+     * the asker did could end it: the person in a Slack thread changed the
+     * subject, the agent said it would drop the audit, and Summarizer went on
+     * looking things up for another twenty minutes and then reported back,
+     * into a turn about something else. Only the asker's own asks - the
+     * sessions under its conversation - can be stopped, so naming another
+     * conversation's session stops nothing.
+     *
+     * The model call is hung up on rather than interrupted, because a thread
+     * blocked reading a stream does not notice an interrupt; and the thread is
+     * interrupted as well, for a tool call or a retry's wait in between. Hung up
+     * ordinarily, so the torn call is not recorded as a failure: the line the
+     * transcript gets is that the asker stopped it.
+     */
+    fun stop(agent: Agent, parent: Long?, arguments: String): String {
+        if (parent == null) return refusal("This conversation is not one that can ask, so there is nothing to stop.")
+        val given = runCatching { mapper.readTree(arguments) }.getOrNull()
+        val session = given?.path(SESSION)?.let { node ->
+            when {
+                node.isNumber -> node.longValue()
+                node.isString -> node.stringValue().trim().removePrefix("#").toLongOrNull()
+                else -> null
+            }
+        }
+        val named = given?.path(AGENT)?.takeIf { it.isString }?.stringValue()?.trim()?.ifEmpty { null }
+        val children = held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent)
+        val chosen = when {
+            session != null -> children.filter { it.id == session }.ifEmpty {
+                return refusal("You asked nothing in session $session. $ASKS lists what you asked, each with its session.")
+            }
+            named != null -> children.filter { nameIn(it.agentDetails).equals(named, ignoreCase = true) }.ifEmpty {
+                return refusal("You have not asked $named in this conversation. $ASKS lists who you asked.")
+            }
+            else -> children
+        }
+        val stopping = chosen.filter { child -> child.id?.let { running[it] }?.isDone == false }
+        stopping.forEach { child ->
+            val id = requireNotNull(child.id)
+            hangups[id]?.hangUpOrdinarily()
+            running[id]?.cancel(true)
+            sessions.note(id, "$STOPPED_BY${agent.name} before it answered.")
+        }
+        val listed = stopping.map { child ->
+            linkedMapOf("asked" to (nameIn(child.agentDetails) ?: "an agent"), "about" to child.title, "session" to child.id)
+        }
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "stopped" to listed,
+                "note" to if (listed.isEmpty()) {
+                    "Nothing of that was still working, so nothing was stopped. Call $ASKS for what came back."
+                } else {
+                    "Stopped. Nothing more will come back from ${if (listed.size == 1) "it" else "them"}; what " +
+                        "was done before stays done."
+                },
+            ),
+        )
+    }
+
+    fun handles(name: String): Boolean = name == ASK || name == ASKS || name == WAIT || name == LIST || name == STOP
 
     /**
      * Whether [WAIT] can wait in this conversation. Not in the step of an agent
@@ -485,7 +642,14 @@ class AgentRunTools(
             linkedMapOf<String, Any?>(
                 "asked" to (nameIn(session.agentDetails) ?: "an agent"),
                 "about" to session.title,
+                // What agent_stop is given to stop this one.
+                "session" to id,
                 "working" to working,
+                // Started and not yet given a slot: one of the others has to finish first.
+                "waiting" to (working && id != null && id in waitingForSlot),
+                // How far it has grown: see grownIn, and `fresh` for a job that has changed.
+                "questions" to id?.let { grownIn(it).questions },
+                "inputTokensSoFar" to session.spentInputTokens,
                 "startedAt" to session.createdAt.toString(),
                 "lastAt" to session.lastEventAt?.toString(),
             ).apply {
@@ -506,6 +670,8 @@ class AgentRunTools(
             linkedMapOf(
                 "asks" to listed,
                 "working" to listed.count { it["working"] == true },
+                "waiting" to listed.count { it["waiting"] == true },
+                "atOnce" to atOnceFor(agent),
                 "left" to (allowed - listed.size).coerceAtLeast(0),
             ),
         )
@@ -519,7 +685,16 @@ class AgentRunTools(
      * still written down.
      */
     private fun cameBack(parent: Long, child: Long, future: java.util.concurrent.Future<*>?): Map<String, Any?> {
-        val held = future?.let { runCatching { it.get() as? String }.getOrNull() }
+        /*
+         * What the asked agent kept, brought across whenever its answer is read,
+         * not only when the ask itself ends: an answer it gave in a later turn -
+         * one a reminder of its own woke - named a drawing's key that the asker
+         * then could not open, though it had been told any key an answer names
+         * works in its conversation too.
+         */
+        runCatching { scratch.copy(from = child, into = parent) }
+            .onFailure { log.warn("Could not bring what session {} kept across to session {}: {}", child, parent, it.message) }
+        val held = future?.takeIf { !it.isCancelled }?.let { runCatching { it.get() as? String }.getOrNull() }
         if (held != null) {
             val read = runCatching { mapper.readTree(held) }.getOrNull()
             if (read != null) {
@@ -545,6 +720,8 @@ class AgentRunTools(
         if (last.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.SYSTEM) {
             // The ending the conversation writes on a failure; any other note is about a round, not the ask.
             if (said.contains(" could not answer: ")) return mapOf("error" to said)
+            // Or the asker's own stop, which is not an answer however much it said before.
+            if (said.startsWith(STOPPED_BY)) return mapOf("stopped" to said)
             val answered = lines.latest(
                 child, listOf(io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT), org.springframework.data.domain.PageRequest.of(0, 1),
             ).firstOrNull()?.content?.takeIf { it.isNotBlank() } ?: return emptyMap()
@@ -735,13 +912,16 @@ class AgentRunTools(
          * already existed.
          *
          * Where there is no session there is nothing to hand back a handle to
-         * and nothing to poll, so that case is answered the old way - which is
-         * the workflow node, where there is no turn to carry on with either.
+         * and nothing to poll, so that case is answered the old way, and once:
+         * with no session there is no step to read a retry policy from, so
+         * [retrying] asks it a single time.
          */
         if (into == null) {
-            return answerOf(wanted, conversations.getObject().answer(modelId, sub, turns, into = null, shed = lent, gated = false), parent, null)
+            val ask = { conversations.getObject().answer(modelId, sub, turns, into = null, shed = lent, gated = false) }
+            return answerOf(wanted, retrying(parent, null, first = ask, again = ask), parent, null)
         }
 
+        val askedAt = Instant.now()
         val failed: (Throwable) -> Unit = { why ->
             log.warn("An ask of {} did not finish: {}", wanted.name, why.message)
             parent?.let { asker ->
@@ -749,12 +929,14 @@ class AgentRunTools(
                     inbox.post(
                         asker,
                         io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
-                        "${wanted.name} could not finish what you asked about \"$title\": ${why.message}",
+                        "${wanted.name} could not finish what you asked about \"$title\"${asked(askedAt)}: ${why.message}",
                     )
                 }
             }
         }
-        val handed = launch(into, gateKey = parent ?: into, failed = failed) {
+        val limit = atOnceFor(agent)
+        val waits = wouldWait(parent ?: into, limit)
+        val handed = launch(into, gateKey = parent ?: into, limit = limit, failed = failed) { hangup ->
             /*
              * Its reasoning written into its own session, as a task's and an
              * agent node's are. Without it the asked agent's session read as a
@@ -763,7 +945,11 @@ class AgentRunTools(
              */
             val thinking = io.mszymanski.orknux.server.llm.SessionThinking(into, wanted.name, sessions)
             val said = try {
-                conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent, watch = thinking, gated = false)
+                retrying(
+                    parent, into, hangup = hangup,
+                    first = { conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent, watch = thinking, gated = false, hangup = hangup) },
+                    again = { conversations.getObject().answer(modelId, sub, resumed(into, sub, modelId, system), into = into, shed = lent, watch = thinking, gated = false, hangup = hangup) },
+                )
             } finally {
                 thinking.settle()
             }
@@ -775,11 +961,13 @@ class AgentRunTools(
              * finished without waiting still gets the answer it was owed.
              */
             answerOf(wanted, said, parent, into).also { answered ->
+                // Stopped by the asker: it knows, and an answer now would only wake it again.
+                if (hangup.hungUp) return@also
                 parent?.let { asker ->
                     inbox.post(
                         asker,
                         io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
-                        "${wanted.name} has answered what you asked about \"$title\":\n$answered",
+                        "${wanted.name} has answered what you asked about \"$title\"${asked(askedAt)}:\n$answered",
                     )
                 }
             }
@@ -792,8 +980,10 @@ class AgentRunTools(
                 "about" to title,
                 "session" to into,
                 "working" to true,
-                "note" to "It has started, and its answer is not here yet. Carry on with anything else " +
-                    "you have; " + whenNothingLeft(parent),
+                "waiting" to waits,
+                "note" to (if (waits) "It is not started yet, and its answer is not here." + waitNote(limit) + " "
+                else "It has started, and its answer is not here yet. ") +
+                    "Carry on with anything else you have; " + whenNothingLeft(parent),
             ),
         )
     }
@@ -811,10 +1001,16 @@ class AgentRunTools(
      * already running in [into] - which reads its inbox between rounds itself,
      * so a second one beside it would only answer the same thing twice.
      */
-    private fun launch(into: Long, gateKey: Long, failed: (Throwable) -> Unit, work: () -> String): Boolean {
+    private fun launch(into: Long, gateKey: Long, limit: Int, failed: (Throwable) -> Unit, work: (io.mszymanski.orknux.connector.model.Hangup) -> String): Boolean {
+        val hangup = io.mszymanski.orknux.connector.model.Hangup()
+        /*
+         * Sized by the asking agent when the conversation's first ask starts,
+         * and kept while any of its asks hold a claim: a number changed
+         * mid-conversation applies from the next time all of them are over.
+         */
         val gate = requireNotNull(
             atOnce.compute(gateKey) { _, held ->
-                (held ?: Gate(installation.agentMaxSubagentsAtOnce())).apply { users++ }
+                (held ?: Gate(limit.coerceAtLeast(1))).apply { users++ }
             },
         )
         /*
@@ -823,14 +1019,28 @@ class AgentRunTools(
          * to nobody because they ran on another one.
          */
         val prompter = io.mszymanski.orknux.server.usage.Prompting.current()
-        val prompted: () -> String = if (prompter == null) work else { { io.mszymanski.orknux.server.usage.Prompting.by(prompter, work) } }
+        val prompted: () -> String = if (prompter == null) { { work(hangup) } } else { { io.mszymanski.orknux.server.usage.Prompting.by(prompter) { work(hangup) } } }
         // A Callable by name: a bare lambda resolves to the Runnable constructor, whose future holds null. Issue #536.
         val guarded = java.util.concurrent.Callable {
             val permits = gate.permits
-            permits.acquire()
+            if (!permits.tryAcquire()) {
+                waitingForSlot += into
+                try {
+                    permits.acquire()
+                } finally {
+                    waitingForSlot -= into
+                }
+            }
+            permitHeld.set(permits)
             runCatching(prompted)
-                .onFailure(failed)
-                .also { permits.release() }
+                // Stopped by the asker, it is not news to the asker: an interrupted wait throws here.
+                .onFailure { if (!hangup.hungUp) failed(it) }
+                .also {
+                    // Released only where still held: a wait between tries may have given it back.
+                    val still = permitHeld.get()
+                    permitHeld.remove()
+                    still?.release()
+                }
                 // The answer itself, for agent_asks to hand back - not the Result around it. Issue #536.
                 .getOrNull()
         }
@@ -856,6 +1066,7 @@ class AgentRunTools(
         val started = object : java.util.concurrent.FutureTask<String?>(guarded) {
             override fun done() {
                 running.remove(into, this)
+                hangups.remove(into, hangup)
                 letGo(gateKey)
                 if (!isCancelled && runCatching { get() }.getOrNull() != null) {
                     runCatching { if (owed(into)) published.publishEvent(io.mszymanski.orknux.server.llm.SessionEventDue(into)) }
@@ -867,6 +1078,7 @@ class AgentRunTools(
             letGo(gateKey)
             return false
         }
+        hangups[into] = hangup
         val handed = runCatching { requireNotNull(asking).execute(started) }.isSuccess
         if (!handed) started.cancel(false)
         return handed
@@ -881,6 +1093,114 @@ class AgentRunTools(
     /** The agent a session's setup line names - `agentId`, written before the first question. */
     private fun agentIdIn(details: String?): Long? = details?.let { setup ->
         runCatching { mapper.readTree(setup).path("agentId").takeIf { it.isNumber }?.longValue() }.getOrNull()
+    }
+
+    /**
+     * When an ask was put, said beside its answer once it is old enough to be
+     * mistaken for something else.
+     *
+     * An answer is left in the asker's inbox and read at the asker's next
+     * turn, which may be a turn for something else entirely: a subagent that
+     * spent twenty minutes failing came back just as the person wrote a new
+     * message in the Slack thread, and its answer sat under that message
+     * looking like the reply to it. Saying it was asked at 12:58, twenty
+     * minutes ago, is what tells the asker it belongs to an earlier question.
+     * Nothing for an answer that came back within [Tunable.AGENT_ANSWER_DATED_AFTER_SECONDS] - that is the
+     * ordinary case of an agent waiting for it.
+     */
+    internal fun asked(at: Instant, now: Instant = Instant.now()): String {
+        val age = Duration.between(at, now)
+        if (age < Duration.ofSeconds(tuning[Tunable.AGENT_ANSWER_DATED_AFTER_SECONDS].toLong())) return ""
+        val clock = java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(at.atZone(installation.workingZone()))
+        val minutes = age.toMinutes()
+        val ago = if (minutes < 120) "$minutes minutes ago" else "${age.toHours()} hours ago"
+        return ", which you asked at $clock, $ago"
+    }
+
+    /**
+     * An asked agent's turn, and the turns again that the asker's retry policy
+     * allows, on a failure that may pass.
+     *
+     * A subagent's model call that ran into a rate limit - Azure's, inside a
+     * stream that had already answered 200 - came back as "could not answer"
+     * to the agent that asked, and nothing asked again: the retry policy on the
+     * workflow node is the node's, and what failed was not the node's own turn
+     * but a turn it had asked for. So the asker answered without it, or gave
+     * up, and the retries somebody had set on the node never ran.
+     *
+     * The policy is the one the ask came from: the step running in the asker's
+     * session, or in the nearest session above it, so an agent a subagent asks
+     * is held to the same node. Where none is - a chat, a task - there is no
+     * policy and nothing is asked again, as for the asker's own turn. A failure
+     * the provider says is permanent is never asked again.
+     *
+     * Waited out on the ask's own thread, which nobody is blocked on: the asker
+     * carries on or waits in `agent_wait`, as it would for a slow answer. And
+     * the wait is written into the asked agent's session, where whoever reads
+     * it would otherwise see a failure and then, minutes later, an answer.
+     */
+    internal fun retrying(
+        parent: Long?,
+        into: Long?,
+        first: () -> ChatCompletion,
+        again: () -> ChatCompletion,
+        pause: (Duration) -> Unit = ::pauseAside,
+        /** Pulled by [stop]: nothing more is asked once the asker has given up on it. */
+        hangup: io.mszymanski.orknux.connector.model.Hangup? = null,
+    ): ChatCompletion {
+        var answer = first()
+        if (answer !is ChatCompletion.Failed || answer.permanent) return answer
+        val policy = policyAbove(parent) ?: return answer
+        val began = System.nanoTime()
+        var spent = 1
+        while (spent < policy.attempts && hangup?.hungUp != true) {
+            val failed = answer as? ChatCompletion.Failed ?: break
+            if (failed.permanent) break
+            val wait = policy.waitAfter(spent, Random)
+            val budget = policy.budget
+            if (budget != null && Duration.ofNanos(System.nanoTime() - began) + wait > budget) break
+            log.info("An asked agent's turn failed ({}); asking again in {}s", failed.reason, wait.toSeconds())
+            into?.let {
+                sessions.note(
+                    it,
+                    io.mszymanski.orknux.server.watcher.WatcherFollowUp.retryNote(
+                        failed.reason, spent + 1, policy.attempts, wait, Instant.now(), installation.workingZone(),
+                    ),
+                )
+            }
+            pause(wait)
+            if (hangup?.hungUp == true) break
+            spent++
+            answer = again()
+        }
+        return answer
+    }
+
+    /**
+     * The retry policy of the step an ask was made from: the step in [session],
+     * or in the nearest session above it. A few levels at most - asks go one
+     * deep, and a session's parents are not a chain anybody should walk far.
+     */
+    private fun policyAbove(session: Long?): RetryPolicy? {
+        var at = session
+        repeat(POLICY_LEVELS) {
+            val here = at ?: return null
+            steps.findFirstBySessionIdOrderByIdDesc(here)?.retryPolicy()?.let { return it }
+            at = held.findByIdOrNull(here)?.parentSessionId
+        }
+        return null
+    }
+
+    /**
+     * What a retried ask is sent: its briefing and the session as it now
+     * stands. The question is already in it, written before the first attempt,
+     * and so is whatever its tools returned before the call failed - so the
+     * agent carries on from there rather than doing the work twice, which on a
+     * subagent that had read forty files is most of the cost of the failure.
+     */
+    private fun resumed(session: Long, sub: Agent, modelId: Long, system: String?): List<ChatTurn> = buildList {
+        system?.let { add(ChatTurn("system", it)) }
+        addAll(conversationIn(session, sub, modelId))
     }
 
     /**
@@ -915,6 +1235,7 @@ class AgentRunTools(
         val sub = without(wanted)
         val lent = handing(sub, session)
         val title = held.findByIdOrNull(session)?.title ?: "what you asked"
+        val askedAt = Instant.now()
         // Read before the question is written into it, so the question is sent once.
         val history = conversationIn(session, sub, modelId)
         sessions.userSaid(session, agent.name, question)
@@ -929,22 +1250,30 @@ class AgentRunTools(
                 inbox.post(
                     parent,
                     io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
-                    "${wanted.name} could not finish your follow-up about \"$title\": ${why.message}",
+                    "${wanted.name} could not finish your follow-up about \"$title\"${asked(askedAt)}: ${why.message}",
                 )
             }
         }
-        val handed = launch(session, gateKey = parent, failed = failed) {
+        val limit = atOnceFor(agent)
+        val waits = wouldWait(parent, limit)
+        val grown = grownIn(session)
+        val handed = launch(session, gateKey = parent, limit = limit, failed = failed) { hangup ->
             val thinking = io.mszymanski.orknux.server.llm.SessionThinking(session, wanted.name, sessions)
             val said = try {
-                conversations.getObject().answer(modelId, sub, turns, into = session, shed = lent, watch = thinking, gated = false)
+                retrying(
+                    parent, session, hangup = hangup,
+                    first = { conversations.getObject().answer(modelId, sub, turns, into = session, shed = lent, watch = thinking, gated = false, hangup = hangup) },
+                    again = { conversations.getObject().answer(modelId, sub, resumed(session, sub, modelId, briefing.of(wanted)), into = session, shed = lent, watch = thinking, gated = false, hangup = hangup) },
+                )
             } finally {
                 thinking.settle()
             }
             answerOf(wanted, said, parent, session).also { answered ->
+                if (hangup.hungUp) return@also
                 inbox.post(
                     parent,
                     io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
-                    "${wanted.name} has answered your follow-up about \"$title\":\n$answered",
+                    "${wanted.name} has answered your follow-up about \"$title\"${asked(askedAt)}:\n$answered",
                 )
             }
         }
@@ -957,11 +1286,67 @@ class AgentRunTools(
                 "session" to session,
                 "continued" to true,
                 "working" to true,
+                "waiting" to waits,
+                "questions" to grown.questions,
+                "inputTokensSoFar" to grown.inputTokens,
                 "note" to "It carries on the conversation you already had with it, so it knows what it " +
-                    "answered before. Its answer is not here yet: " + whenNothingLeft(parent),
+                    "answered before." + (if (waits) waitNote(limit) else "") +
+                    " This is question ${grown.questions} in that conversation, which has taken " +
+                    "${grown.inputTokens} input tokens so far, and every round of it reads the whole of it " +
+                    "again. A follow-up on the same job belongs here; for a job unrelated to what it was asked " +
+                    "before, ask with $FRESH: true instead. Its answer is not here yet: " + whenNothingLeft(parent),
             ),
         )
     }
+
+    /**
+     * The permit the ask running on this thread holds, while it holds one -
+     * so a wait between tries can give it back. See [pauseAside].
+     */
+    private val permitHeld = ThreadLocal<java.util.concurrent.Semaphore?>()
+
+    /**
+     * Waits out a retry's backoff without holding a slot. A rate-limited ask
+     * slept thirty seconds and then sixty on its permit, so with one at a time
+     * allowed every other ask of the conversation waited the whole of it for
+     * an ask that was doing nothing. Given back for the wait and taken again
+     * after it - behind any that started meanwhile, which is the order a
+     * second try deserves.
+     */
+    private fun pauseAside(wait: Duration) {
+        val held = permitHeld.get() ?: return Thread.sleep(wait.toMillis())
+        // Not held while asleep: stopped in its sleep, there is nothing to give back.
+        permitHeld.set(null)
+        held.release()
+        Thread.sleep(wait.toMillis())
+        held.acquire()
+        permitHeld.set(held)
+    }
+
+    /** Whether [session]'s asker stopped it with agent_stop, and has asked it nothing since. */
+    private fun stoppedBefore(session: Long): Boolean {
+        val stop = lines.findFirstBySessionIdAndKindAndContentStartingWithOrderByIdDesc(
+            session, io.mszymanski.orknux.server.llm.LlmSessionEventKind.SYSTEM, STOPPED_BY,
+        )?.id ?: return false
+        // A follow-up after the stop is the asker wanting it again.
+        return !lines.existsBySessionIdAndKindAndIdGreaterThan(session, io.mszymanski.orknux.server.llm.LlmSessionEventKind.USER, stop)
+    }
+
+    /** How far one ask's conversation has grown: the questions put to it, and the input tokens it has taken. */
+    private data class Grown(val questions: Long, val inputTokens: Long)
+
+    /**
+     * Said to the asker beside every follow-up and in `agent_asks`. One
+     * subagent conversation on prod was continued for twenty unrelated
+     * repository audits over six hours, each follow-up reading all of the
+     * earlier ones again, until every round took forty seconds. Not capped -
+     * a follow-up is what a long job wants - but said, so the asker can see
+     * when the job has changed and start over with `fresh`.
+     */
+    private fun grownIn(session: Long): Grown = Grown(
+        questions = lines.countBySessionIdAndKind(session, io.mszymanski.orknux.server.llm.LlmSessionEventKind.USER),
+        inputTokens = held.findByIdOrNull(session)?.spentInputTokens ?: 0,
+    )
 
     /** Whether something is due and unread in a subagent's session. */
     private fun owed(session: Long): Boolean =
@@ -985,20 +1370,38 @@ class AgentRunTools(
         val row = held.findByIdOrNull(session) ?: return false
         val parent = row.parentSessionId ?: return false
         if (running[session]?.isDone == false) return false
+        /*
+         * Stopped by the agent that asked: a timer or a watcher it had set
+         * coming up afterwards is not a reason to start it again. It would
+         * answer, and the asker that was told "nothing more will come back"
+         * would be woken by it - and would read the ask as answered, not stopped.
+         * A follow-up the asker puts to it later is a new question, and goes
+         * through askAgain, not here.
+         */
+        if (stoppedBefore(session)) {
+            runCatching { inbox.take(session) }
+            log.info("Session {} was stopped by its asker; what came up there wakes nobody", session)
+            return false
+        }
         val title = row.title ?: "what you asked"
         val sub = without(wanted)
         val lent = handing(sub, session)
         val failed: (Throwable) -> Unit = { why ->
             log.warn("{} could not be woken in session {}: {}", wanted.name, session, why.message)
         }
-        return launch(session, gateKey = parent, failed = failed) {
+        return launch(session, gateKey = parent, limit = atOnceIn(parent), failed = failed) { hangup ->
             val thinking = io.mszymanski.orknux.server.llm.SessionThinking(session, wanted.name, sessions)
             val said = try {
-                conversations.getObject().answer(modelId, sub, turns(sub), into = session, shed = lent, watch = thinking, gated = false)
+                retrying(
+                    parent, session, hangup = hangup,
+                    first = { conversations.getObject().answer(modelId, sub, turns(sub), into = session, shed = lent, watch = thinking, gated = false, hangup = hangup) },
+                    again = { conversations.getObject().answer(modelId, sub, resumed(session, sub, modelId, briefing.of(wanted)), into = session, shed = lent, watch = thinking, gated = false, hangup = hangup) },
+                )
             } finally {
                 thinking.settle()
             }
             answerOf(wanted, said, parent, session).also { answered ->
+                if (hangup.hungUp) return@also
                 inbox.post(
                     parent,
                     io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
@@ -1117,6 +1520,8 @@ class AgentRunTools(
         enabled = agent.enabled,
         maxRounds = agent.maxRounds,
         memoryShare = agent.memoryShare,
+        // Asked, it thinks as hard as it was set to.
+        reasoningEffort = agent.reasoningEffort,
         orknuxAccess = agent.orknuxAccess,
         boxLabelsText = agent.boxLabelsText,
         // The built-ins ride in these two like every other tool now (#444), so
@@ -1149,6 +1554,9 @@ class AgentRunTools(
     }.getOrDefault(false)
 
     companion object {
+        /** How far up from the asker [policyAbove] looks for a step. */
+        private const val POLICY_LEVELS = 4
+
 
         const val ASK = "ask_agent"
 
@@ -1160,6 +1568,13 @@ class AgentRunTools(
 
         /** Waiting for one of them, now that asking does not wait. Issue #462. */
         const val WAIT = "agent_wait"
+
+        /** Stopping one, or all, of them. */
+        const val STOP = "agent_stop"
+        const val SESSION = "session"
+
+        /** How the line a stop writes into the asked agent's transcript begins; [cameBack] reads it. */
+        const val STOPPED_BY = "Stopped by "
         const val SECONDS = "seconds"
 
         // How long a wait is when not told, and the longest it may be, are

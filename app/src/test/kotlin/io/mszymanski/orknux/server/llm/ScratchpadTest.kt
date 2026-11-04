@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.llm
 
+import tools.jackson.databind.json.JsonMapper
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
@@ -205,6 +206,32 @@ class ScratchpadTest(
         assertThat(grep("""{"query":"(unclosed","regex":"true"}""")).contains("not a regular expression")
         // Without regex the same text is a phrase, and a bracket is a bracket.
         assertThat(grep("""{"query":"(unclosed"}""")).contains("\"hits\":[]")
+    }
+
+    /**
+     * A fetched page is kept as one line of JSON, 160,000 characters long. A
+     * hit used to carry that line's first 200 characters whatever matched, so
+     * a model learnt only that the word was in there somewhere, and fetched
+     * the page again another way. Each match is its own hit now, with the text
+     * around it and the offset scratchpad_read takes.
+     */
+    @Test
+    fun `a search on one very long line answers each match with its text and where it is`() {
+        val filler = "x".repeat(50_000)
+        val page = "{\"body\":\"menu $filler Naruto is a ninja. $filler Naruto again.\"}"
+        ok(pads.create(session, "page.json", "A fetched page", "first line\n$page"))
+        val shed = requireNotNull(tools.shed(session))
+        val json = JsonMapper.builder().build()
+        val answer = json.readTree(shed.run(io.mszymanski.orknux.connector.model.ToolCall("1", "scratchpad_search", """{"query":"naruto"}""")))
+        val hits = answer.path("hits")
+        assertThat(hits.size()).isEqualTo(2)
+        val first = hits[0]
+        assertThat(first.path("line").asInt()).isEqualTo(2)
+        assertThat(first.path("text").asText()).contains("Naruto is a ninja").startsWith("…").endsWith("…")
+        val at = first.path("at").asInt()
+        val read = json.readTree(shed.run(io.mszymanski.orknux.connector.model.ToolCall("2", "scratchpad_read", """{"name":"page.json","from":"$at","length":"17"}""")))
+        assertThat(read.path("content").asText()).isEqualTo("Naruto is a ninja")
+        assertThat(hits[1].path("text").asText()).contains("Naruto again")
     }
 
     /**

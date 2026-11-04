@@ -425,26 +425,53 @@ class SessionScratchpadService(
         val deadline = AuthoredRegex.deadlineIn(seconds)
         within.filter { it.contentType == null }.forEach { pad ->
             val lines = pad.content.lines()
+            var start = 0
             lines.forEachIndexed { index, line ->
-                val found = try {
-                    regex.containsMatchIn(AuthoredRegex.bounded(line, deadline, seconds))
+                fun cut(from: Int, to: Int) = (from until to).map { lines[it].take(HIT_LENGTH) }
+                fun hit(text: String, at: Int) = ScratchpadGrepHit(
+                    name = pad.name,
+                    line = index + 1,
+                    text = text,
+                    before = cut((index - around).coerceAtLeast(0), index),
+                    after = cut(index + 1, (index + 1 + around).coerceAtMost(lines.size)),
+                    at = at,
+                )
+                try {
+                    val bounded = AuthoredRegex.bounded(line, deadline, seconds)
+                    if (line.length <= HIT_LENGTH) {
+                        regex.find(bounded)?.let { hits += hit(line, start + it.range.first) }
+                    } else {
+                        /*
+                         * A long line is a hit per match, each with the text around
+                         * it and where it is. A page fetched into a pad is one line of
+                         * JSON, 160,000 characters long, and a hit carrying that
+                         * line's first 200 characters, every time, told the model only
+                         * that the word was somewhere in it - so it went to fetch the
+                         * page again some other way. The offset is what
+                         * scratchpad_read's from takes.
+                         */
+                        for (match in regex.findAll(bounded)) {
+                            hits += hit(windowOf(line, match.range), start + match.range.first)
+                            if (hits.size >= MOST_HITS) return Result.success(hits)
+                        }
+                    }
                 } catch (slow: RegexTooSlowException) {
                     return Result.failure(IllegalArgumentException(slow.message))
                 }
-                if (found) {
-                    fun cut(from: Int, to: Int) = (from until to).map { lines[it].take(HIT_LENGTH) }
-                    hits += ScratchpadGrepHit(
-                        name = pad.name,
-                        line = index + 1,
-                        text = line.take(HIT_LENGTH),
-                        before = cut((index - around).coerceAtLeast(0), index),
-                        after = cut(index + 1, (index + 1 + around).coerceAtMost(lines.size)),
-                    )
-                    if (hits.size >= MOST_HITS) return Result.success(hits)
-                }
+                if (hits.size >= MOST_HITS) return Result.success(hits)
+                start += line.length
+                // Past the line's own separator, whichever of the three ended it.
+                if (pad.content.startsWith("\r\n", start)) start += 2 else if (start < pad.content.length) start += 1
             }
         }
         return Result.success(hits)
+    }
+
+    /** The text around a match on a long line, marked where it was cut. */
+    private fun windowOf(line: String, match: IntRange): String {
+        val from = (match.first - HIT_LEAD).coerceAtLeast(0)
+        val to = (from + HIT_LENGTH).coerceAtLeast(match.last + 1).coerceAtMost(line.length)
+        return (if (from > 0) "…" else "") + line.substring(from, to) + (if (to < line.length) "…" else "")
     }
 
     private fun edit(sessionId: Long, name: String, change: (String) -> String): ScratchpadResult {
@@ -509,6 +536,9 @@ class SessionScratchpadService(
 
         /** As much of a matching line as a hit carries. */
         const val HIT_LENGTH = 200
+
+        /** How much of a long line before its match a hit shows. */
+        const val HIT_LEAD = 80
     }
 }
 
@@ -522,4 +552,6 @@ data class ScratchpadGrepHit(
     val text: String,
     val before: List<String>,
     val after: List<String>,
+    /** The character offset of the match in the whole pad, for scratchpad_read's from. */
+    val at: Int = 0,
 )

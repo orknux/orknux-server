@@ -187,7 +187,10 @@ class ScratchpadTools(
                 description = "Finds where a piece of text appears across your scratchpads - which file and " +
                     "which line - so you can go to a fragment without reading each file whole. With regex it " +
                     "takes a regular expression instead - every <img, every heading - and context shows the " +
-                    "lines around each hit, enough to give $REPLACE an old text that appears exactly once.",
+                    "lines around each hit, enough to give $REPLACE an old text that appears exactly once. " +
+                    "Each hit says at, the character offset of the match: pass it as $FROM to $READ to read " +
+                    "from there. On a very long line - a fetched page kept as one line - every match is its " +
+                    "own hit with the text around it, so search works there too.",
                 parameters = listOf(
                     ToolParameterSpec(QUERY, "The text to look for, matched anywhere in a line.", required = true),
                     // grep, folded in rather than a second tool. Issue #560.
@@ -525,9 +528,9 @@ class ScratchpadTools(
                     // The lines around a hit only where they were asked for, so a plain search reads as it did.
                     val shown = hits.map { hit ->
                         if (context <= 0) {
-                            mapOf("name" to hit.name, "line" to hit.line, "text" to hit.text.trim())
+                            mapOf("name" to hit.name, "line" to hit.line, "at" to hit.at, "text" to hit.text.trim())
                         } else {
-                            mapOf("name" to hit.name, "line" to hit.line, "text" to hit.text, "before" to hit.before, "after" to hit.after)
+                            mapOf("name" to hit.name, "line" to hit.line, "at" to hit.at, "text" to hit.text, "before" to hit.before, "after" to hit.after)
                         }
                     }
                     mapper.writeValueAsString(mapOf("hits" to shown))

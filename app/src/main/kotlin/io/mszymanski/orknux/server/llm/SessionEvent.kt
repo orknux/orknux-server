@@ -113,6 +113,20 @@ interface SessionEventRepository : JpaRepository<SessionEvent, Long> {
     @Query("SELECT DISTINCT e.sessionId FROM SessionEvent e WHERE e.deliveredAt IS NULL AND e.dueAt <= :now")
     fun sessionsDue(@Param("now") now: OffsetDateTime): List<Long>
 
+    /**
+     * Marks one unread event read, in one statement: 1 where this call read
+     * it, 0 where somebody else had - another turn, or the run that left it
+     * taking it back. See [SessionInbox.take].
+     */
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE SessionEvent e SET e.deliveredAt = :now WHERE e.id = :id AND e.deliveredAt IS NULL")
+    fun claim(@Param("id") id: Long, @Param("now") now: OffsetDateTime): Int
+
+    /** Deletes one unread event of a session, in one statement: 1 where it was still unread. */
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM SessionEvent e WHERE e.id = :id AND e.sessionId = :session AND e.deliveredAt IS NULL")
+    fun deleteUnread(@Param("session") session: Long, @Param("id") id: Long): Int
+
     /** Sessions with something unread that came due in (after, upTo]: announced once each. */
     @Query(
         "SELECT DISTINCT e.sessionId FROM SessionEvent e WHERE e.deliveredAt IS NULL " +
@@ -172,11 +186,7 @@ class SessionInbox(
      * nobody else's. Answers whether anything was there to call off.
      */
     @Transactional
-    fun withdraw(sessionId: Long, id: Long): Boolean {
-        val event = events.findByIdOrNull(id)?.takeIf { it.sessionId == sessionId && it.deliveredAt == null } ?: return false
-        events.delete(event)
-        return true
-    }
+    fun withdraw(sessionId: Long, id: Long): Boolean = events.deleteUnread(sessionId, id) == 1
 
     /** What of one kind is still to come at a session, soonest first. */
     fun waiting(sessionId: Long, kind: SessionEventKind): List<SessionEvent> =
@@ -214,8 +224,16 @@ class SessionInbox(
      */
     @Transactional
     fun take(sessionId: Long): List<String> {
-        val due = events.due(sessionId, OffsetDateTime.now())
         val now = OffsetDateTime.now()
+        /*
+         * Each one claimed in a statement of its own, and only what this call
+         * claimed is handed on. Read, then marked and saved, two takers could
+         * both have it - and a run taking back the message it left could delete
+         * it between a turn's read and that turn's save: the turn answered it,
+         * the run found it unread and answered it again, so "od razu lepiej" in
+         * a Slack thread was answered twice, a few seconds apart.
+         */
+        val due = events.due(sessionId, now).filter { event -> events.claim(requireNotNull(event.id), now) == 1 }
         due.forEach { event ->
             event.deliveredAt = now
             val person = event.saidBy?.takeIf { event.kind == SessionEventKind.PERSON }
@@ -226,7 +244,6 @@ class SessionInbox(
                 published.publishEvent(PersonSaidInTurn(sessionId, person, event.body))
             }
         }
-        events.saveAll(due)
         return due.map { event ->
             if (event.kind == SessionEventKind.PERSON && event.saidBy == null) {
                 // Another run's message, joined to this turn rather than answered by a second one beside it.

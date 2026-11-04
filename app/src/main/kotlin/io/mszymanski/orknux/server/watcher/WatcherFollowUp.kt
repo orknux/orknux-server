@@ -67,9 +67,10 @@ import kotlin.random.Random
  * now, and the reminder coming up wakes the agent here the way a watcher does,
  * its answer carried on past the step. A reminder names nobody, so the agent
  * woken is the one whose step ran in the session last - the one that set it,
- * unless two agents share the conversation. Only in a session with no chat on
- * it: there the reminder was always [io.mszymanski.orknux.server.chat.ChatWake]'s,
- * and a chat's own reminders stay where the person is.
+ * unless two agents share the conversation. Also where a chat was opened on
+ * the run's conversation since: a run's session is the run's, and
+ * [io.mszymanski.orknux.server.chat.ChatWake] stands back for it. A chat of
+ * its own, with no run in it, keeps its reminders where the person is.
  *
  * One turn at a time per session, off the thread that posted, as a chat's is.
  *
@@ -162,8 +163,8 @@ class WatcherFollowUp(
     private fun reminded(session: Long): Boolean =
         // A schedule's run is a reminder that comes back, and wakes the run's agent the same way.
         (inbox.due(session, SessionEventKind.TIMER) || inbox.due(session, SessionEventKind.SCHEDULE) || answered(session)) &&
-            steps.existsBySessionId(session) &&
-            chats.findFirstByLlmSessionId(session) == null
+            // A run's, whether or not a chat was opened on it since: see ChatWake, which stands back for it.
+            steps.existsBySessionId(session)
 
     /**
      * Whether an agent the run's agent asked has answered here. Such an answer
@@ -262,7 +263,23 @@ class WatcherFollowUp(
         // The tools every turn in a session is lent, and the ending, which is this door's own.
         val shed = sheds(
             sessionSheds.of(agent, session),
-            finishing.shed(granted = mayFinish),
+            /*
+             * And the wake-up, as the step's own turn has it. Without it the
+             * agent woken by a subagent's answer could not say "back to this
+             * in a minute": finish_answer refused the wait, and a job it had
+             * said it would come back to stopped there. Counted against the
+             * step's own waits; see [wakeLater].
+             */
+            finishing.shed(
+                granted = mayFinish,
+                sleeping = step?.let {
+                    io.mszymanski.orknux.server.agent.FinishAnswerTools.Sleeping(
+                        longest = Duration.ofSeconds(installation.agentSleepSeconds().toLong()),
+                        left = (installation.agentSleepTimes() - it.agentSleeps).coerceAtLeast(0),
+                        spent = it.agentSleeps,
+                    )
+                },
+            ),
         )
 
         if (!again) {
@@ -280,12 +297,50 @@ class WatcherFollowUp(
         } catch (finished: AnswerFinished) {
             // Nothing to tell anyone, or nothing more than what it wrote and passed.
             all(finished.answer).takeIf { it.isNotBlank() }?.let { handOn(session, step, it) }
+            finished.wake?.let { wake -> wakeLater(session, agent.name, step, finished.answer, wake) }
             return null
         } finally {
             thinking.settle()
         }
         if (answer is ChatCompletion.Answered) handOn(session, step, all(answer.content))
         return answer
+    }
+
+    /**
+     * A wake-up asked for in a turn of this door: a reminder left in the
+     * session, due when the agent said, which starts it again here.
+     *
+     * Dropped, it was: `finish_answer` with `wake_after_ms` parks a workflow
+     * step, and in a turn after the step had finished - one a subagent's
+     * answer, a watcher or a reminder started - there is no step to park. The
+     * agent was told "Waiting 1000 ms", and nothing came back to it until the
+     * person wrote again in the Slack thread.
+     *
+     * Counted against the step's waits as a park is, so an agent that keeps
+     * deciding to wait a little longer stops at the installation's number
+     * rather than waking every second for ever.
+     */
+    private fun wakeLater(session: Long, agent: String, step: ExecutionStep?, note: String, wake: Duration) {
+        val allowed = installation.agentSleepTimes()
+        if (step != null) {
+            if (step.agentSleeps >= allowed) {
+                sessions.note(session, "$agent asked to be woken again, and has waited $allowed times already, which is all this installation allows; it was not woken.")
+                return
+            }
+            step.agentSleeps += 1
+            steps.save(step)
+        }
+        val due = java.time.OffsetDateTime.now().plus(wake)
+        inbox.post(
+            session,
+            SessionEventKind.TIMER,
+            "You ended your last turn asking to be woken after ${wake.toMillis()} ms, and this is that wake-up. " +
+                "Nothing ran on your behalf while you were stopped: whatever you said you would do next, you do " +
+                "now or not at all. End with finish_answer and wake_after_ms again only if the work goes on." +
+                (if (note.isBlank()) "" else "\n\nWhat you said before stopping:\n$note"),
+            due,
+        )
+        sessions.note(session, "$agent will be woken at ${io.mszymanski.orknux.workflow.execution.retryAt(Instant.now(), wake, zone())}, as it asked.")
     }
 
     /** Carries the step's run on past it with [answer]; see [StepHandOn]. */

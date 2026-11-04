@@ -217,6 +217,25 @@ class LlmSessionRecorder(
         }
     }
 
+    /**
+     * Whether [said] already reached the agent in [session]: recorded as the
+     * question of a turn, or read out of the inbox by one. A step tried again
+     * asks this before handing its question over a second time.
+     *
+     * [since] is the run's start. A session a schedule posts the same prompt
+     * into every hour holds that prompt many times, and a retry whose first
+     * attempt failed before writing its question found the last run's instead
+     * - and either joined a turn with nothing to say, or told the model the
+     * question was answered already. Only this run's saying of it counts.
+     */
+    fun heard(session: Long, said: String, since: java.time.OffsetDateTime? = null): Boolean = runCatching {
+        if (since == null) {
+            events.existsBySessionIdAndKindAndContent(session, LlmSessionEventKind.USER, said)
+        } else {
+            events.existsBySessionIdAndKindAndContentAndAtGreaterThanEqual(session, LlmSessionEventKind.USER, said, since)
+        }
+    }.getOrDefault(false)
+
     /** What was put to the agent: a person's question, or a node's prompt. */
     fun userSaid(session: Long, actor: String, said: String) =
         write(session, LlmSessionEventKind.USER, actor, said)

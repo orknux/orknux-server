@@ -65,6 +65,7 @@ class SessionTurnsTest(
     @Autowired val sessionEvents: LlmSessionEventRepository,
     @Autowired val inbox: SessionEventRepository,
     @Autowired val turns: SessionTurns,
+    @Autowired val sessionInbox: io.mszymanski.orknux.server.llm.SessionInbox,
     @Autowired val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
 ) {
 
@@ -184,6 +185,84 @@ class SessionTurnsTest(
         assertThat(second.get(30, TimeUnit.SECONDS)).isEqualTo(SessionTurns.Outcome.Ran("second"))
         assertThat(order).containsExactly("first starts", "first ends", "second runs")
         assertThat(inbox.findAll()).describedAs("taken back, so nothing is left to be read twice").isEmpty()
+    }
+
+    /**
+     * A message the going turn read cannot also be taken back.
+     *
+     * Read then saved, a turn's read and the run's take-back could both win:
+     * the turn answered "od razu lepiej" in a Slack thread, and the run that
+     * brought it found it unread and answered it again. Driven as that race
+     * ends: the turn reads it, and the take-back comes after and finds it read.
+     */
+    @Test
+    fun `a message a turn has read is not taken back and answered again`() {
+        val session = recorder.open(workspaceId, "slack", "C42-1793718192.369139")
+        val going = CompletableFuture<Unit>()
+        val order = CopyOnWriteArrayList<String>()
+        val read = CopyOnWriteArrayList<String>()
+
+        val first = CompletableFuture.supplyAsync {
+            turns.oneAtATime(session, 1L, { "to weź też" }) {
+                order += "first starts"
+                going.get(30, TimeUnit.SECONDS)
+                read += sessionInbox.take(session)
+                "first"
+            }
+        }
+        while (order.isEmpty()) Thread.sleep(10)
+        val second = CompletableFuture.supplyAsync {
+            turns.oneAtATime(session, 2L, { "od razu lepiej" }) {
+                order += "second runs"
+                "second"
+            }
+        }
+        awaitArrived()
+        going.complete(Unit)
+
+        assertThat(first.get(30, TimeUnit.SECONDS)).isEqualTo(SessionTurns.Outcome.Ran("first"))
+        assertThat(second.get(30, TimeUnit.SECONDS)).isEqualTo(SessionTurns.Outcome.Joined<String>(1L))
+        assertThat(read.single()).endsWith("od razu lepiej")
+        assertThat(order).doesNotContain("second runs")
+        // And the inbox never hands one message to two takers.
+        assertThat(sessionInbox.take(session)).isEmpty()
+    }
+
+    /**
+     * A retry does not hand its question over a second time.
+     *
+     * A step whose first attempt got its message into the session - and then
+     * failed, on a rate limit - came round again while another run was
+     * answering, and left the message in that turn's inbox again: an hour-old
+     * Slack message, read as though the person had just written it.
+     */
+    @Test
+    fun `a retried run whose question the session already holds joins without leaving it again`() {
+        val session = recorder.open(workspaceId, "slack", "C42-1793714957.412199")
+        val going = CompletableFuture<Unit>()
+        val order = CopyOnWriteArrayList<String>()
+
+        val first = CompletableFuture.supplyAsync {
+            turns.oneAtATime(session, 1L, { "something else" }) {
+                order += "first starts"
+                going.get(30, TimeUnit.SECONDS)
+                "first"
+            }
+        }
+        while (order.isEmpty()) Thread.sleep(10)
+        val retried = CompletableFuture.supplyAsync {
+            turns.oneAtATime(session, 2L, { "datem dostęp" }, delivered = { true }) {
+                order += "retry runs"
+                "retry"
+            }
+        }
+        Thread.sleep(300)
+        assertThat(inbox.findAll()).describedAs("nothing left in the inbox for the going turn").isEmpty()
+        going.complete(Unit)
+
+        assertThat(first.get(30, TimeUnit.SECONDS)).isEqualTo(SessionTurns.Outcome.Ran("first"))
+        assertThat(retried.get(30, TimeUnit.SECONDS)).isEqualTo(SessionTurns.Outcome.Joined<String>(1L))
+        assertThat(order).doesNotContain("retry runs")
     }
 
     /** Started on a thread of its own, as a second Slack event is, with the test's user on it. */

@@ -79,6 +79,8 @@ class AgentBriefing(
     private val ceilings: org.springframework.beans.factory.ObjectProvider<ToolCeilings>,
     /** Whether the workspace has any diagrams, for the paragraph that sends an agent to them. */
     private val diagrams: io.mszymanski.orknux.server.diagram.DiagramRepository,
+    /** The MCP servers it holds, for what each is for. Through a provider, as the tools are. */
+    private val mcpServers: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.agent.McpToolCaller>,
 ) {
 
     /**
@@ -382,6 +384,7 @@ class AgentBriefing(
         }
 
         diagramsParagraph(agent)?.let { parts += it }
+        designParagraph(agent)?.let { parts += it }
 
         /*
          * The connections this agent may name, and the rule for naming one.
@@ -577,6 +580,26 @@ class AgentBriefing(
             }
         }
 
+        /*
+         * What each MCP server it holds is for. A tool carries the server's
+         * name in front - `wiki__search` - and the tool's own description is
+         * the server author's, written for every installation: neither says
+         * which wiki, or when this one is the one to use. Only the servers
+         * somebody described, so an agent nobody wrote a word for pays nothing.
+         */
+        val described = mcpServers.getObject().granted(agent).filterNot { it.description.isNullOrBlank() }
+        if (described.isNotEmpty()) {
+            parts += buildString {
+                append("What the MCP servers you hold are for. Each one's tools are named with it in front, ")
+                append("as `server__tool`:")
+                described.forEach { server ->
+                    append("\n- ").append(io.mszymanski.orknux.server.agent.McpToolCaller.slug(server)).append("__")
+                    append(" (").append(server.name).append("): ").append(server.description)
+                }
+                appendLine()
+            }
+        }
+
         return parts.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
     }
 
@@ -625,6 +648,43 @@ class AgentBriefing(
                 append(".")
             }
         }
+    }
+
+    /**
+     * That the workspace has editors of its own - wireframes, documents,
+     * diagrams and sheets - and when to make one. An agent asked for a mockup
+     * drew an SVG, asked for a plan wrote it into the chat, asked for a table
+     * attached a CSV: each a thing the person could look at and not open, change
+     * or find again. The tools say how; this says that they exist and when they
+     * are the answer, which no single tool's description is placed to say.
+     *
+     * Only the kinds this agent holds the making tool of, named off their
+     * declarations, so it is the same on every round and the cached prefix holds.
+     */
+    internal fun designParagraph(agent: Agent): String? {
+        val held = { name: String -> agent.orknuxAccess && name !in agent.hiddenTools }
+        val kinds = buildList {
+            val wireframe = io.mszymanski.orknux.server.mcp.WireframeTools.CREATE
+            if (held(wireframe)) add("a mockup of a screen, a page or a form is a wireframe ($wireframe)")
+            val document = io.mszymanski.orknux.server.mcp.DocumentTools.CREATE
+            if (held(document)) add("writing people keep and edit - a spec, a plan, a report, notes - is a document ($document)")
+            val diagram = io.mszymanski.orknux.server.mcp.DiagramTools.CREATE
+            if (held(diagram)) {
+                val route = io.mszymanski.orknux.server.mcp.DiagramTools.ROUTE
+                val check = io.mszymanski.orknux.server.mcp.DiagramTools.CHECK
+                add(
+                    "systems and how they connect, a process or an architecture is a diagram ($diagram" +
+                        (if (held(route) && held(check)) ", its lines routed with $route and checked with $check" else "") + ")",
+                )
+            }
+            val sheet = io.mszymanski.orknux.server.mcp.SheetTools.CREATE
+            if (held(sheet)) add("a table of figures, or a list people sort and fill in, is a sheet ($sheet)")
+        }
+        if (kinds.isEmpty()) return null
+        return "This workspace has editors of its own for work people keep: " + kinds.joinToString("; ") + ". " +
+            "When the person will open what you make, change it, or come back to it, make it there rather than as a " +
+            "file or a block of text in your answer, and give them its url - the tool answers one. Read and change the " +
+            "ones already there the same way, by the tools that list, read and change each."
     }
 
     companion object {
