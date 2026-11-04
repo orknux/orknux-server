@@ -165,6 +165,36 @@ class TaskLoopTest(
      * A model that writes what it has done and stops has not finished, and the
      * loop says so rather than taking prose for a conclusion.
      */
+    /**
+     * A model that could not be reached - a rate limit - parks the task and
+     * tries again, rather than ending it: task 5 ended at the first rate limit
+     * Azure gave it. The turn it lost is given back, and the run of waits ends
+     * at the next turn that reaches the model.
+     */
+    @Test
+    fun `a rate-limited model parks the task and tries again, costing it no turn`() {
+        var asked = 0
+        val endpoint = serveStatus { _ ->
+            asked += 1
+            if (asked == 1) 429 to """{"error":{"message":"Rate limit is exceeded. Try again in 3600 seconds."}}"""
+            else 200 to finishing("Done after the wait.")
+        }
+        val taskId = taskFor(endpoint)
+
+        val first = loop.advance(taskId)
+        assertThat(first).isInstanceOf(TaskTurn.Parked::class.java)
+        assertThat((first as TaskTurn.Parked).after).isEqualTo(java.time.Duration.ofSeconds(30))
+        val waiting = requireNotNull(tasks.findByIdOrNull(taskId))
+        assertThat(waiting.status).isEqualTo(TaskStatus.RUNNING)
+        assertThat(waiting.modelRetries).isEqualTo(1)
+        assertThat(waiting.turnsSpent).isEqualTo(0)
+
+        assertThat(loop.advance(taskId)).isEqualTo(TaskTurn.Over)
+        val done = requireNotNull(tasks.findByIdOrNull(taskId))
+        assertThat(done.status).isEqualTo(TaskStatus.DONE)
+        assertThat(done.modelRetries).isEqualTo(0)
+    }
+
     @Test
     fun `text without task_done is progress and the task carries on`() {
         val taskId = taskFor(serve { saying("Started reading.") })
@@ -833,6 +863,24 @@ class TaskLoopTest(
         """{"choices":[{"delta":{"reasoning_content":"Last week had three runs."}}]}""",
         """{"choices":[{"delta":{"content":"$said"}}]}""",
     )
+
+    /** A stub that answers with a status of its choosing, for a provider that refuses. */
+    private fun serveStatus(answer: (String) -> Pair<Int, String>): String {
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        server.createContext("/chat/completions") { exchange ->
+            val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            received += body
+            val (status, said) = answer(body)
+            val bytes = said.toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", if (said.startsWith("data:")) "text/event-stream" else "application/json")
+            if (status == 429) exchange.responseHeaders.add("Retry-After", "3600")
+            exchange.sendResponseHeaders(status, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        server.start()
+        return "http://${server.address.hostString}:${server.address.port}"
+    }
 
     private fun serve(answer: (String) -> String): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)

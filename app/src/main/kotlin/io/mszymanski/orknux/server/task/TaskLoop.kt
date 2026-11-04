@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.task
 
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.usage.PromptSource
 import io.mszymanski.orknux.server.usage.Prompter
 import io.mszymanski.orknux.server.usage.Prompting
@@ -78,6 +79,8 @@ class TaskLoop(
     private val properties: TaskProperties,
     /** What the task's model was sent, sent again as it was; see [io.mszymanski.orknux.server.llm.SessionPrompt]. */
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
+    /** How many times, and how long, a task waits for a model it could not reach. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
 ) {
 
     /**
@@ -130,6 +133,8 @@ class TaskLoop(
              * another when it calls task_done again. Nothing loops, because
              * what was delivered is marked delivered.
              */
+            // The model was reached to call task_done, so any run of waits for it is over.
+            reached(task)
             reconsider(task) ?: end(task, TaskStatus.DONE, "finished", finished.summary)
         } catch (unrunnable: TaskNotRunnableException) {
             // The agent was deleted, switched off, or its model is gone. Not
@@ -286,6 +291,7 @@ class TaskLoop(
              * a shape some providers refuse.
              */
             is ChatCompletion.Answered -> {
+                reached(task)
                 sessions.userSaid(session, TASK, CARRY_ON)
                 log.debug("Task {} took turn {}", taskId, task.turnsSpent)
                 TaskTurn.Working
@@ -306,9 +312,33 @@ class TaskLoop(
              * bounds a model that never finishes.
              */
             is ChatCompletion.Failed if answer.outOfRounds -> {
+                reached(task)
                 sessions.userSaid(session, TASK, OUT_OF_ROUNDS)
                 log.debug("Task {} used a turn's rounds on turn {}", taskId, task.turnsSpent)
                 TaskTurn.Working
+            }
+
+            /*
+             * The model could not be reached - a rate limit, an outage - which
+             * is not the model refusing anything. Parked and tried again,
+             * waiting longer each time, a bounded number of times: task 5 ended
+             * at the first rate limit Azure gave it, an hour's work gone over
+             * a minute's wait. The turn it lost is given back, so waiting costs
+             * the task none of its turns.
+             */
+            is ChatCompletion.Failed if !answer.permanent && !answer.replyFault &&
+                task.modelRetries < tuning[Tunable.TASK_MODEL_RETRIES] -> {
+                task.modelRetries += 1
+                task.turnsSpent = (task.turnsSpent - 1).coerceAtLeast(0)
+                tasks.save(task)
+                val wait = retryWait(task.modelRetries)
+                sessions.note(
+                    session,
+                    "The model could not be reached (${answer.reason}); trying again in ${wait.toSeconds()} s " +
+                        "(${task.modelRetries} of ${tuning[Tunable.TASK_MODEL_RETRIES]}).",
+                )
+                log.info("Task {} could not reach its model, try {}: {}", taskId, task.modelRetries, answer.reason)
+                TaskTurn.Parked(wait)
             }
 
             is ChatCompletion.Failed ->
@@ -500,6 +530,20 @@ class TaskLoop(
     }
 
     /** Adds what this turn cost, whether or not it produced anything. */
+    /** The model was reached this turn: the run of waits is over. */
+    private fun reached(task: Task) {
+        if (task.modelRetries == 0) return
+        task.modelRetries = 0
+        tasks.save(task)
+    }
+
+    /** How long before the [attempt]th try: half a minute, doubling, up to the tunable. */
+    private fun retryWait(attempt: Int): Duration {
+        val longest = tuning[Tunable.TASK_MODEL_RETRY_LONGEST_SECONDS].toLong()
+        val seconds = (FIRST_RETRY_SECONDS shl (attempt - 1).coerceIn(0, 20)).coerceAtMost(longest)
+        return Duration.ofSeconds(seconds)
+    }
+
     private fun record(task: Task, took: Duration) {
         task.turnsSpent += 1
         task.workedSeconds += took.toSeconds()
@@ -521,6 +565,8 @@ class TaskLoop(
      */
     private fun end(task: Task, status: TaskStatus, because: String, said: String?): TaskTurn {
         task.status = status
+        // Ended, so no run of waits for the model is still going on.
+        task.modelRetries = 0
         task.endedBecause = because.take(Task.TITLE_LENGTH)
         task.outcome = said
         task.finishedAt = OffsetDateTime.now()
@@ -534,6 +580,9 @@ class TaskLoop(
     }
 
     private companion object {
+        /** The first wait for a model that could not be reached; each after is twice the last. */
+        const val FIRST_RETRY_SECONDS = 30L
+
         /** Who the machinery speaks as in a transcript, beside the agent and the person. */
         const val TASK = "task"
 

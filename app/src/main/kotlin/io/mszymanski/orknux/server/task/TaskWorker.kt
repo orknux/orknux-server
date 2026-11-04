@@ -4,6 +4,7 @@ import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentType
+import io.mszymanski.orknux.server.agent.Chattiness
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 
@@ -85,6 +86,15 @@ class TaskWorker(
         fun named(capability: TaskCapability) =
             approved.filter { it.capability == capability }.mapNotNull { it.subject }
 
+        /*
+         * Every field of the agent, then the approvals on top. The copy used to
+         * name the fields it carried, and so left the rest behind without a
+         * word: a task's agent had no connections, secrets, variables or
+         * subagents, ignored its own round limit, tool cap and reasoning
+         * effort, and was handed skills the agent had switched off. An agent
+         * granted a Prometheus connection found none in a task and asked a
+         * person for what it already held. [TaskWorkerTest] lists every field.
+         */
         return Agent(
             id = agent?.id,
             workspaceId = task.workspaceId,
@@ -95,15 +105,30 @@ class TaskWorker(
             enabled = true,
             modelId = modelId,
             memoryShare = agent?.memoryShare,
+            maxRounds = agent?.maxRounds,
+            maxSubagentsAtOnce = agent?.maxSubagentsAtOnce,
+            reasoningEffort = agent?.reasoningEffort,
+            chattiness = agent?.chattiness ?: Chattiness.MEDIUM,
+            maxTools = agent?.maxTools,
             orknuxAccess = agent?.orknuxAccess == true || TaskCapability.ORKNUX in held,
+            // Whether it may ask is the agent's; a task asks through its own request either way.
+            mayAskForTools = agent?.mayAskForTools ?: true,
             // The boxes it may use come with it; a task asks for nothing wider.
             boxLabelsText = agent?.boxLabelsText,
             mcpServers = merged(agent?.mcpServers, named(TaskCapability.MCP_SERVER)),
             memoryCatalogs = merged(agent?.memoryCatalogs, named(TaskCapability.MEMORY_CATALOG)),
             skillCatalogs = merged(agent?.skillCatalogs, named(TaskCapability.SKILL_CATALOG)),
+            secretCatalogs = agent?.secretCatalogs?.toMutableList() ?: mutableListOf(),
+            variableCatalogs = agent?.variableCatalogs?.toMutableList() ?: mutableListOf(),
+            hiddenSkills = agent?.hiddenSkills?.toMutableList() ?: mutableListOf(),
+            requiredSkills = agent?.requiredSkills?.toMutableList() ?: mutableListOf(),
             tools = merged(agent?.tools, named(TaskCapability.TOOL)),
+            requiredTools = agent?.requiredTools?.toMutableList() ?: mutableListOf(),
             // What the agent switched off stays off in a task - built-ins and orknux_* tools alike.
             hiddenTools = agent?.hiddenTools?.toMutableList() ?: mutableListOf(),
+            connections = agent?.connections?.toMutableList() ?: mutableListOf(),
+            agents = agent?.agents?.toMutableList() ?: mutableListOf(),
+            icon = agent?.icon,
         )
     }
 

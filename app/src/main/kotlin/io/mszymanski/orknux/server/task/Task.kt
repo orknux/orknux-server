@@ -192,6 +192,14 @@ class Task(
     var turnsSpent: Int = 0,
 
     /**
+     * Turns in a row on which the model could not be reached - a rate limit,
+     * an outage - and that were tried again after a wait. Back to nought at
+     * the next turn that reaches it. See TaskLoop.
+     */
+    @Column(name = "model_retries", nullable = false)
+    var modelRetries: Int = 0,
+
+    /**
      * Seconds actually worked, and not wall clock.
      *
      * Time spent parked belongs to whoever has not answered yet, and charging it
