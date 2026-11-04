@@ -90,6 +90,28 @@ class DiagramBriefingTest(
         assertThat(told(hidden)).doesNotContain(PARAGRAPH)
     }
 
+    /**
+     * The workspace's own editors - wireframes, documents, diagrams and sheets -
+     * are said in the briefing of an agent that holds their making tools, so an
+     * agent asked for a mockup or a plan makes one there rather than an SVG or a
+     * paragraph; and only the ones it holds.
+     */
+    @Test
+    fun `an agent with Orknux access is told of the wireframes, documents, diagrams and sheets it can make`() {
+        val id = created("Maker", orknuxAccess = true)
+        assertThat(told(id)).contains("editors of its own")
+            .contains(io.mszymanski.orknux.server.mcp.WireframeTools.CREATE)
+            .contains(io.mszymanski.orknux.server.mcp.DocumentTools.CREATE)
+            .contains(DiagramTools.CREATE).contains(DiagramTools.ROUTE).contains(DiagramTools.CHECK)
+            .contains(io.mszymanski.orknux.server.mcp.SheetTools.CREATE)
+
+        val agent = requireNotNull(agents.findByIdOrNull(id))
+        agent.hiddenTools.add(io.mszymanski.orknux.server.mcp.SheetTools.CREATE)
+        agents.save(agent)
+        assertThat(told(id)).contains("editors of its own").doesNotContain(io.mszymanski.orknux.server.mcp.SheetTools.CREATE)
+        assertThat(told(created("Without access", orknuxAccess = false))).doesNotContain("editors of its own")
+    }
+
     @Test
     fun `without the change tool it searches, and is not asked to update`() {
         diagram()
@@ -102,7 +124,7 @@ class DiagramBriefingTest(
 
     /** Run against agents put back the way they were before the tools existed, on whichever engine the suite runs. */
     @Test
-    fun `the migration marks the seven Always on agents with access and hides the delete on every agent`() {
+    fun `the migrations mark the diagram tools Always on agents with access and hides the delete on every agent`() {
         val with = created("Old with access", orknuxAccess = true)
         val without = created("Old without access", orknuxAccess = false)
         listOf(with, without).forEach { one ->
@@ -129,7 +151,7 @@ class DiagramBriefingTest(
     }
 
     @Test
-    fun `the migration names every diagram tool and nothing else`() {
+    fun `the migrations name every diagram tool and nothing else`() {
         val written = Regex("'(orknux_[a-z_]+)'").findAll(migration()).map { it.groupValues[1] }.toSet()
         assertThat(written).isEqualTo(DiagramTools.NAMES)
         assertThat(builtIns.orknuxNames()).containsAll(written)
@@ -146,7 +168,12 @@ class DiagramBriefingTest(
 
     private fun migration(): String {
         val sqlite = isSqlite(jdbc.dataSource?.let { jdbcUrlOf(it) })
-        val path = if (sqlite) "db/migration/sqlite/V129__orknux_diagram_tools.sql" else "db/migration/postgresql/V451__orknux_diagram_tools.sql"
-        return ClassPathResource(path).inputStream.use { String(it.readAllBytes(), Charsets.UTF_8) }
+        // The first seven, then the check and the router, which came later in a migration of their own.
+        val paths = if (sqlite) {
+            listOf("db/migration/sqlite/V129__orknux_diagram_tools.sql", "db/migration/sqlite/V334__orknux_diagram_check_route.sql")
+        } else {
+            listOf("db/migration/postgresql/V451__orknux_diagram_tools.sql", "db/migration/postgresql/V654__orknux_diagram_check_route.sql")
+        }
+        return paths.joinToString(";\n") { path -> ClassPathResource(path).inputStream.use { String(it.readAllBytes(), Charsets.UTF_8) } }
     }
 }

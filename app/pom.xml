@@ -144,6 +144,17 @@
             than left to the library's defaults, which have moved between
             versions.
         -->
+        <!--
+            WebP, read through ImageIO. Batik draws a diagram's pictures for a
+            PNG or PDF export and reads PNG and JPEG only, so a WebP picture -
+            which the editor accepts, and a browser pastes - failed the whole
+            export. DiagramPictureData turns what Batik cannot read into PNG.
+        -->
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>3.12.0</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.xmlgraphics</groupId>
             <artifactId>batik-transcoder</artifactId>

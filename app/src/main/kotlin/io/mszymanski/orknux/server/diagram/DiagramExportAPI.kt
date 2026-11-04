@@ -29,6 +29,8 @@ class DiagramExportAPI(
     private val api: DiagramAPI,
     private val export: DiagramExport,
     private val audit: WorkspaceAuditRecorder,
+    /** Where this installation is reached from, for a PDF's links back into it. */
+    private val web: io.mszymanski.orknux.server.security.WebProperties,
 ) {
 
     @GetMapping("/api/diagrams/{id}/export/{format}")
@@ -43,7 +45,7 @@ class DiagramExportAPI(
                 .body("A scale is one of ${DiagramExport.SCALES.joinToString(", ")}.".toByteArray())
         }
         val held = api.find(id)
-        val file = when (val made = export.export(api.drawing(requireNotNull(held.id)), asked, scale)) {
+        val file = when (val made = export.export(api.drawing(requireNotNull(held.id)), asked, scale, held.id, links = { link -> address(held.workspaceId, link) })) {
             is DiagramExport.Made.Written -> made.file
             is DiagramExport.Made.Refused -> return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .contentType(MediaType.TEXT_PLAIN).body(made.reason.toByteArray())
@@ -66,5 +68,24 @@ class DiagramExportAPI(
             val plain = name.trim().replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]+"), "-").trim('-', ' ', '.').take(120)
             return (plain.ifEmpty { "diagram" }) + "." + extension
         }
+    }
+
+    /**
+     * Where a box's link leads, as an address that opens from a PDF on
+     * somebody's desk: another diagram, a document or a wireframe in this
+     * workspace at this installation's own address, and a web or mail address
+     * as it is. Anything else leads nowhere and is left out.
+     */
+    private fun address(workspaceId: Long, link: String): String? {
+        val said = link.trim()
+        if (Regex("^(https?://|mailto:)\\S+$", RegexOption.IGNORE_CASE).matches(said)) return said
+        val inside = Regex("^(diagram|document|wireframe):(\\d+)$", RegexOption.IGNORE_CASE).find(said) ?: return null
+        val (kind, id) = inside.destructured
+        val path = when (kind.lowercase()) {
+            "diagram" -> "explore/diagrams"
+            "document" -> "design/documents"
+            else -> "design/wireframes"
+        }
+        return "${web.baseUrl.trimEnd('/')}/workspace/$workspaceId/$path/$id"
     }
 }

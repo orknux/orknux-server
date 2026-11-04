@@ -33,6 +33,14 @@ import java.time.OffsetDateTime
  * cap among them - and written in the audit log in the same words, under the
  * name of whoever asked. What the tools add is [DiagramAgentAccess]: a diagram
  * set to Read only is refused to them here, by [requireAgentMayChange].
+ *
+ * **Versioned through ComponentRevisionRecorder**, as a document is: every
+ * write of a drawing - the editor, the diagram chat, the orknux_* tools, a
+ * restore - goes through [write], which hands the recorder the state it
+ * displaces and the door that state was saved through. The editor saves as it
+ * is drawn in, so one visit keeps one version (the state it opened on), and
+ * the saves one turn of the chat makes keep one: the state before the turn.
+ * Kept by count, `Tunable.DIAGRAM_VERSIONS_KEPT`.
  */
 @Controller
 class DiagramAPI(
@@ -42,7 +50,7 @@ class DiagramAPI(
     private val edges: DiagramEdgeRepository,
     private val audit: WorkspaceAuditRecorder,
     private val access: WorkspaceAccess,
-    mapper: ObjectMapper,
+    private val mapper: ObjectMapper,
     /** Lazy: the chat reaches the orknux_* tools, which save through here. */
     @param:Lazy private val chat: DiagramChat,
     /** What a turn's files say, for the model. */
@@ -52,9 +60,14 @@ class DiagramAPI(
     /** Who has it open, told when it is saved from any door; and the audit's once-per-visit. Issue #683. */
     private val published: org.springframework.context.ApplicationEventPublisher? = null,
     private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
+    /** Keeps what each save displaces; see the class's note. */
+    private val revisions: io.mszymanski.orknux.server.revision.ComponentRevisionRecorder? = null,
 ) {
 
     val document = DiagramDocument(mapper)
+
+    /** When each diagram an editor is saving last kept a version, so a long visit keeps one every so often. */
+    private val versionedAt = java.util.concurrent.ConcurrentHashMap<Long, Long>()
 
     // ---- Catalogs ----
 
@@ -153,11 +166,18 @@ class DiagramAPI(
         @Argument catalogId: Long?,
         @Argument document: String?,
         @Argument description: String?,
-    ): DiagramView = create(workspaceId, name, catalogId, this.document.read(document), description)
+    ): DiagramView = create(workspaceId, name, catalogId, this.document.read(document), description, DiagramDoor.EDITOR)
 
     /** The same create, from the tools, which hold a drawing rather than text. */
     @Transactional
-    fun create(workspaceId: Long, name: String, catalogId: Long?, drawing: DiagramDrawing, description: String? = null): DiagramView {
+    fun create(
+        workspaceId: Long,
+        name: String,
+        catalogId: Long?,
+        drawing: DiagramDrawing,
+        description: String? = null,
+        door: DiagramDoor = DiagramDoor.TOOL,
+    ): DiagramView {
         access.requireVisible(workspaceId)
         val catalog = catalogFor(workspaceId, catalogId)
         held(drawing)
@@ -170,6 +190,8 @@ class DiagramAPI(
                 description = cleanDescription(description),
                 createdBy = who,
                 updatedBy = who,
+                layers = document.writeLayers(drawing.layers),
+                updatedVia = door.name,
             ),
         )
         writeRows(requireNotNull(made.id), drawing)
@@ -252,18 +274,61 @@ class DiagramAPI(
         }
         val held = find(id)
         if (revision != null && revision != held.revision) throw DiagramChangedException(held.name)
-        return write(held, this.document.read(document), viewer?.takeIf { it.isNotBlank() })
+        return write(held, this.document.read(document), DiagramDoor.EDITOR, viewer = viewer?.takeIf { it.isNotBlank() })
     }
 
-    /** The same save, from the tools. */
+    /**
+     * The same save, from the tools.
+     *
+     * @param turn the diagram chat's turn, where it is the chat saving: the
+     *   saves one turn makes one after another keep one version between them.
+     */
     @Transactional
-    fun saveDrawing(id: Long, drawing: DiagramDrawing): DiagramView = write(find(id), document.checked(drawing))
+    fun saveDrawing(id: Long, drawing: DiagramDrawing, turn: String? = null): DiagramView =
+        write(find(id), document.checked(drawing), if (turn == null) DiagramDoor.TOOL else DiagramDoor.CHAT, turn)
+
+    /**
+     * Puts one of a diagram's versions back, as a save of its own: what it
+     * replaces is kept, so a restore is undone by restoring again. The drawing
+     * and what it is for come back; the name and the catalog stay as they are,
+     * as a document's do.
+     *
+     * A person may always; an agent - working with nobody signed in - only on
+     * a diagram open to changes by agents, as with any other change it makes.
+     * Called by `ComponentRevisionAPI`, which has checked the version is one
+     * the caller may see and writes the audit line.
+     */
+    @Transactional
+    fun restore(id: Long, snapshot: String): DiagramView {
+        val held = find(id)
+        if (signedIn() == null && ActingIn.workspace() != null) requireAgentMayChange(held)
+        val was = io.mszymanski.orknux.server.revision.ComponentSnapshot.diagramIn(snapshot, mapper)
+        // As it was when it was saved, which is what a restore means; it was held to the number then.
+        // Set once the state it replaces is kept, so that state keeps the description it had.
+        return write(held, document.read(was.document), DiagramDoor.RESTORE, said = false) {
+            if (was.descriptionKept) it.description = was.description
+        }
+    }
+
+    /** The diagram as its history keeps it: the whole drawing, with its name and what it is for. */
+    fun snapshot(held: Diagram): String {
+        val drawn = drawing(requireNotNull(held.id))
+        return io.mszymanski.orknux.server.revision.ComponentSnapshot.ofDiagram(
+            name = held.name,
+            description = held.description,
+            document = document.write(drawn),
+            nodeCount = drawn.nodes.size,
+            edgeCount = drawn.edges.size,
+            mapper = mapper,
+        )
+    }
 
     @MutationMapping
     @Transactional
     fun deleteDiagram(@Argument id: Long): Boolean {
         val held = find(id)
         diagrams.delete(held)
+        revisions?.forget(io.mszymanski.orknux.server.revision.ComponentRevisionKind.DIAGRAM, requireNotNull(held.id))
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Diagram ${held.name} removed")
         return true
     }
@@ -306,7 +371,8 @@ class DiagramAPI(
                 kind = DiagramNodeKind.byKey(it.kind) ?: DiagramNodeKind.BOX,
                 label = it.label,
                 x = it.x, y = it.y, w = it.w, h = it.h,
-                color = it.color, notes = it.notes, parent = it.parentKey,
+                color = it.color, notes = it.notes, parent = it.parentKey, layer = it.layerKey, link = it.link,
+                border = it.borderColor, borderWidth = it.borderWidth, image = it.image,
             )
         },
         edges = edges.findByDiagramIdOrderByPositionAsc(diagramId).map {
@@ -318,8 +384,12 @@ class DiagramAPI(
                 start = DiagramEndStyle.byKey(it.startEnd) ?: kind.start,
                 end = DiagramEndStyle.byKey(it.endEnd) ?: kind.end,
                 routing = DiagramRouting.byKey(it.routing) ?: DiagramRouting.STRAIGHT,
+                layer = it.layerKey,
+                points = DiagramLink.readPoints(it.points),
+                color = it.color, width = it.width, labelAt = it.labelAt,
             )
         },
+        layers = document.readLayers(diagrams.findByIdOrNull(diagramId)?.layers),
     )
 
     fun catalogNameOf(id: Long): String? = catalogs.findByIdOrNull(id)?.name
@@ -368,16 +438,48 @@ class DiagramAPI(
     fun catalogNamed(workspaceId: Long, named: String): DiagramCatalog? =
         catalogs.findByWorkspaceIdOrderByNameAsc(workspaceId).firstOrNull { it.name.equals(named, ignoreCase = true) || it.id?.toString() == named }
 
-    private fun write(held: Diagram, drawing: DiagramDrawing, viewer: String? = null): DiagramView {
+    /**
+     * Every write of a drawing, whichever door it came through.
+     *
+     * The state it displaces is handed to the recorder first - read off the
+     * rows before they are replaced - unless that state was written by this
+     * same visit of an editor or this same turn of the diagram chat, which
+     * makes it the middle of what somebody is doing rather than a version
+     * anybody chose.
+     *
+     * @param said whether the save is said in the audit log here; a restore is said by its own line.
+     * @param also what else the save changes on the diagram, done after the state it replaces is kept.
+     */
+    private fun write(
+        held: Diagram,
+        drawing: DiagramDrawing,
+        door: DiagramDoor,
+        turn: String? = null,
+        viewer: String? = null,
+        said: Boolean = true,
+        also: (Diagram) -> Unit = {},
+    ): DiagramView {
         held(drawing)
         val id = requireNotNull(held.id)
+        // From an editor, which saves as it is edited: at the start of a visit and then every so often, so a
+        // long visit can be rolled back to any point in it. Every time from anything else.
+        val key = io.mszymanski.orknux.server.live.LiveRooms.Key(io.mszymanski.orknux.server.live.LiveKind.DIAGRAM, id)
+        val firstOfVisit = viewer == null || rooms?.firstSave(key, viewer) != false
+        val now = System.currentTimeMillis()
+        val due = viewer != null && now - (versionedAt[id] ?: 0L) >= tuning[Tunable.DIAGRAM_VERSION_MINUTES] * 60_000L
+        if ((firstOfVisit || due) && (turn == null || held.updatedTurn != turn)) {
+            revisions?.saved(held) { snapshot(held) }
+            versionedAt[id] = now
+        }
+        also(held)
         writeRows(id, drawing)
+        held.layers = document.writeLayers(drawing.layers)
         held.revision += 1
+        held.updatedVia = door.name
+        held.updatedTurn = turn
         touch(held)
         val saved = diagrams.save(held)
-        // Once per visit from an editor, which saves as it is edited; every time from anything else.
-        val key = io.mszymanski.orknux.server.live.LiveRooms.Key(io.mszymanski.orknux.server.live.LiveKind.DIAGRAM, id)
-        if (viewer == null || rooms?.firstSave(key, viewer) != false) {
+        if (said && firstOfVisit) {
             audit.record(
                 held.workspaceId,
                 WorkspaceAuditCategory.WORKSPACE,
@@ -402,6 +504,7 @@ class DiagramAPI(
                 DiagramNode(
                     diagramId = diagramId, key = node.id, position = at, kind = node.kind.key, label = node.label,
                     x = node.x, y = node.y, w = node.w, h = node.h, color = node.color, notes = node.notes, parentKey = node.parent,
+                    layerKey = node.layer, link = node.link, borderColor = node.border, borderWidth = node.borderWidth, image = node.image,
                 )
             },
         )
@@ -411,6 +514,8 @@ class DiagramAPI(
                     diagramId = diagramId, key = edge.id, position = at, sourceKey = edge.from, targetKey = edge.to,
                     label = edge.label, kind = edge.kind.key,
                     lineStyle = edge.line.key, startEnd = edge.start.key, endEnd = edge.end.key, routing = edge.routing.key,
+                    layerKey = edge.layer,
+                    points = DiagramLink.writePoints(edge.points), labelAt = edge.labelAt, color = edge.color, width = edge.width,
                 )
             },
         )
@@ -460,11 +565,11 @@ class DiagramAPI(
         name.trim().takeIf { it.isNotEmpty() && it.length <= Diagrams.CATALOG_NAME_LENGTH } ?: throw DiagramCatalogNameInvalidException()
 
     /** Whoever is signed in; an agent drawing through the orknux_* tools with nobody signed in, by its name. */
-    private fun who(): String {
-        val signedIn = SecurityContextHolder.getContext().authentication
-            ?.takeIf { it.isAuthenticated && it !is AnonymousAuthenticationToken }
-        return signedIn?.name ?: ActingIn.actor() ?: "orknux"
-    }
+    private fun who(): String = signedIn()?.name ?: ActingIn.actor() ?: "orknux"
+
+    /** The person signed in, or null - an agent working through the orknux_* tools has nobody behind it. */
+    private fun signedIn() = SecurityContextHolder.getContext().authentication
+        ?.takeIf { it.isAuthenticated && it !is AnonymousAuthenticationToken }
 }
 
 data class DiagramCatalogView(val id: Long, val workspaceId: Long, val name: String, val diagramCount: Int)

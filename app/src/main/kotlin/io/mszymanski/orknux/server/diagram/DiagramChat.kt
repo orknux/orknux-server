@@ -47,7 +47,8 @@ class DiagramChat(
         if (model.workspaceId != diagram.workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
         if (model.kind != ModelKind.CHAT) throw ModelNotChatException(model.name)
 
-        val scope = OrknuxScope(workspaceId = diagram.workspaceId, mayWrite = true)
+        // One turn: what it saves keeps one version of the diagram between them, the state before it.
+        val scope = OrknuxScope(workspaceId = diagram.workspaceId, mayWrite = true, diagramTurn = java.util.UUID.randomUUID().toString())
         val offered = offered(scope)
         val conversation = mutableListOf(ChatTurn(role = "system", content = briefing(diagram, offered)))
         conversation += said
@@ -116,6 +117,12 @@ class DiagramChat(
                 "Lay it out on a grid: nodes about 160 by 60, 80 pixels apart, flowing left to right or top to bottom, " +
                     "and a group drawn around the nodes it holds. Keep labels to a few words and put the detail in notes, " +
                     "${diagram.noteCharactersMost} characters at most per node. ",
+            )
+            append(
+                "After moving boxes or adding lines, route the lines around the boxes with ${tool(DiagramTools.ROUTE)} and " +
+                    "check the diagram with ${tool(DiagramTools.CHECK)}: it names lines on each other, lines through boxes " +
+                    "and labels that cannot be read. Fix what it finds - route again, or move and resize boxes - and say " +
+                    "what is still wrong if you could not. ",
             )
             append("When you have changed it, say in one or two sentences what you did. Do not describe the coordinates. ")
             // The tools answer its url, and the model pasted it under the diagram the person was looking at.

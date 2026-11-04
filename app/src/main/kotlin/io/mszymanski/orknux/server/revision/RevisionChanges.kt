@@ -123,7 +123,8 @@ class RevisionChanges(
 
     private companion object {
         /** What is read rather than compared: a change to it is "edited". */
-        val PROSE = setOf("systemPrompt", "content", "source", "typescript")
+        // A diagram's drawing among them: its counts, beside it, are what say how it changed.
+        val PROSE = setOf("systemPrompt", "content", "source", "typescript", "document")
 
         /** The keys whose values are ids of something with a name. */
         val NAMED = setOf("agentIds", "connectionIds", "modelId", "hiddenSkills", "requiredSkills", "catalogId")

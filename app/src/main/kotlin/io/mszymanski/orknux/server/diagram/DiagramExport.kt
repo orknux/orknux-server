@@ -45,7 +45,32 @@ class DiagramExport(
     private val svgs: SvgRenderer,
     private val mapper: ObjectMapper,
     private val tuning: Tuning = Tuning.DEFAULTS,
+    /** Where a diagram's uploaded pictures are, to draw them into its picture; none in a test that builds this by hand. */
+    private val images: DiagramImageRepository? = null,
+    private val store: io.mszymanski.orknux.server.attachment.AttachmentStore? = null,
+    /** And its pictures from the web, fetched under the rules there; none in a test that builds this by hand. */
+    private val web: DiagramWebPictures? = null,
 ) {
+
+    /**
+     * A diagram's own uploaded pictures as data addresses, for a picture drawn
+     * on the server, which has no session to fetch them with. Only [diagramId]'s
+     * own: a box naming another diagram's picture - in another workspace, say -
+     * is drawn as an empty frame. One from the web is fetched by
+     * [DiagramWebPictures], which says what it may reach.
+     */
+    private fun embedded(diagramId: Long?): (DiagramShape) -> String? = { node ->
+        val id = node.uploadedImage
+        if (id == null) {
+            node.image?.let { address -> web?.data(address) }
+        } else if (diagramId == null || images == null || store == null) {
+            null
+        } else {
+            images.findById(id).orElse(null)?.takeIf { it.diagramId == diagramId && store.exists(it.location) }?.let { held ->
+                DiagramPictureData.of(held.contentType, store.open(held.location).use { it.readAllBytes() })
+            }
+        }
+    }
 
     private val pictures = DiagramSvg()
 
@@ -60,34 +85,97 @@ class DiagramExport(
      * ceiling and nothing lower - it is a file they asked for, not a picture
      * dropped into a chat. Without it the PNG is [png]'s, held to the Tunable.
      */
-    fun export(drawing: DiagramDrawing, format: DiagramFormat, scale: Int? = null): Made = when (format) {
-        DiagramFormat.SVG -> Made.Written(DiagramFile(format, pictures.drawing(drawing).toByteArray()))
-        DiagramFormat.PNG -> when (val png = if (scale == null) png(drawing) else scaled(drawing, scale)) {
+    fun export(
+        drawing: DiagramDrawing,
+        format: DiagramFormat,
+        scale: Int? = null,
+        diagramId: Long? = null,
+        /** Where a box's link leads, as an address a PDF reader can open; null where it can be followed nowhere. */
+        links: (String) -> String? = { null },
+    ): Made = when (format) {
+        DiagramFormat.SVG -> Made.Written(DiagramFile(format, pictures.drawing(drawing, embedded(diagramId)).toByteArray()))
+        DiagramFormat.PNG -> when (val png = if (scale == null) png(drawing, diagramId) else scaled(drawing, scale, diagramId)) {
             is SvgRenderer.Drawing.Drawn -> Made.Written(DiagramFile(format, png.png))
             is SvgRenderer.Drawing.Refused -> Made.Refused(png.reason)
         }
-        DiagramFormat.PDF -> when (val png = png(drawing)) {
-            is SvgRenderer.Drawing.Drawn -> Made.Written(DiagramFile(format, pdf(png.png)))
-            is SvgRenderer.Drawing.Refused -> Made.Refused(png.reason)
-        }
-        DiagramFormat.MERMAID -> Made.Written(DiagramFile(format, mermaid(drawing).toByteArray()))
+        DiagramFormat.PDF -> runCatching { Made.Written(DiagramFile(format, vectorPdf(drawing, diagramId, links))) }
+            .getOrElse { why ->
+                // Drawn as a picture where the vector page will not lay out, rather than not at all.
+                org.slf4j.LoggerFactory.getLogger(DiagramExport::class.java).warn("A diagram's PDF was drawn as a picture: {}", why.message)
+                when (val png = png(drawing, diagramId)) {
+                    is SvgRenderer.Drawing.Drawn -> Made.Written(DiagramFile(format, pdf(png.png)))
+                    is SvgRenderer.Drawing.Refused -> Made.Refused(png.reason)
+                }
+            }
+        // What is shown: a hidden layer is out of the picture, as it is out of the editor. JSON keeps it all, layers and all.
+        DiagramFormat.MERMAID -> Made.Written(DiagramFile(format, mermaid(drawing.visible()).toByteArray()))
         DiagramFormat.JSON -> Made.Written(DiagramFile(format, DiagramDocument(mapper).write(drawing).toByteArray()))
     }
 
     /** The picture, twice its drawn size for a sharp screen, held to the Tunable. */
-    fun png(drawing: DiagramDrawing): SvgRenderer.Drawing {
-        val svg = pictures.drawing(drawing)
+    fun png(drawing: DiagramDrawing, diagramId: Long? = null): SvgRenderer.Drawing {
+        val svg = pictures.drawing(drawing, embedded(diagramId))
         val natural = svg.substringAfter("width=\"").substringBefore('"').toIntOrNull() ?: 400
         return svgs.png(svg, minOf(natural * 2, tuning[Tunable.DIAGRAM_PICTURE_PIXELS]))
     }
 
     /** The picture at [scale] times its drawn size, as wide as the renderer draws at most. */
-    fun scaled(drawing: DiagramDrawing, scale: Int): SvgRenderer.Drawing {
+    fun scaled(drawing: DiagramDrawing, scale: Int, diagramId: Long? = null): SvgRenderer.Drawing {
         require(scale in SCALES) { "a scale is one of $SCALES" }
-        val svg = pictures.drawing(drawing)
+        val svg = pictures.drawing(drawing, embedded(diagramId))
         val natural = svg.substringAfter("width=\"").substringBefore('"').toIntOrNull() ?: 400
         return svgs.png(svg, (natural * scale).coerceIn(1, SvgRenderer.MOST_WIDTH))
     }
+
+    /**
+     * One page the size of the diagram, drawn as vectors, with every box that
+     * links somewhere a link a PDF reader opens.
+     *
+     * It was the PNG on a page: soft at any zoom past its own, text that could
+     * be neither found nor copied, and a link on a box nothing more than a
+     * picture of one. The SVG goes onto the page as the SVG, through the same
+     * openhtmltopdf and Batik the documents' PDFs use, and over each linked box
+     * lies an empty link the size of the box - a link in a PDF is an area of
+     * the page, and these are that area.
+     */
+    private fun vectorPdf(drawing: DiagramDrawing, diagramId: Long?, links: (String) -> String?): ByteArray =
+        pdfOf(drawing, embedded(diagramId), links)
+
+    /** [vectorPdf] with the drawing's pictures answered by [drawn]; apart so a test can hand pictures in. */
+    internal fun pdfOf(drawing: DiagramDrawing, drawn: (DiagramShape) -> String?, links: (String) -> String? = { null }): ByteArray {
+        val svg = pictures.drawing(drawing, drawn)
+        val (left, top, width, height) = pictures.frame(drawing)
+        val areas = drawing.visible().nodes.mapNotNull { node ->
+            val target = node.link?.takeIf { it.isNotBlank() }?.let(links) ?: return@mapNotNull null
+            """<a href="${xml(target)}" style="left:${node.x - left}px;top:${node.y - top}px;width:${node.w}px;height:${node.h}px"></a>"""
+        }
+        val page = """<html xmlns="http://www.w3.org/1999/xhtml"><head><style>
+            @page { size: ${width}px ${height}px; margin: 0 }
+            body { margin: 0 }
+            .frame { position: relative; width: ${width}px; height: ${height}px }
+            .frame > svg { position: absolute; left: 0; top: 0 }
+            .frame > a { position: absolute; display: block }
+            </style></head><body><div class="frame">${svg.removePrefix("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")}${areas.joinToString("")}</div></body></html>"""
+        val out = ByteArrayOutputStream()
+        com.openhtmltopdf.pdfboxout.PdfRendererBuilder()
+            .useFastMode()
+            /*
+             * A picture in the drawing is a data address, and only that is let
+             * through: by default every one was refused as an outside fetch, and
+             * a refused picture threw away the whole SVG - a diagram with one
+             * picture in it came out a blank page, and nothing said so.
+             */
+            .useSVGDrawer(com.openhtmltopdf.svgsupport.BatikSVGDrawer(com.openhtmltopdf.svgsupport.BatikSVGDrawer.SvgScriptMode.SECURE, setOf("data")))
+            // Nothing is fetched: every picture in the drawing is a data address by now.
+            .useExternalResourceAccessControl({ uri, _ -> uri.startsWith("data:", ignoreCase = true) }, com.openhtmltopdf.outputdevice.helper.ExternalResourceControlPriority.RUN_BEFORE_RESOLVING_URI)
+            .withHtmlContent(page, null)
+            .toStream(out)
+            .run()
+        return out.toByteArray()
+    }
+
+    private fun xml(text: String): String =
+        text.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
 
     /** One page the size of the picture, at 96 pixels to the inch. */
     private fun pdf(png: ByteArray): ByteArray {
@@ -134,6 +222,15 @@ class DiagramExport(
                 DiagramNodeKind.ACTOR, DiagramNodeKind.INTERFACE, DiagramNodeKind.BOUNDARY,
                 DiagramNodeKind.CONTROL, DiagramNodeKind.ENTITY -> "$id(($label))"
                 DiagramNodeKind.DOCUMENT, DiagramNodeKind.CLASS, DiagramNodeKind.PACKAGE -> "$id[$label]"
+                DiagramNodeKind.SUBROUTINE, DiagramNodeKind.SERVER -> "$id[[$label]]"
+                DiagramNodeKind.QUEUE, DiagramNodeKind.STORAGE -> "$id[($label)]"
+                DiagramNodeKind.MANUAL_INPUT, DiagramNodeKind.DISPLAY -> "$id[/$label/]"
+                DiagramNodeKind.DELAY, DiagramNodeKind.STAR, DiagramNodeKind.MOBILE, DiagramNodeKind.BROWSER -> "$id($label)"
+                DiagramNodeKind.OCTAGON -> "$id{{$label}}"
+                DiagramNodeKind.STEP, DiagramNodeKind.CALLOUT, DiagramNodeKind.OFF_PAGE -> "$id>$label]"
+                DiagramNodeKind.DOCUMENTS, DiagramNodeKind.IMAGE -> "$id[$label]"
+                DiagramNodeKind.LINK -> "$id($label)"
+                DiagramNodeKind.TEXT -> "$id[$label]"
             }
         }
         return buildString {

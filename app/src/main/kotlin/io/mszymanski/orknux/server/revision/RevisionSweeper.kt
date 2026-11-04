@@ -143,8 +143,8 @@ class RevisionSweeper(
         val old = publications.idsPublishedBefore(cutoff).filterNot { it in live }
         if (old.isNotEmpty()) publications.deleteAllByIdInBatch(old)
 
-        // A document's history is kept by count, not by age; a count lowered since its last save is honoured here.
-        val pruned = recorder?.pruneAll(ComponentRevisionKind.DOCUMENT) ?: 0
+        // A document's and a diagram's history are kept by count, not by age; a count lowered since its last save is honoured here.
+        val pruned = ComponentRevisionKind.entries.filter { it.keptByCount }.sumOf { recorder?.pruneAll(it) ?: 0 }
 
         val swept = stale.size + old.size + pruned
         if (swept > 0) log.info("Swept {} revisions recorded before {}", swept, cutoff)

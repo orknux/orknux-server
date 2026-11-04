@@ -66,7 +66,9 @@ class DiagramTidyTest {
         assertThat(straight).contains("<line ")
 
         val bent = Regex("""<path d="(M [^"]+)" fill="none" stroke="[^"]+" stroke-width="1.5"""").find(svg(DiagramRouting.ORTHOGONAL))!!.groupValues[1]
-        val points = Regex("""[ML] ([0-9.-]+) ([0-9.-]+)""").findAll(bent).map { it.groupValues[1].toDouble() to it.groupValues[2].toDouble() }.toList()
+        // Its corners: where it starts, the point each rounded corner turns through (a Q's control), and where it ends.
+        fun pairs(pattern: String) = Regex(pattern).findAll(bent).map { it.groupValues[1].toDouble() to it.groupValues[2].toDouble() }.toList()
+        val points = pairs("""M ([0-9.-]+) ([0-9.-]+)""") + pairs("""Q ([0-9.-]+) ([0-9.-]+)""") + pairs("""L ([0-9.-]+) ([0-9.-]+)""").takeLast(1)
         assertThat(points).hasSizeGreaterThanOrEqualTo(2)
         points.zipWithNext().forEach { (p, q) ->
             assertThat(p.first == q.first || p.second == q.second).describedAs("$p to $q").isTrue()

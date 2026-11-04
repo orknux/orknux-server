@@ -78,10 +78,20 @@ enum class ComponentRevisionKind(val release: ComponentRelease) {
      * apply to it.
      */
     DOCUMENT(ComponentRelease.SAVE),
+
+    /**
+     * A diagram, for the reasons a document is here: the editor, its chat and
+     * the orknux_* tools all save it, and it is saved as often as it is drawn
+     * in. Kept by count, `Tunable.DIAGRAM_VERSIONS_KEPT`, and not by age.
+     */
+    DIAGRAM(ComponentRelease.SAVE),
     ;
 
     /** Whether this kind's history lives in [ComponentRevision]'s own table. */
     val stored: Boolean get() = this != WORKFLOW
+
+    /** Whether it is kept by a count of versions per component rather than by the days the others are. */
+    val keptByCount: Boolean get() = this == DOCUMENT || this == DIAGRAM
 }
 
 /**
@@ -186,11 +196,13 @@ interface ComponentRevisionRepository : JpaRepository<ComponentRevision, Long> {
 
     /**
      * What the retention sweep takes: history that has been history too long.
-     * Not a document's, which is kept by count instead - see [idsNewestFirst].
+     * Not a document's or a diagram's, which are kept by count instead - see
+     * [idsNewestFirst] and [ComponentRevisionKind.keptByCount].
      */
     @Query(
         "select r.id from ComponentRevision r where r.recordedAt < :before " +
-            "and r.kind <> io.mszymanski.orknux.server.revision.ComponentRevisionKind.DOCUMENT",
+            "and r.kind <> io.mszymanski.orknux.server.revision.ComponentRevisionKind.DOCUMENT " +
+            "and r.kind <> io.mszymanski.orknux.server.revision.ComponentRevisionKind.DIAGRAM",
     )
     fun idsRecordedBefore(before: OffsetDateTime): List<Long>
 

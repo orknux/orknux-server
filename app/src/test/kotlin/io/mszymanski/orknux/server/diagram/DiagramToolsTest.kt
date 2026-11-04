@@ -98,7 +98,7 @@ class DiagramToolsTest(
         assertThat(tools.specs(scope).map { it.name }).containsAll(DiagramTools.NAMES)
         val reading = scope.copy(mayWrite = false)
         assertThat(tools.specs(reading).map { it.name }.filter { it in DiagramTools.NAMES })
-            .containsExactlyInAnyOrder(DiagramTools.LIST, DiagramTools.READ, DiagramTools.NODE, DiagramTools.SEARCH, DiagramTools.EXPORT)
+            .containsExactlyInAnyOrder(DiagramTools.LIST, DiagramTools.READ, DiagramTools.NODE, DiagramTools.SEARCH, DiagramTools.EXPORT, DiagramTools.CHECK)
         assertThat(call(DiagramTools.CREATE, """{"name":"Nope"}""", reading).path("error").stringValue()).contains("may read")
         assertThat(diagrams.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId)).isEmpty()
     }

@@ -7,6 +7,7 @@ import io.mszymanski.orknux.server.chat.ChatFileTools
 import io.mszymanski.orknux.server.diagram.Diagram
 import io.mszymanski.orknux.server.diagram.DiagramAPI
 import io.mszymanski.orknux.server.diagram.DiagramAgentAccess
+import io.mszymanski.orknux.server.diagram.DiagramCheck
 import io.mszymanski.orknux.server.diagram.DiagramDocumentInvalidException
 import io.mszymanski.orknux.server.diagram.DiagramDrawing
 import io.mszymanski.orknux.server.diagram.DiagramEdgeKind
@@ -18,6 +19,7 @@ import io.mszymanski.orknux.server.diagram.DiagramLineStyle
 import io.mszymanski.orknux.server.diagram.DiagramLink
 import io.mszymanski.orknux.server.diagram.DiagramNodeKind
 import io.mszymanski.orknux.server.diagram.DiagramReadOnlyException
+import io.mszymanski.orknux.server.diagram.DiagramRouter
 import io.mszymanski.orknux.server.diagram.DiagramRouting
 import io.mszymanski.orknux.server.diagram.DiagramRepository
 import io.mszymanski.orknux.server.diagram.DiagramSearch
@@ -31,6 +33,7 @@ import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.workflow.script.StoredKind
 import org.springframework.context.annotation.Lazy
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
@@ -69,6 +72,9 @@ class DiagramTools(
     private val mapper: ObjectMapper,
     /** Where the chat picture's PNG and an export are kept, under a key, as every file in a session is. */
     private val scratch: LlmSessionStore,
+    /** What a box's link may name besides another diagram, read for its name. */
+    private val documents: io.mszymanski.orknux.server.design.DesignDocumentRepository,
+    private val wireframes: io.mszymanski.orknux.server.design.WireframeRepository,
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
@@ -99,8 +105,8 @@ class DiagramTools(
         add(
             ToolSpec(
                 name = READ,
-                description = "One diagram in full: its $DESCRIPTION, every node with its id, kind, label, position, size, colour, group and " +
-                    "the start of its notes, and every connection with its ends, label and kind. Read it before changing it.",
+                description = "One diagram in full: its $DESCRIPTION, its layers, every node with its id, kind, label, position, size, colour, " +
+                    "group, layer and the start of its notes, and every connection with its ends, label, kind and layer. Read it before changing it.",
                 parameters = listOf(ToolParameterSpec(DIAGRAM, "The diagram's name, or its id.", required = true)),
                 summary = "Reads one diagram",
             ),
@@ -135,6 +141,21 @@ class DiagramTools(
                 summary = "Exports a diagram as PNG, SVG, PDF, Mermaid or JSON",
             ),
         )
+        add(
+            ToolSpec(
+                name = CHECK,
+                description = "Checks a diagram for what makes it hard to read, measured as it is drawn: lines running " +
+                    "along each other (${DiagramCheck.Kind.LINES_OVERLAP.key}), lines through a box they do not join " +
+                    "(${DiagramCheck.Kind.LINE_THROUGH_SHAPE.key}), and words that cannot be read - boxes on each other " +
+                    "(${DiagramCheck.Kind.SHAPES_OVERLAP.key}), a label cut short (${DiagramCheck.Kind.LABEL_CUT.key}), a " +
+                    "line's label on a box or another label (${DiagramCheck.Kind.LABEL_COVERED.key}) - and, as warnings, a " +
+                    "line through another's label and lines crossing. Each problem names its lines and boxes by id and " +
+                    "where it is. Every layer is checked, shown or not. Run it after drawing or changing a diagram, before " +
+                    "saying it is done; $ROUTE fixes most line problems, the rest are fixed by moving or resizing boxes.",
+                parameters = listOf(ToolParameterSpec(DIAGRAM, "The diagram's name, or its id.", required = true)),
+                summary = "Finds overlapping lines, lines through boxes and unreadable labels",
+            ),
+        )
         if (!scope.mayWrite) return@buildList
         add(
             ToolSpec(
@@ -149,6 +170,7 @@ class DiagramTools(
                     ToolParameterSpec(CATALOG, "The catalog to put it in: its name or id. The first catalog when left out.", required = false),
                     ToolParameterSpec(NODES, "The nodes. $NODE_SAID", required = false, schema = NODE_LIST),
                     ToolParameterSpec(EDGES, "The connections. $EDGE_SAID", required = false, schema = EDGE_LIST),
+                    ToolParameterSpec(LAYERS, "$LAYERS_SAID Left out, it has the one layer.", required = false, schema = LAYER_LIST),
                     AgentTools.SHOW_PARAM,
                 ),
             ),
@@ -163,12 +185,31 @@ class DiagramTools(
                 parameters = listOf(
                     ToolParameterSpec(DIAGRAM, "The diagram's name, or its id.", required = true),
                     ToolParameterSpec(DESCRIPTION, "A new description of what the diagram is for; empty takes it away.", required = false),
+                    ToolParameterSpec(LAYERS, "$LAYERS_SAID Left out, the layers stay as they are.", required = false, schema = LAYER_LIST),
                     ToolParameterSpec(ADD_NODES, "Nodes to add. $NODE_SAID", required = false, schema = NODE_LIST),
                     ToolParameterSpec(UPDATE_NODES, "Nodes to change, each with its id and only the fields that change; a null clears notes, colour or parent.", required = false, schema = NODE_LIST),
                     ToolParameterSpec(REMOVE_NODES, "The ids of nodes to take away.", required = false, schema = IDS),
                     ToolParameterSpec(ADD_EDGES, "Connections to add. $EDGE_SAID", required = false, schema = EDGE_LIST),
                     ToolParameterSpec(UPDATE_EDGES, "Connections to change, each with its id and only the fields that change.", required = false, schema = EDGE_LIST),
                     ToolParameterSpec(REMOVE_EDGES, "The ids of connections to take away.", required = false, schema = IDS),
+                    AgentTools.SHOW_PARAM,
+                ),
+            ),
+        )
+        add(
+            ToolSpec(
+                name = ROUTE,
+                description = "Routes a diagram's lines in right angles around the boxes in their way and off each " +
+                    "other's runs, spreading the lines into one box along its sides, and saves them so. Every line, or " +
+                    "the ones named; a line routed becomes ${DiagramRouting.ORTHOGONAL.key} and keeps the corners found " +
+                    "for it, which follow when a box is moved. Boxes are not moved. Answers, line by line, what happened " +
+                    "- routed with how many turns, or why not - and the problems $CHECK finds before and after, so you " +
+                    "can see what is left: boxes too close together for a line to pass are fixed by moving them, then " +
+                    "routing again. Refused on a diagram that is read only for agents. $ANSWERED",
+                summary = "Routes lines around boxes and each other",
+                parameters = listOf(
+                    ToolParameterSpec(DIAGRAM, "The diagram's name, or its id.", required = true),
+                    ToolParameterSpec(EDGES, "Only these connections, by id; every one when left out.", required = false, schema = IDS),
                     AgentTools.SHOW_PARAM,
                 ),
             ),
@@ -200,11 +241,16 @@ class DiagramTools(
                 READ -> withDiagram(scope, asked) { read(it) }
                 NODE -> withDiagram(scope, asked) { node(it, asked) }
                 EXPORT -> withDiagram(scope, asked) { export(scope, it, asked) }
+                CHECK -> withDiagram(scope, asked) { check(it) }
                 else -> if (!scope.mayWrite) refuse("This conversation may read what is here, but not change it") else when (name) {
                     CREATE -> create(scope, asked)
                     CHANGE -> withDiagram(scope, asked) { held ->
                         if (!personAsking) api.requireAgentMayChange(held)
                         change(scope, held, asked)
+                    }
+                    ROUTE -> withDiagram(scope, asked) { held ->
+                        if (!personAsking) api.requireAgentMayChange(held)
+                        route(scope, held, asked)
                     }
                     DELETE -> withDiagram(scope, asked) { held ->
                         if (!personAsking) api.requireAgentMayChange(held)
@@ -286,10 +332,101 @@ class DiagramTools(
                 AGENTS to said(view.agentAccess),
                 "revision" to view.revision,
                 "url" to link(view.workspaceId, view.id),
+                // Always the list there is, Base where it has none of its own, so a node's layer always names one here.
+                LAYERS to drawing.effectiveLayers.map(api.document::shown),
                 "nodes" to drawing.nodes.map { api.document.shown(it, upTo) },
                 "edges" to drawing.edges.map { api.document.shown(it) },
             ),
         )
+    }
+
+    private fun check(held: Diagram): String {
+        val problems = DiagramCheck.of(api.drawing(requireNotNull(held.id)))
+        return mapper.writeValueAsString(
+            buildMap {
+                put("diagram", mapOf("id" to held.id, "name" to held.name))
+                putAll(problemsSaid(problems))
+                put("url", link(held.workspaceId, requireNotNull(held.id)))
+            },
+        )
+    }
+
+    /** What [check] and [route] say of a list of problems: whether it reads, how many of each, and each one. */
+    private fun problemsSaid(problems: List<DiagramCheck.Problem>): Map<String, Any?> {
+        val most = tuning[Tunable.DIAGRAM_SEARCH_HITS].coerceAtLeast(PROBLEMS_SHOWN)
+        val errors = problems.count { it.kind.error }
+        return buildMap {
+            put("readable", errors == 0)
+            put("errors", errors)
+            put("warnings", problems.size - errors)
+            put("counts", problems.groupingBy { it.kind.key }.eachCount())
+            put(
+                "problems",
+                problems.take(most).map { problem ->
+                    buildMap {
+                        put("type", problem.kind.key)
+                        put("severity", if (problem.kind.error) "error" else "warning")
+                        put("says", problem.says)
+                        if (problem.edges.isNotEmpty()) put("edges", problem.edges)
+                        if (problem.nodes.isNotEmpty()) put("nodes", problem.nodes)
+                        put("at", mapOf("x" to problem.x, "y" to problem.y))
+                    }
+                },
+            )
+            if (problems.size > most) put("more", problems.size - most)
+            put(
+                "note",
+                when {
+                    problems.isEmpty() -> "Nothing found: no line on another, none through a box, every label whole."
+                    errors == 0 -> "Readable; the warnings are worth a look where there are many."
+                    else -> "Lines on each other or through boxes: $ROUTE routes them around. Boxes on each other, a cut " +
+                        "label or a label on a box: move or resize the boxes, or shorten the label, with $CHANGE."
+                },
+            )
+        }
+    }
+
+    private fun route(scope: OrknuxScope, held: Diagram, asked: JsonNode): String {
+        val id = requireNotNull(held.id)
+        val before = api.drawing(id)
+        val only = ids(asked.path(EDGES)).takeIf { it.isNotEmpty() }
+        only?.let { named ->
+            (named - before.edges.map { it.id }.toSet()).takeIf { it.isNotEmpty() }?.let {
+                return refuse("${held.name} has no connection ${it.joinToString(", ")}; read it with $READ")
+            }
+        }
+        if (before.edges.isEmpty()) return refuse("${held.name} has no connections to route")
+        val found = DiagramCheck.of(before)
+        val outcome = DiagramRouter.route(before, only)
+        if (outcome.drawing.edges != before.edges) api.saveDrawing(id, outcome.drawing, scope.diagramTurn)
+        val left = DiagramCheck.of(outcome.drawing)
+        val drawn = mapper.readTree(drawn(scope, api.view(api.find(id)), asked)) as ObjectNode
+        val report = mapper.valueToTree<JsonNode>(
+            buildMap {
+                put(
+                    "lines",
+                    outcome.lines.map { line ->
+                        buildMap {
+                            put("edge", line.edge)
+                            put("result", line.outcome)
+                            if (line.outcome == DiagramRouter.ROUTED) {
+                                put("turns", line.bends)
+                                put("length", line.length)
+                            }
+                            line.says?.let { put("says", it) }
+                            // What is still wrong with this line, after.
+                            val still = left.filter { line.edge in it.edges && it.kind.error }.map { it.says }
+                            if (still.isNotEmpty()) put("still", still)
+                        }
+                    },
+                )
+                put("routed", outcome.lines.count { it.outcome == DiagramRouter.ROUTED })
+                put("before", mapOf("errors" to found.count { it.kind.error }, "warnings" to found.count { !it.kind.error }, "counts" to found.groupingBy { it.kind.key }.eachCount()))
+                put("after", problemsSaid(left))
+            },
+        )
+        drawn.set("routing", report)
+        return mapper.writeValueAsString(drawn)
     }
 
     private fun node(held: Diagram, asked: JsonNode): String {
@@ -323,6 +460,25 @@ class DiagramTools(
                 put("diagram", mapOf("id" to held.id, "name" to held.name, AGENTS to said(held.agentAccess)))
                 putAll(api.document.shown(node))
                 node.parent?.let { put("group", byId[it]?.let(::brief)) }
+                // Where its link goes, in words: another diagram, a document or a wireframe by name, so it can be read next.
+                node.linkedItem?.let { (kind, other) ->
+                    val named: Pair<String, String>? = when (kind) {
+                        "diagram" -> diagrams.findByIdOrNull(other)?.takeIf { it.workspaceId == held.workspaceId }
+                            ?.let { it.name to "/explore/diagrams/$other" }
+                        "document" -> documents.findByIdOrNull(other)?.takeIf { it.workspaceId == held.workspaceId }
+                            ?.let { it.name to "/design/documents/$other" }
+                        else -> wireframes.findByIdOrNull(other)?.takeIf { it.workspaceId == held.workspaceId }
+                            ?.let { it.name to "/design/wireframes/$other" }
+                    }
+                    put(
+                        "opens",
+                        if (named == null) {
+                            mapOf(kind to other, "missing" to true)
+                        } else {
+                            mapOf(kind to other, "name" to named.first, "url" to base() + "/workspace/${held.workspaceId}" + named.second)
+                        },
+                    )
+                }
                 val inside = drawing.nodes.filter { it.parent == node.id }
                 if (inside.isNotEmpty()) put("contains", inside.map(::brief))
                 put("connections", connections)
@@ -341,7 +497,7 @@ class DiagramTools(
         val format = DiagramFormat.byKey(text(asked.path(FORMAT)))
             ?: return refuse("Give $FORMAT: one of ${DiagramFormat.entries.joinToString(", ") { it.key }}")
         val id = requireNotNull(held.id)
-        val file = when (val made = export.export(api.drawing(id), format)) {
+        val file = when (val made = export.export(api.drawing(id), format, diagramId = id)) {
             is DiagramExport.Made.Written -> made.file
             is DiagramExport.Made.Refused -> return refuse("It could not be drawn: ${made.reason}")
         }
@@ -376,7 +532,8 @@ class DiagramTools(
         }
         val nodes = list(asked.path(NODES))?.let(api.document::nodes).orEmpty()
         val edges = list(asked.path(EDGES))?.let { api.document.edges(it, nodes) }.orEmpty()
-        val made = api.create(scope.workspaceId, name, catalog?.id, api.document.checked(DiagramDrawing(nodes, edges)), text(asked.path(DESCRIPTION)))
+        val layers = list(asked.path(LAYERS))?.let(api.document::layers).orEmpty()
+        val made = api.create(scope.workspaceId, name, catalog?.id, api.document.checked(DiagramDrawing(nodes, edges, layers)), text(asked.path(DESCRIPTION)))
         return drawn(scope, made, asked)
     }
 
@@ -413,11 +570,14 @@ class DiagramTools(
             (0 until more.size()).map { at -> api.document.edge(more.get(at), changedEdges.size + at, taken).also { taken += it.id } }
         }.orEmpty()
 
-        val redrawn = !(goneNodes.isEmpty() && goneEdges.isEmpty() && nodeChanges.isEmpty() && edgeChanges.isEmpty() && addedNodes.isEmpty() && addedEdges.isEmpty())
+        // The whole list where it is given; left out, the layers stay as they are.
+        val layers = list(asked.path(LAYERS))?.let(api.document::layers)
+        val redrawn = layers != null ||
+            !(goneNodes.isEmpty() && goneEdges.isEmpty() && nodeChanges.isEmpty() && edgeChanges.isEmpty() && addedNodes.isEmpty() && addedEdges.isEmpty())
         // Present and null, or empty, takes the description away; absent leaves it.
         val describing = asked.has(DESCRIPTION)
         if (!redrawn && !describing) {
-            return refuse("Nothing to change: give $DESCRIPTION, $ADD_NODES, $UPDATE_NODES, $REMOVE_NODES, $ADD_EDGES, $UPDATE_EDGES or $REMOVE_EDGES")
+            return refuse("Nothing to change: give $DESCRIPTION, $LAYERS, $ADD_NODES, $UPDATE_NODES, $REMOVE_NODES, $ADD_EDGES, $UPDATE_EDGES or $REMOVE_EDGES")
         }
         val described = text(asked.path(DESCRIPTION))
         // Said before anything is written, so a description too long cannot leave the drawing saved without it.
@@ -425,7 +585,7 @@ class DiagramTools(
         if (described != null && described.length > most) {
             return refuse("A diagram's description may be $most characters at most, and this one is ${described.length}")
         }
-        if (redrawn) api.saveDrawing(id, DiagramDrawing(changedNodes + addedNodes, changedEdges + addedEdges))
+        if (redrawn) api.saveDrawing(id, DiagramDrawing(changedNodes + addedNodes, changedEdges + addedEdges, layers ?: before.layers), scope.diagramTurn)
         if (describing) api.describeDiagram(id, described)
         return drawn(scope, api.view(api.find(id)), asked)
     }
@@ -438,7 +598,7 @@ class DiagramTools(
     private fun drawn(scope: OrknuxScope, view: DiagramView, asked: JsonNode): String {
         val answer = read(api.find(view.id))
         scope.session ?: return answer
-        val png = when (val made = export.png(api.drawing(view.id))) {
+        val png = when (val made = export.png(api.drawing(view.id), view.id)) {
             is SvgRenderer.Drawing.Drawn -> made
             is SvgRenderer.Drawing.Refused -> return answer
         }
@@ -523,11 +683,16 @@ class DiagramTools(
         const val CREATE = "orknux_create_diagram"
         const val CHANGE = "orknux_change_diagram"
         const val DELETE = "orknux_delete_diagram"
+        const val CHECK = "orknux_check_diagram"
+        const val ROUTE = "orknux_route_diagram"
 
         /** What the editor's own chat is offered: working on the diagram it has open. */
-        val EDITING = setOf(READ, NODE, SEARCH, CHANGE)
+        val EDITING = setOf(READ, NODE, SEARCH, CHANGE, CHECK, ROUTE)
 
-        val NAMES = setOf(LIST, READ, NODE, SEARCH, EXPORT, CREATE, CHANGE, DELETE)
+        val NAMES = setOf(LIST, READ, NODE, SEARCH, EXPORT, CREATE, CHANGE, DELETE, CHECK, ROUTE)
+
+        /** How many problems a check lists at least; the rest are counted. */
+        private const val PROBLEMS_SHOWN = 40
 
         /** Off until an owner turns it on for an agent: a deleted diagram is everything drawn on it, gone. */
         val STARTS_HIDDEN = setOf(DELETE)
@@ -544,6 +709,7 @@ class DiagramTools(
         const val FORMAT = "format"
         const val DESCRIPTION = "description"
         const val NODES = "nodes"
+        const val LAYERS = "layers"
         const val EDGES = "edges"
         const val ADD_NODES = "addNodes"
         const val UPDATE_NODES = "updateNodes"
@@ -568,13 +734,42 @@ class DiagramTools(
                 "conversation, puts a picture of it there."
 
         private const val NODE_SAID =
-            "Each is {id, kind, label, x, y, w, h, color, notes, parent}: whole pixels from the top left, absolute even " +
-                "inside a group; id optional on a new one; color #rrggbb; notes are free text about the node; parent " +
-                "is the id of the group it sits in. Lay them out left to right or top to bottom, about 80 pixels apart."
+            "Each is {id, kind, label, x, y, w, h, color, border, borderWidth, notes, parent, layer, link, image}: whole pixels from the top left, absolute even " +
+                "inside a group; id optional on a new one; color #rrggbb is its fill; border #rrggbb and borderWidth, whole " +
+                "pixels 1 to 12, its outline - null for the usual; notes are free text about the node; parent " +
+                "is the id of the group it sits in; layer is the id of the layer it is on, the first when left out; link is what a " +
+                "reader opens from the box - a web address, or another diagram as diagram:<id> (its id from $LIST), a document " +
+                "as document:<id> or a wireframe as wireframe:<id> - and " +
+                "null takes it away; image is the picture a node of kind image shows - an address on the web, " +
+                "https://..., or the id of one a person put on the diagram - and is nothing on any other kind. " +
+                "Lay them out left to right or top to bottom, about 80 pixels apart."
 
         private const val EDGE_SAID =
-            "Each is {id, from, to, label, line, start, end, routing}: from and to are node ids; id optional on a new one; " +
-                "kind may stand in for line, start and end."
+            "Each is {id, from, to, label, line, start, end, routing, layer, points, color, width}: from and to are node ids; " +
+                "color #rrggbb and width, whole pixels 1 to 12, how it is stroked - null for the usual; id optional on a new one; " +
+                "kind may stand in for line, start and end; layer is the id of the layer it is on, the first when left out; " +
+                "points are the corners $ROUTE found for it, [[x, y], ...] - leave them to it, and null clears them. " +
+                "A label is one short line: the detail goes in the notes of a box."
+
+        /** What a layer is, said once for create and change. */
+        private const val LAYERS_SAID =
+            "The diagram's layers, bottom first, the whole list: each {id, name, visible, locked}. A layer hidden is left " +
+                "out of the editor and of exports; one locked is drawn and cannot be changed by hand. Put a node or a " +
+                "connection on one with its layer. A diagram without any has one, base (Base), which is where everything " +
+                "not given a layer goes - keep it in the list, or move what is on it, before taking it away."
+
+        private val LAYER_LIST: Map<String, Any?> = mapOf(
+            "type" to "array",
+            "items" to mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "id" to mapOf("type" to "string"),
+                    "name" to mapOf("type" to "string"),
+                    "visible" to mapOf("type" to "boolean"),
+                    "locked" to mapOf("type" to "boolean"),
+                ),
+            ),
+        )
 
         private val NODE_LIST: Map<String, Any?> = mapOf(
             "type" to "array",
@@ -591,6 +786,11 @@ class DiagramTools(
                     "color" to mapOf("type" to "string"),
                     "notes" to mapOf("type" to "string"),
                     "parent" to mapOf("type" to "string"),
+                    "layer" to mapOf("type" to "string"),
+                    "link" to mapOf("type" to "string"),
+                    "border" to mapOf("type" to "string"),
+                    "borderWidth" to mapOf("type" to "number"),
+                    "image" to mapOf("type" to "string"),
                 ),
             ),
         )
@@ -609,6 +809,13 @@ class DiagramTools(
                     "start" to mapOf("type" to "string", "enum" to DiagramEndStyle.entries.map { it.key }),
                     "end" to mapOf("type" to "string", "enum" to DiagramEndStyle.entries.map { it.key }),
                     "routing" to mapOf("type" to "string", "enum" to DiagramRouting.entries.map { it.key }),
+                    "layer" to mapOf("type" to "string"),
+                    "color" to mapOf("type" to "string"),
+                    "width" to mapOf("type" to "number"),
+                    "points" to mapOf(
+                        "type" to "array",
+                        "items" to mapOf("type" to "array", "items" to mapOf("type" to "number"), "minItems" to 2, "maxItems" to 2),
+                    ),
                 ),
             ),
         )

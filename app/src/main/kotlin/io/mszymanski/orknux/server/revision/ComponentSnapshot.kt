@@ -11,6 +11,8 @@ import io.mszymanski.orknux.server.agent.AgentTool
 import io.mszymanski.orknux.server.agent.AgentToolParam
 import io.mszymanski.orknux.server.design.DesignDocument
 import io.mszymanski.orknux.server.design.DocumentMarkdown
+import io.mszymanski.orknux.server.diagram.DiagramDocument
+import io.mszymanski.orknux.server.diagram.DiagramSvg
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 
@@ -182,6 +184,8 @@ object ComponentSnapshot {
             "hiddenTools" to agent.hiddenTools.toList(),
             "maxTools" to agent.maxTools,
             "maxRounds" to agent.maxRounds,
+            "maxSubagentsAtOnce" to agent.maxSubagentsAtOnce,
+            "reasoningEffort" to agent.reasoningEffort,
             "chattiness" to agent.chattiness.name,
         ),
     )
@@ -200,6 +204,31 @@ object ComponentSnapshot {
             "orientation" to document.orientation,
             "margins" to document.margins,
             "language" to document.language,
+        ),
+    )
+
+    /**
+     * A diagram: its whole drawing - nodes, lines and layers - as the text
+     * `DiagramDocument.write` makes of it, kept as text so it goes back exactly,
+     * with its name and what it is for. The counts are there to be compared:
+     * a history line can say a save took a node away without parsing either
+     * drawing. Its catalog is not here, as a document's is not.
+     */
+    fun ofDiagram(
+        name: String,
+        description: String?,
+        document: String,
+        nodeCount: Int,
+        edgeCount: Int,
+        mapper: ObjectMapper,
+    ): String = mapper.writeValueAsString(
+        mapOf(
+            "version" to VERSION,
+            "name" to name,
+            "description" to description,
+            "document" to document,
+            "nodeCount" to nodeCount,
+            "edgeCount" to edgeCount,
         ),
     )
 
@@ -237,7 +266,29 @@ object ComponentSnapshot {
             ComponentRevisionKind.WORKFLOW -> RevisionContent(null, "json")
             // As Markdown, which is what a person reads and what two versions are compared in.
             ComponentRevisionKind.DOCUMENT -> RevisionContent(documentMarkdown(snapshot, mapper), "markdown")
+            // The picture, which is what anybody looking for a version of a diagram recognises it by.
+            ComponentRevisionKind.DIAGRAM -> RevisionContent(diagramSvg(snapshot, mapper), "svg")
         }
+    }
+
+    /**
+     * A diagram's snapshot drawn, as the exports draw it; null where its
+     * drawing no longer reads - a version from before a check that would now
+     * refuse it is still restorable in principle, but is not worth a failure here.
+     */
+    fun diagramSvg(snapshot: String, mapper: ObjectMapper): String? {
+        val held = text(mapper.readTree(snapshot), "document") ?: return null
+        return runCatching { DiagramSvg().drawing(DiagramDocument(mapper).read(held)) }.getOrNull()
+    }
+
+    /** What a diagram's snapshot holds, read back for a restore. */
+    fun diagramIn(snapshot: String, mapper: ObjectMapper): DiagramSnapshot {
+        val held = mapper.readTree(snapshot)
+        return DiagramSnapshot(
+            document = text(held, "document").orEmpty(),
+            description = text(held, "description"),
+            descriptionKept = held.has("description"),
+        )
     }
 
     /** A document's snapshot as Markdown: its words, headings, lists and tables, a block to a paragraph. */
@@ -392,6 +443,8 @@ object ComponentSnapshot {
         if (held.has("hiddenTools")) agent.hiddenTools = names(held, "hiddenTools")
         if (held.has("maxTools")) agent.maxTools = number(held, "maxTools")?.toInt()
         if (held.has("maxRounds")) agent.maxRounds = number(held, "maxRounds")?.toInt()
+        if (held.has("maxSubagentsAtOnce")) agent.maxSubagentsAtOnce = number(held, "maxSubagentsAtOnce")?.toInt()
+        if (held.has("reasoningEffort")) agent.reasoningEffort = held.path("reasoningEffort").takeIf { it.isString }?.asString()
         if (held.has("chattiness")) agent.chattiness = enumOf(held, "chattiness", agent.chattiness)
     }
 
@@ -420,6 +473,14 @@ data class DocumentSnapshot(
     val language: String?,
     /** Whether the version said its language at all; a null one is the reader's own. */
     val languageKept: Boolean,
+)
+
+/** A diagram as one of its versions held it: the drawing as JSON text, and what it was for. */
+data class DiagramSnapshot(
+    val document: String,
+    val description: String?,
+    /** Whether the version said its description at all; a null one had none. */
+    val descriptionKept: Boolean,
 )
 
 /** The readable half of a revision, and what it is written in. */

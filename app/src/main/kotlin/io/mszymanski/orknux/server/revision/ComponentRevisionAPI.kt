@@ -12,6 +12,8 @@ import io.mszymanski.orknux.server.agent.SkillNameTakenException
 import io.mszymanski.orknux.server.agent.ToolNameTakenException
 import io.mszymanski.orknux.server.design.DesignDocumentRepository
 import io.mszymanski.orknux.server.design.DocumentAPI
+import io.mszymanski.orknux.server.diagram.DiagramAPI
+import io.mszymanski.orknux.server.diagram.DiagramRepository
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
@@ -57,6 +59,9 @@ class ComponentRevisionAPI(
     private val documents: DesignDocumentRepository,
     /** Lazy: a document is restored through its own door, which holds the chat and the tools. */
     @param:Lazy private val documentApi: DocumentAPI,
+    private val diagrams: DiagramRepository,
+    /** Lazy, as the document's: a diagram is restored through its own door, which holds the chat and the tools. */
+    @param:Lazy private val diagramApi: DiagramAPI,
 ) {
 
     /**
@@ -130,13 +135,19 @@ class ComponentRevisionAPI(
             ComponentRevisionKind.WORKFLOW -> null
             ComponentRevisionKind.DOCUMENT -> documents.findByIdOrNull(componentId)
                 ?.let { Triple(ComponentSnapshot.of(it, mapper), it.updatedAt, it.updatedBy) }
+            ComponentRevisionKind.DIAGRAM -> diagrams.findByIdOrNull(componentId)
+                ?.let { Triple(diagramApi.snapshot(it), it.updatedAt, it.updatedBy) }
         } ?: return null
         return ComponentCurrentVersionView(
             savedAt = savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             savedBy = savedBy,
             changes = changes.between(before.snapshot, live),
             readable = readable(kind, live),
-            door = if (kind == ComponentRevisionKind.DOCUMENT) documents.findByIdOrNull(componentId)?.updatedVia else null,
+            door = when (kind) {
+                ComponentRevisionKind.DOCUMENT -> documents.findByIdOrNull(componentId)?.updatedVia
+                ComponentRevisionKind.DIAGRAM -> diagrams.findByIdOrNull(componentId)?.updatedVia
+                else -> null
+            },
         )
     }
 
@@ -260,10 +271,24 @@ class ComponentRevisionAPI(
                 if (documents.findByIdOrNull(held.componentId) == null) throw RevisionComponentGoneException(held.kind, held.componentId)
                 documentApi.restore(held.componentId, held.snapshot)
             }
+
+            /*
+             * Through the diagram's own door, for the same reasons: the drawing
+             * is checked and held to the installation's numbers as any save is,
+             * what it replaces is kept, and whoever has it open is told.
+             */
+            ComponentRevisionKind.DIAGRAM -> {
+                if (diagrams.findByIdOrNull(held.componentId) == null) throw RevisionComponentGoneException(held.kind, held.componentId)
+                diagramApi.restore(held.componentId, held.snapshot)
+            }
         }
 
-        // A document keeps the name it has now, so the line says that one.
-        val said = if (held.kind == ComponentRevisionKind.DOCUMENT) documents.findByIdOrNull(held.componentId)?.name ?: restoredName else restoredName
+        // A document and a diagram keep the name they have now, so the line says that one.
+        val said = when (held.kind) {
+            ComponentRevisionKind.DOCUMENT -> documents.findByIdOrNull(held.componentId)?.name ?: restoredName
+            ComponentRevisionKind.DIAGRAM -> diagrams.findByIdOrNull(held.componentId)?.name ?: restoredName
+            else -> restoredName
+        }
         auditRecorder.record(
             held.workspaceId,
             categoryOf(held.kind),
@@ -295,6 +320,7 @@ class ComponentRevisionAPI(
         ComponentRevisionKind.AGENT -> agents.workspaceIdOf(componentId)
         ComponentRevisionKind.WORKFLOW -> null
         ComponentRevisionKind.DOCUMENT -> documents.findByIdOrNull(componentId)?.workspaceId
+        ComponentRevisionKind.DIAGRAM -> diagrams.findByIdOrNull(componentId)?.workspaceId
     } ?: throw RevisionComponentGoneException(kind, componentId)
 
     /** A state as a person reads it: a document as Markdown, which is what two versions are compared in; the rest as named JSON. */
@@ -307,7 +333,7 @@ class ComponentRevisionAPI(
         ComponentRevisionKind.TOOL, ComponentRevisionKind.SKILL, ComponentRevisionKind.AGENT ->
             WorkspaceAuditCategory.AGENT
         // Where every other change to a document is written.
-        ComponentRevisionKind.DOCUMENT -> WorkspaceAuditCategory.WORKSPACE
+        ComponentRevisionKind.DOCUMENT, ComponentRevisionKind.DIAGRAM -> WorkspaceAuditCategory.WORKSPACE
     }
 
     private fun currentUser(): String =

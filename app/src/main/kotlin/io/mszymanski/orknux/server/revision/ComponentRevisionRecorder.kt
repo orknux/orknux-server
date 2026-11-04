@@ -5,6 +5,7 @@ import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentSkill
 import io.mszymanski.orknux.server.agent.AgentTool
 import io.mszymanski.orknux.server.design.DesignDocument
+import io.mszymanski.orknux.server.diagram.Diagram
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workflow.WorkflowPublication
@@ -86,7 +87,7 @@ class ComponentRevisionRecorder(
                 door = held.door,
             ),
         )
-        if (kind == ComponentRevisionKind.DOCUMENT) prune(kind, held.componentId)
+        if (kind.keptByCount) prune(kind, held.componentId)
     }
 
     /** What a function was before this save. Nothing is written for a plugin's. */
@@ -171,6 +172,28 @@ class ComponentRevisionRecorder(
     }
 
     /**
+     * What a diagram was before this save, and the door that saved it.
+     *
+     * [snapshot] is the caller's because the drawing is rows the diagram's own
+     * door reads - `DiagramAPI`, which every door saves through - and is built
+     * only here, once it is certain to be written.
+     */
+    fun saved(diagram: Diagram, snapshot: () -> String) {
+        val id = diagram.id ?: return
+        saved(ComponentRevisionKind.DIAGRAM) {
+            RevisionSubject(
+                workspaceId = diagram.workspaceId,
+                componentId = id,
+                name = diagram.name,
+                savedAt = diagram.updatedAt,
+                savedBy = diagram.updatedBy,
+                snapshot = snapshot(),
+                door = diagram.updatedVia,
+            )
+        }
+    }
+
+    /**
      * Drops what is past the count a kind keeps per component, oldest first.
      * Zero keeps them all. Answers how many went.
      */
@@ -190,6 +213,7 @@ class ComponentRevisionRecorder(
     /** How many revisions a kind keeps per component, or null where it is not kept by count. */
     private fun keptPer(kind: ComponentRevisionKind): Int? = when (kind) {
         ComponentRevisionKind.DOCUMENT -> tuning[Tunable.DOCUMENT_VERSIONS_KEPT].takeIf { it > 0 }
+        ComponentRevisionKind.DIAGRAM -> tuning[Tunable.DIAGRAM_VERSIONS_KEPT].takeIf { it > 0 }
         else -> null
     }
 

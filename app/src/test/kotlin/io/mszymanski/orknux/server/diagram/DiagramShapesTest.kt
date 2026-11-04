@@ -19,10 +19,12 @@ class DiagramShapesTest {
         assertThat(added.map { it.key }).containsExactlyInAnyOrder(
             "database", "document", "hexagon", "parallelogram", "trapezoid", "triangle", "cloud",
             "actor", "class", "component", "package", "interface", "device", "boundary", "control", "entity",
+            "subroutine", "manual-input", "delay", "display", "off-page", "documents", "step", "callout", "octagon", "star",
+            "queue", "storage", "server", "browser", "mobile",
         )
         assertThat(DiagramNodeKind.entries - added).containsExactly(
             DiagramNodeKind.BOX, DiagramNodeKind.ROUNDED, DiagramNodeKind.ELLIPSE,
-            DiagramNodeKind.DIAMOND, DiagramNodeKind.NOTE, DiagramNodeKind.GROUP,
+            DiagramNodeKind.DIAMOND, DiagramNodeKind.NOTE, DiagramNodeKind.IMAGE, DiagramNodeKind.TEXT, DiagramNodeKind.LINK, DiagramNodeKind.GROUP,
         )
     }
 
@@ -108,5 +110,30 @@ class DiagramShapesTest {
         assertThat(line(DiagramNodeKind.COMPONENT)).isEqualTo("""[["L"]]""")
         assertThat(line(DiagramNodeKind.ACTOR)).isEqualTo("""(("L"))""")
         assertThat(line(DiagramNodeKind.CLASS)).isEqualTo("""["L"]""")
+    }
+
+    /** A link card is drawn in an export as a card with its name marked as a link, not as an empty box. */
+    @Test
+    fun `a link card is drawn with its name marked as a link`() {
+        val drawing = DiagramDrawing(listOf(DiagramShape("l", DiagramNodeKind.LINK, "Payments spec", 0, 0, 220, 64, link = "document:4")), emptyList())
+        val svg = DiagramSvg().drawing(drawing)
+        assertThat(svg).contains("↗ Payments spec").contains("#2563eb")
+    }
+
+    /** Text is words alone: drawn, and nothing drawn around it. */
+    @Test
+    fun `a text node is its words, with no box around them`() {
+        val drawing = DiagramDrawing(listOf(DiagramShape("t", DiagramNodeKind.TEXT, "Payments, in brief", 40, 40, 200, 40)), emptyList())
+        val svg = DiagramSvg().drawing(drawing)
+        assertThat(svg).contains("Payments, in brief")
+        assertThat(Regex("<rect[^>]*x=\"40\"").containsMatchIn(svg)).describedAs("no box drawn at the node").isFalse()
+    }
+
+    /** Text that leads somewhere is a link's blue in a picture too, as on the canvas. */
+    @Test
+    fun `linked text is drawn blue and underlined`() {
+        val svg = DiagramSvg().drawing(DiagramDrawing(listOf(DiagramShape("t", DiagramNodeKind.TEXT, "Chat 87", 0, 0, 200, 40, link = "https://example.test")), emptyList()))
+        assertThat(svg).contains("#2563eb")
+        assertThat(Regex("<line[^>]*stroke=\"#2563eb\"").containsMatchIn(svg)).isTrue()
     }
 }

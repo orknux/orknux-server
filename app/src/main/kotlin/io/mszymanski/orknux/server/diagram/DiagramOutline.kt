@@ -104,6 +104,77 @@ object DiagramOutline {
             listOf(Oval(50.0, 45.0, 35.0, 35.0), Path("M 15 88 L 85 88", filled = false)),
             FULL, icon = true,
         ),
+        DiagramNodeKind.SUBROUTINE to Outline(
+            listOf(poly(0.0 to 0.0, 100.0 to 0.0, 100.0 to 100.0, 0.0 to 100.0), Path("M 10 0 L 10 100 M 90 0 L 90 100", filled = false)),
+            Inside(12.0, 4.0, 88.0, 96.0),
+        ),
+        DiagramNodeKind.MANUAL_INPUT to Outline(
+            listOf(poly(0.0 to 25.0, 100.0 to 0.0, 100.0 to 100.0, 0.0 to 100.0)),
+            Inside(4.0, 30.0, 96.0, 96.0),
+            listOf(0.0 to 25.0, 100.0 to 0.0, 100.0 to 100.0, 0.0 to 100.0),
+        ),
+        DiagramNodeKind.DELAY to Outline(
+            listOf(Path("M 0 0 L 60 0 C 105 0 105 100 60 100 L 0 100 Z")),
+            Inside(4.0, 4.0, 84.0, 96.0),
+            listOf(0.0 to 0.0, 60.0 to 0.0, 88.0 to 15.0, 94.0 to 50.0, 88.0 to 85.0, 60.0 to 100.0, 0.0 to 100.0),
+        ),
+        DiagramNodeKind.DISPLAY to Outline(
+            listOf(Path("M 15 0 L 80 0 C 105 0 105 100 80 100 L 15 100 L 0 50 Z")),
+            Inside(16.0, 4.0, 86.0, 96.0),
+            listOf(15.0 to 0.0, 80.0 to 0.0, 96.0 to 25.0, 100.0 to 50.0, 96.0 to 75.0, 80.0 to 100.0, 15.0 to 100.0, 0.0 to 50.0),
+        ),
+        DiagramNodeKind.OFF_PAGE to Outline(
+            listOf(poly(0.0 to 0.0, 100.0 to 0.0, 100.0 to 65.0, 50.0 to 100.0, 0.0 to 65.0)),
+            Inside(4.0, 4.0, 96.0, 64.0),
+            listOf(0.0 to 0.0, 100.0 to 0.0, 100.0 to 65.0, 50.0 to 100.0, 0.0 to 65.0),
+        ),
+        DiagramNodeKind.DOCUMENTS to Outline(
+            listOf(Path("M 10 0 L 100 0 L 100 70 L 95 70 L 95 5 L 10 5 Z"), Path("M 5 5 L 95 5 L 95 78 L 90 78 L 90 10 L 5 10 Z"), Path("M 0 10 L 90 10 L 90 88 C 63 75 31 105 0 90 Z")),
+            Inside(4.0, 14.0, 86.0, 82.0),
+            listOf(0.0 to 10.0, 10.0 to 0.0, 100.0 to 0.0, 100.0 to 70.0, 90.0 to 80.0, 90.0 to 88.0, 45.0 to 92.0, 0.0 to 90.0),
+        ),
+        DiagramNodeKind.STEP to Outline(
+            listOf(poly(0.0 to 0.0, 85.0 to 0.0, 100.0 to 50.0, 85.0 to 100.0, 0.0 to 100.0, 15.0 to 50.0)),
+            Inside(18.0, 4.0, 84.0, 96.0),
+            listOf(0.0 to 0.0, 85.0 to 0.0, 100.0 to 50.0, 85.0 to 100.0, 0.0 to 100.0, 15.0 to 50.0),
+        ),
+        DiagramNodeKind.CALLOUT to Outline(
+            listOf(poly(0.0 to 0.0, 100.0 to 0.0, 100.0 to 75.0, 40.0 to 75.0, 20.0 to 100.0, 25.0 to 75.0, 0.0 to 75.0)),
+            Inside(4.0, 4.0, 96.0, 71.0),
+            listOf(0.0 to 0.0, 100.0 to 0.0, 100.0 to 75.0, 40.0 to 75.0, 20.0 to 100.0, 25.0 to 75.0, 0.0 to 75.0),
+        ),
+        DiagramNodeKind.OCTAGON to Outline(
+            listOf(poly(30.0 to 0.0, 70.0 to 0.0, 100.0 to 30.0, 100.0 to 70.0, 70.0 to 100.0, 30.0 to 100.0, 0.0 to 70.0, 0.0 to 30.0)),
+            Inside(10.0, 10.0, 90.0, 90.0),
+            listOf(30.0 to 0.0, 70.0 to 0.0, 100.0 to 30.0, 100.0 to 70.0, 70.0 to 100.0, 30.0 to 100.0, 0.0 to 70.0, 0.0 to 30.0),
+        ),
+        DiagramNodeKind.STAR to Outline(
+            listOf(poly(50.0 to 2.0, 62.3 to 35.0, 97.6 to 36.5, 70.0 to 58.5, 79.4 to 92.5, 50.0 to 73.0, 20.6 to 92.5, 30.0 to 58.5, 2.4 to 36.5, 37.7 to 35.0)),
+            Inside(30.0, 38.0, 70.0, 76.0),
+            listOf(50.0 to 2.0, 62.3 to 35.0, 97.6 to 36.5, 70.0 to 58.5, 79.4 to 92.5, 50.0 to 73.0, 20.6 to 92.5, 30.0 to 58.5, 2.4 to 36.5, 37.7 to 35.0),
+        ),
+        DiagramNodeKind.QUEUE to Outline(
+            listOf(Path("M 7.5 0 L 92.5 0 C 102.5 0 102.5 100 92.5 100 L 7.5 100 C -2.5 100 -2.5 0 7.5 0 Z"), Path("M 92.5 0 C 82.5 0 82.5 100 92.5 100", filled = false)),
+            Inside(6.0, 4.0, 86.0, 96.0),
+            listOf(7.5 to 0.0, 92.5 to 0.0, 100.0 to 50.0, 92.5 to 100.0, 7.5 to 100.0, 0.0 to 50.0),
+        ),
+        DiagramNodeKind.STORAGE to Outline(
+            listOf(Path("M 0 10 C 0 0 100 0 100 10 L 88 95 C 85 102 15 102 12 95 Z"), Path("M 0 10 C 0 20 100 20 100 10", filled = false)),
+            Inside(12.0, 22.0, 88.0, 90.0),
+            listOf(0.0 to 10.0, 50.0 to 3.0, 100.0 to 10.0, 88.0 to 95.0, 50.0 to 100.0, 12.0 to 95.0),
+        ),
+        DiagramNodeKind.SERVER to Outline(
+            listOf(poly(0.0 to 0.0, 100.0 to 0.0, 100.0 to 100.0, 0.0 to 100.0), Path("M 0 33 L 100 33 M 0 66 L 100 66", filled = false), Oval(88.0, 16.0, 3.0, 3.0, filled = false), Oval(88.0, 50.0, 3.0, 3.0, filled = false), Oval(88.0, 83.0, 3.0, 3.0, filled = false)),
+            Inside(4.0, 4.0, 80.0, 96.0),
+        ),
+        DiagramNodeKind.BROWSER to Outline(
+            listOf(poly(0.0 to 0.0, 100.0 to 0.0, 100.0 to 100.0, 0.0 to 100.0), Path("M 0 16 L 100 16", filled = false), Oval(6.0, 8.0, 2.5, 2.5, filled = false), Oval(12.0, 8.0, 2.5, 2.5, filled = false), Oval(18.0, 8.0, 2.5, 2.5, filled = false)),
+            Inside(4.0, 20.0, 96.0, 96.0),
+        ),
+        DiagramNodeKind.MOBILE to Outline(
+            listOf(Path("M 12 0 L 88 0 C 95 0 100 5 100 12 L 100 88 C 100 95 95 100 88 100 L 12 100 C 5 100 0 95 0 88 L 0 12 C 0 5 5 0 12 0 Z"), Path("M 40 5 L 60 5 M 42 95 L 58 95", filled = false)),
+            Inside(6.0, 10.0, 94.0, 90.0),
+        ),
     )
 
     /*
@@ -218,17 +289,36 @@ object DiagramOutline {
      * the corner of the box around it. Diamonds and ellipses are found the same
      * way; everything else is its rectangle.
      */
-    fun border(node: DiagramShape, tx: Double, ty: Double): Pair<Double, Double> {
+    fun border(node: DiagramShape, tx: Double, ty: Double): Pair<Double, Double> =
+        borderFrom(node, node.x + node.w / 2.0, node.y + node.h / 2.0, tx, ty)
+
+    /**
+     * Where a ray from (ox, oy), inside [node], towards (tx, ty) leaves the
+     * outline a person sees - [border] is the one from the centre. A line
+     * routed out of a side away from its middle leaves along such a ray,
+     * parallel to an axis, so the side of a cylinder or a cloud has more than
+     * one place a line can leave from, as a box's side has.
+     */
+    fun borderFrom(node: DiagramShape, ox: Double, oy: Double, tx: Double, ty: Double): Pair<Double, Double> {
         val cx = node.x + node.w / 2.0
         val cy = node.y + node.h / 2.0
-        val dx = tx - cx
-        val dy = ty - cy
-        if (dx == 0.0 && dy == 0.0) return cx to cy
+        val dx = tx - ox
+        val dy = ty - oy
+        if (dx == 0.0 && dy == 0.0) return ox to oy
         if (node.kind == DiagramNodeKind.ELLIPSE) {
+            // (px + t·dx)²/a² + (py + t·dy)²/b² = 1, from the centre, the larger root.
             val a = node.w / 2.0
             val b = node.h / 2.0
-            val t = 1 / sqrt((dx * dx) / (a * a) + (dy * dy) / (b * b))
-            return (cx + dx * t) to (cy + dy * t)
+            val px = ox - cx
+            val py = oy - cy
+            val qa = dx * dx / (a * a) + dy * dy / (b * b)
+            val qb = 2 * (px * dx / (a * a) + py * dy / (b * b))
+            val qc = px * px / (a * a) + py * py / (b * b) - 1
+            val root = qb * qb - 4 * qa * qc
+            if (root >= 0) {
+                val t = (-qb + sqrt(root)) / (2 * qa)
+                if (t > 0) return (ox + dx * t) to (oy + dy * t)
+            }
         }
         val rim = when (node.kind) {
             DiagramNodeKind.DIAMOND -> listOf(50.0 to 0.0, 100.0 to 50.0, 50.0 to 100.0, 0.0 to 50.0)
@@ -240,24 +330,25 @@ object DiagramOutline {
             points.indices.forEach { at ->
                 val (ax, ay) = points[at]
                 val (bx, by) = points[(at + 1) % points.size]
-                // Where cx + t·dx = ax + s·(bx-ax), cy + t·dy = ay + s·(by-ay), with t > 0 and s in 0..1.
+                // Where ox + t·dx = ax + s·(bx-ax), oy + t·dy = ay + s·(by-ay), with t > 0 and s in 0..1.
                 val ex = bx - ax
                 val ey = by - ay
                 val det = dx * -ey - dy * -ex
                 if (abs(det) < 1e-9) return@forEach
-                val px = ax - cx
-                val py = ay - cy
+                val px = ax - ox
+                val py = ay - oy
                 val t = (px * -ey - py * -ex) / det
                 val s = (dx * py - dy * px) / det
                 if (t > 0 && s >= -1e-9 && s <= 1 + 1e-9 && t < nearest) nearest = t
             }
-            if (nearest != Double.MAX_VALUE) return (cx + dx * nearest) to (cy + dy * nearest)
+            if (nearest != Double.MAX_VALUE) return (ox + dx * nearest) to (oy + dy * nearest)
         }
+        // The node's own rectangle: the nearest of its four edges the ray reaches.
         val scale = minOf(
-            if (dx != 0.0) (node.w / 2.0) / abs(dx) else Double.MAX_VALUE,
-            if (dy != 0.0) (node.h / 2.0) / abs(dy) else Double.MAX_VALUE,
+            if (dx > 0) (node.x + node.w - ox) / dx else if (dx < 0) (node.x - ox) / dx else Double.MAX_VALUE,
+            if (dy > 0) (node.y + node.h - oy) / dy else if (dy < 0) (node.y - oy) / dy else Double.MAX_VALUE,
         )
-        return (cx + dx * scale) to (cy + dy * scale)
+        return (ox + dx * scale) to (oy + dy * scale)
     }
 
     /**
