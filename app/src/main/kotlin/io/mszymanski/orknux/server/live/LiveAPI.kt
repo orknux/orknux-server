@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.live
 
 import io.mszymanski.orknux.server.design.DesignDocumentRepository
+import io.mszymanski.orknux.server.workflow.live.ViewerRequest
 import io.mszymanski.orknux.server.design.SheetRepository
 import io.mszymanski.orknux.server.design.WireframeRepository
 import io.mszymanski.orknux.server.diagram.DiagramRepository
@@ -94,6 +95,20 @@ class LiveAPI(
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun pointer(@PathVariable kind: String, @PathVariable id: Long, @RequestBody at: PointerRequest) {
         rooms.pointer(LiveRooms.Key(kindOf(kind), id), at.viewer, currentUser(), at.x, at.y)
+    }
+
+    /** This viewer's tab went into the background, and its stream is about to close; see [LiveRooms.away]. */
+    @PostMapping("/api/live/{kind}/{id}/away")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun away(@PathVariable kind: String, @PathVariable id: Long, @RequestBody at: ViewerRequest) {
+        rooms.away(LiveRooms.Key(kindOf(kind), id), at.viewer, currentUser())
+    }
+
+    /** This viewer's tab was closed: sent as the page goes; see [LiveRooms.gone]. */
+    @PostMapping("/api/live/{kind}/{id}/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun leave(@PathVariable kind: String, @PathVariable id: Long, @RequestBody at: ViewerRequest) {
+        rooms.gone(LiveRooms.Key(kindOf(kind), id), at.viewer, currentUser())
     }
 
     /** The thing's revision, once the workspace that owns it is known to be visible to whoever asks. */

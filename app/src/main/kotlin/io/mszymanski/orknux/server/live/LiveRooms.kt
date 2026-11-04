@@ -47,7 +47,10 @@ enum class LiveKind(val path: String) {
  * broker first.
  */
 @Component
-class LiveRooms {
+class LiveRooms(
+    /** How long a viewer stays listed as away; see [away]. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
+) {
 
     /** Which room: a kind of thing, and which one of them. */
     data class Key(val kind: LiveKind, val id: Long)
@@ -91,8 +94,14 @@ class LiveRooms {
         }
     }
 
-    /** One viewer as the others are shown it. */
-    data class ViewerView(val viewer: String, val login: String)
+    /**
+     * One viewer as the others are shown it. [active] false is a tab that is
+     * open and not being looked at, since [awaySince] (ISO-8601).
+     */
+    data class ViewerView(val viewer: String, val login: String, val active: Boolean = true, val awaySince: String? = null)
+
+    /** A viewer whose tab went into the background: no stream held, still in the room. */
+    private data class Away(val login: String, val since: java.time.OffsetDateTime)
 
     /**
      * Where a viewer's pointer is, in the editor's own coordinates - a canvas's
@@ -105,12 +114,27 @@ class LiveRooms {
 
     private val rooms = ConcurrentHashMap<Key, CopyOnWriteArrayList<Seat>>()
 
+    /**
+     * Who is in a room with their tab in the background, by viewer.
+     *
+     * A tab out of sight lets go of its stream. A browser keeps six
+     * connections to one host over plain HTTP, every open editor held one, and
+     * past six tabs every request queued in the browser: the server was idle
+     * and Orknux read as frozen. Gone from the room, though, a person who had
+     * only switched tabs vanished from everybody else's editor - so they stay,
+     * marked inactive, until the tab is looked at again, closed, or has been
+     * away longer than an installation lists anybody.
+     */
+    private val away = ConcurrentHashMap<Key, ConcurrentHashMap<String, Away>>()
+
     /** The editors whose first save has been written to the audit; see [firstSave]. */
     private val audited = ConcurrentHashMap.newKeySet<Pair<Key, String>>()
 
     /** Sits [viewer] in the room and tells everybody in it, the newcomer too, who is there. */
     fun join(key: Key, viewer: String, login: String): Seat {
         val seat = Seat(key, viewer, login)
+        // Back: active again, and no longer listed as away.
+        away[key]?.remove(viewer)
         rooms.computeIfAbsent(key) { CopyOnWriteArrayList() }.add(seat)
         present(key)
         return seat
@@ -131,9 +155,62 @@ class LiveRooms {
         present(seat.key)
     }
 
-    /** Who is in the room, one row per open editor. */
-    fun viewers(key: Key): List<ViewerView> =
-        rooms[key].orEmpty().map { ViewerView(it.viewer, it.login) }.distinct()
+    /**
+     * [viewer]'s tab went into the background: it is listed as away, and the
+     * stream it is about to close takes it out of the room without taking it
+     * off the list. Only from a viewer sitting there under the same login, as
+     * a pointer is.
+     */
+    fun away(key: Key, viewer: String, login: String) {
+        val seat = rooms[key].orEmpty().firstOrNull { it.viewer == viewer } ?: return
+        if (seat.login != login) return
+        forgetLongAway()
+        away.computeIfAbsent(key) { ConcurrentHashMap() }[viewer] = Away(login, java.time.OffsetDateTime.now())
+        present(key)
+    }
+
+    /** When somebody went away longer ago than this, they are no longer listed. */
+    private fun awayCutoff(): java.time.OffsetDateTime =
+        java.time.OffsetDateTime.now().minusHours(tuning[io.mszymanski.orknux.server.tuning.Tunable.LIVE_AWAY_HOURS].toLong())
+
+    /**
+     * Drops everybody away past the cutoff, in every room, and the rooms left
+     * with nobody. Read only when a room is drawn, an editor nobody opened
+     * again kept its away list for as long as the server ran - a closed tab's
+     * beacon is not promised to arrive. Done whenever somebody goes away,
+     * which is often enough and costs a look at a handful of maps.
+     */
+    private fun forgetLongAway() {
+        val cutoff = awayCutoff()
+        away.keys.forEach { key ->
+            away.computeIfPresent(key) { _, held ->
+                held.entries.removeIf { it.value.since.isBefore(cutoff) }
+                held.takeIf { it.isNotEmpty() }
+            }
+        }
+    }
+
+    /** [viewer]'s tab was closed: off the list at once, rather than away for hours. */
+    fun gone(key: Key, viewer: String, login: String) {
+        val held = away[key] ?: return
+        if (held[viewer]?.login != login) return
+        held.remove(viewer)
+        away.computeIfPresent(key) { _, left -> left.takeIf { it.isNotEmpty() } }
+        present(key)
+    }
+
+    /** Who is in the room, one row per open editor: those looking at it, then those away. */
+    fun viewers(key: Key): List<ViewerView> {
+        val seated = rooms[key].orEmpty().map { ViewerView(it.viewer, it.login) }.distinct()
+        val cutoff = awayCutoff()
+        val held = away[key] ?: return seated
+        held.entries.removeIf { it.value.since.isBefore(cutoff) }
+        away.computeIfPresent(key) { _, left -> left.takeIf { it.isNotEmpty() } }
+        val here = seated.map { it.viewer }.toSet()
+        return seated + held.filterKeys { it !in here }.map { (viewer, gone) ->
+            ViewerView(viewer, gone.login, active = false, awaySince = gone.since.toString())
+        }
+    }
 
     /**
      * Where [viewer]'s pointer is, to everybody else in the room.

@@ -31,6 +31,10 @@ class WorkflowRoom(private val rooms: LiveRooms) {
 
     fun leave(seat: LiveRooms.Seat) = rooms.leave(seat)
 
+    fun away(workflowId: Long, viewer: String, login: String) = rooms.away(key(workflowId), viewer, login)
+
+    fun gone(workflowId: Long, viewer: String, login: String) = rooms.gone(key(workflowId), viewer, login)
+
     fun viewers(workflowId: Long): List<LiveRooms.ViewerView> = rooms.viewers(key(workflowId))
 
     fun pointer(workflowId: Long, viewer: String, login: String, x: Double?, y: Double?) =

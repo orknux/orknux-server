@@ -25,6 +25,11 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody
 import tools.jackson.databind.ObjectMapper
 
+/** Which open editor is saying something about itself: that it went into the background, or was closed. */
+data class ViewerRequest @JsonCreator constructor(
+    @JsonProperty("viewer") val viewer: String,
+)
+
 /** Where a viewer's pointer is on the canvas; both null when it has left it. */
 data class PointerRequest @JsonCreator constructor(
     @JsonProperty("viewer") val viewer: String,
@@ -103,6 +108,20 @@ class WorkflowLiveAPI(
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun pointer(@PathVariable workspaceId: Long, @PathVariable workflowId: Long, @RequestBody at: PointerRequest) {
         room.pointer(workflowId, at.viewer, currentUser(), at.x, at.y)
+    }
+
+    /** This viewer's tab went into the background; see [io.mszymanski.orknux.server.live.LiveRooms.away]. */
+    @PostMapping("/api/workspaces/{workspaceId}/workflows/{workflowId}/live/away")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun away(@PathVariable workspaceId: Long, @PathVariable workflowId: Long, @RequestBody at: ViewerRequest) {
+        room.away(workflowId, at.viewer, currentUser())
+    }
+
+    /** This viewer's tab was closed; see [io.mszymanski.orknux.server.live.LiveRooms.gone]. */
+    @PostMapping("/api/workspaces/{workspaceId}/workflows/{workflowId}/live/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun leave(@PathVariable workspaceId: Long, @PathVariable workflowId: Long, @RequestBody at: ViewerRequest) {
+        room.gone(workflowId, at.viewer, currentUser())
     }
 
     private fun currentUser(): String = SecurityContextHolder.getContext().authentication?.name ?: "system"
