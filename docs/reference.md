@@ -377,6 +377,7 @@ installation starts from.
 | `ORKNUX_CONNECTION_CHECK_INITIAL_DELAY` | How long after start the first connection check waits. | `30s` |
 | `ORKNUX_SCHEDULER_THREADS` | How many due schedules may be started at once. | `4` |
 | `ORKNUX_REVISION_SWEEP_INTERVAL` | How often replaced versions past their retention are swept. | `6h` |
+| `ORKNUX_DIAGRAM_PICTURES_INTERNAL` | Whether a diagram's picture from a web address on this machine or its own network is fetched for its exports; Admin -> Settings overrides. Link-local addresses (169.254.x.x, a cloud's metadata service) never are. | `true` |
 | `ORKNUX_REVISION_SWEEP_ENABLED` | `false` keeps every replaced version for ever. | `true` |
 | `ORKNUX_SCHEDULER_POLLING_INTERVAL` | How often the scheduler looks for due work. | `10s` |
 | `ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS` | How recent a session's last line is to count as active. | `60` |
@@ -413,6 +414,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_MODEL_SPEED_POINTS` | How many points a model's speed chart draws, in items. | `1000` |
 | `ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS` | How long agent_wait waits when not told, in seconds. | `30` |
 | `ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS` | The longest agent_wait may wait, in seconds. | `300` |
+| `ORKNUX_TUNING_AGENT_ANSWER_DATED_AFTER_SECONDS` | How old an asked agent's answer is before it says when it was asked, in seconds. | `120` |
 | `ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE` | How many findable tools one search loads, in items. | `20` |
 | `ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_DEFAULT` | How many rows an admin workspace's read answers when not told, in items. | `20` |
 | `ORKNUX_TUNING_ADMIN_WORKSPACE_PAGE_ROWS_DEFAULT` | How many rows an admin page read answers when not told, in items. | `50` |
@@ -509,6 +511,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_DIAGRAM_SEARCH_HITS` | How many hits a diagram search answers with, in items. | `20` |
 | `ORKNUX_TUNING_DIAGRAM_NOTES_SHOWN_CHARACTERS` | How much of each node's notes a whole diagram read shows, in characters. | `200` |
 | `ORKNUX_TUNING_DIAGRAM_PICTURE_PIXELS` | How wide the picture of a diagram may be, in pixels. | `1600` |
+| `ORKNUX_TUNING_DIAGRAM_VERSIONS_KEPT` | How many versions of each diagram its history keeps, in items; 0 keeps them all. | `50` |
+| `ORKNUX_TUNING_DIAGRAM_VERSION_MINUTES` | How often a diagram being edited keeps a version while the visit goes on, in minutes. | `5` |
 | `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |
 | `ORKNUX_TUNING_ACTION_WAIT_SECONDS` | How long a waiting action waits when it does not say, in seconds. | `3600` |
 | `ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES` | How long a trigger remembers an event it ran on, in minutes. | `10` |
@@ -533,9 +537,15 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB` | The largest text answer a plugin's request may read, in MB. | `2` |
 | `ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB` | The largest binary answer a plugin's request may read, in MB. | `5` |
 | `ORKNUX_TUNING_PLUGIN_UPLOAD_MB` | The largest file a plugin may upload, in MB. | `10` |
+| `ORKNUX_TUNING_TASK_MODEL_RETRIES` | How many times a task tries its model again after it could not be reached, in times; 0 ends the task at the first. | `6` |
+| `ORKNUX_TUNING_TASK_MODEL_RETRY_LONGEST_SECONDS` | The longest a task waits before trying its model again, in seconds. | `300` |
+| `ORKNUX_TUNING_PLUGIN_RATE_LIMIT_WAIT_SECONDS` | The longest an agent's plugin tool waits out a service's rate limit, in seconds; 0 never waits. | `90` |
+| `ORKNUX_TUNING_PLUGIN_RATE_LIMIT_ATTEMPTS` | How many times a rate-limited plugin tool is run again, in times. | `2` |
 | `ORKNUX_TUNING_LIBRARY_MB` | The largest script library a workspace may add, in MB. | `4` |
 | `ORKNUX_TUNING_NPM_ARCHIVE_MB` | The largest npm package fetched for a library, in MB. | `32` |
 | `ORKNUX_TUNING_NPM_PACKAGES_MOST` | The most npm packages one library may pull in, in items. | `60` |
+| `ORKNUX_TUNING_LIVE_LET_GO_SECONDS` | How long a browser tab is out of sight before it lets go of its live connection, in seconds. | `30` |
+| `ORKNUX_TUNING_LIVE_AWAY_HOURS` | How long a person whose editor tab is in the background is still shown in it, as inactive, in hours. | `8` |
 | `ORKNUX_TUNING_MARKETPLACE_ICON_HOURS` | How long a marketplace icon is kept before it is fetched again, in hours. | `6` |
 | `ORKNUX_TUNING_SHEET_CELLS_MOST` | How many filled cells one sheet may hold, in items. | `50000` |
 | `ORKNUX_TUNING_SHEET_IMPORT_MB` | How large a file a sheet is made from, in MB. | `25` |

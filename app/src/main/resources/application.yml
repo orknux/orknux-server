@@ -408,6 +408,14 @@ orknux:
     # back on. The suite sets it and calls the sweep itself.
     sweep-enabled: ${ORKNUX_REVISION_SWEEP_ENABLED:true}
     sweep-interval: ${ORKNUX_REVISION_SWEEP_INTERVAL:6h}
+  diagram:
+    # Whether a diagram's picture given as an address on this machine or its own
+    # network - an intranet wiki, a file server - is fetched for the diagram's
+    # exports and the picture an agent is shown. On, because a diagram of a
+    # company's systems points at the company's own servers. Off, only public
+    # addresses are. Link-local ones, a cloud's metadata service among them,
+    # never are: that is where a fetch an editor can aim reads credentials.
+    pictures-internal: ${ORKNUX_DIAGRAM_PICTURES_INTERNAL:true}
   logging:
     # Console always. Name a file here and it is written to as well — an
     # absolute path in a deployment, since the working directory of a container
@@ -753,7 +761,8 @@ orknux:
       initial-delay: ${ORKNUX_CONNECTION_CHECK_INITIAL_DELAY:30s}
   slack:
     # Opens one Socket Mode websocket per Slack connection that holds an
-    # app-level token, and turns arriving mentions into workflow runs.
+    # app-level token, and turns arriving mentions into workflow runs. Where a
+    # fresh installation starts: Admin > Settings > Slack switches it after that.
     enabled: ${ORKNUX_SLACK_ENABLED:true}
     # How often the open sockets are compared with the stored connections, so a
     # token pasted into the settings form starts listening without a restart.
@@ -921,6 +930,7 @@ orknux:
     model.speed.points: ${ORKNUX_TUNING_MODEL_SPEED_POINTS:1000}
     agent.wait.default.seconds: ${ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS:30}
     agent.wait.longest.seconds: ${ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS:300}
+    agent.answer.dated.after.seconds: ${ORKNUX_TUNING_AGENT_ANSWER_DATED_AFTER_SECONDS:120}
     tools.loaded.at.once: ${ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE:20}
     # What an admin workspace's agent is handed per read of another workspace or an admin page.
     admin.workspace.rows.default: ${ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_DEFAULT:20}
@@ -1028,6 +1038,10 @@ orknux:
     diagram.search.hits: ${ORKNUX_TUNING_DIAGRAM_SEARCH_HITS:20}
     diagram.notes.shown.characters: ${ORKNUX_TUNING_DIAGRAM_NOTES_SHOWN_CHARACTERS:200}
     diagram.picture.pixels: ${ORKNUX_TUNING_DIAGRAM_PICTURE_PIXELS:1600}
+    # How many versions of each diagram its history keeps; 0 keeps them all. Kept by count, not by days.
+    diagram.versions.kept: ${ORKNUX_TUNING_DIAGRAM_VERSIONS_KEPT:50}
+    # How often a diagram being edited keeps a version while the visit goes on, in minutes.
+    diagram.version.minutes: ${ORKNUX_TUNING_DIAGRAM_VERSION_MINUTES:5}
     action.retry.seconds: ${ORKNUX_TUNING_ACTION_RETRY_SECONDS:30}
     action.wait.seconds: ${ORKNUX_TUNING_ACTION_WAIT_SECONDS:3600}
     trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}
@@ -1052,9 +1066,16 @@ orknux:
     plugin.http.body.mb: ${ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB:2}
     plugin.download.mb: ${ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB:5}
     plugin.upload.mb: ${ORKNUX_TUNING_PLUGIN_UPLOAD_MB:10}
+    # Waited out by the tool runner, outside the sandbox and its wall clock.
+    task.model.retries: ${ORKNUX_TUNING_TASK_MODEL_RETRIES:6}
+    task.model.retry.longest.seconds: ${ORKNUX_TUNING_TASK_MODEL_RETRY_LONGEST_SECONDS:300}
+    plugin.rate.limit.wait.seconds: ${ORKNUX_TUNING_PLUGIN_RATE_LIMIT_WAIT_SECONDS:90}
+    plugin.rate.limit.attempts: ${ORKNUX_TUNING_PLUGIN_RATE_LIMIT_ATTEMPTS:2}
     library.mb: ${ORKNUX_TUNING_LIBRARY_MB:4}
     npm.archive.mb: ${ORKNUX_TUNING_NPM_ARCHIVE_MB:32}
     npm.packages.most: ${ORKNUX_TUNING_NPM_PACKAGES_MOST:60}
+    live.let.go.seconds: ${ORKNUX_TUNING_LIVE_LET_GO_SECONDS:30}
+    live.away.hours: ${ORKNUX_TUNING_LIVE_AWAY_HOURS:8}
     marketplace.icon.hours: ${ORKNUX_TUNING_MARKETPLACE_ICON_HOURS:6}
   model:
     check:

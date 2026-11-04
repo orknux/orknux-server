@@ -17,6 +17,8 @@ type Query {
     users(search: String): [AppUser!]!
     "The tokens you hold. Never their secrets - those are shown once, when made."
     myTokens: [UserToken!]!
+    "Every tool the MCP endpoint can offer, readers first: what a Custom token chooses from."
+    mcpTools: [McpTool!]!
     "One user's tokens. Administrators only."
     userTokens(id: ID!): [UserToken!]!
     user(id: ID!): AppUser
@@ -1463,6 +1465,10 @@ type Mutation {
     setNoteMaxCount(count: Int!): InstallationSettings!
     "How many reviews rate_session sends from one conversation, 1 to 100. Administrators only."
     setReviewsPerSession(count: Int!): InstallationSettings!
+    "Whether a diagram's picture at an address on this machine or its network is fetched for its exports. Admin only."
+    setDiagramPicturesInternal(allowed: Boolean!): InstallationSettings!
+    "Whether this server listens to Slack: opens Socket Mode for every Slack connection with an app-level token."
+    setSlackListening(on: Boolean!): InstallationSettings!
     "How many times a round is asked again after the provider sent nothing back, 0 to 20. Administrators only."
     setEmptyAnswerRetries(retries: Int!): InstallationSettings!
     "How many times a reply that could not be used is put back to the model, 0 to 10. Administrators only."
@@ -1766,8 +1772,9 @@ type Mutation {
     """
     Mints a token. Yours when id is absent; anybody's, for an administrator.
     readOnly makes a token that may read and never change anything; left out, it may do both.
+    tools makes it Custom: the MCP tools it may call, by name, and no others; outside MCP it is held to reading.
     """
-    createUserToken(id: ID, name: String!, readOnly: Boolean): NewUserToken!
+    createUserToken(id: ID, name: String!, readOnly: Boolean, tools: [String!]): NewUserToken!
     deleteUserToken(id: ID!): Boolean!
     "Creates an INTERNAL user: an identity managed here. Administrators only."
     createUser(input: UserInput!): AppUser!
@@ -2046,7 +2053,7 @@ type Mutation {
         modelId: ID
     ): Workspace!
     "Chooses the model behind the quick chat; null takes the button away."
-    setWorkspaceQuickChatModel(workspaceId: ID!, modelId: ID): Workspace!
+    setWorkspaceQuickChatModel(workspaceId: ID!, modelId: ID, useAny: Boolean): Workspace!
     "Chooses the model that suggests how a sentence typed in a chat goes on; null turns suggestions off."
     setWorkspaceCompletionModel(workspaceId: ID!, modelId: ID, useDefault: Boolean): Workspace!
     "The completion model of every workspace set to Default; null is none. Administrators."
@@ -2331,6 +2338,12 @@ type Mutation {
     "The same check on a server not yet saved, from what the add form holds; nothing is saved or recorded."
     checkMcpServerDraft(input: CreateMcpServerInput!): McpServerCheck!
     """
+    The same check on a saved server as its settings form holds it, unsaved
+    changes included; a credential not sent is the stored one. Nothing is saved
+    or recorded.
+    """
+    checkMcpServerChanges(id: ID!, input: UpdateMcpServerInput!): McpServerCheck!
+    """
     Removes the server and takes the grant off every agent that held it.
 
     The names of those agents come back, so somebody can see what just lost a
@@ -2571,10 +2584,14 @@ type Workspace {
     """
     imageModelId: ID
     """
-    The model behind the quick chat beside the page. Null means the button is
-    not offered.
+    The model behind the quick chat beside the page. Null means
+    quickChatModelAny decides.
     """
     quickChatModelId: ID
+    "Whether having no quick chat model of its own means any chat model the workspace has, rather than none."
+    quickChatModelAny: Boolean!
+    "Whether Ask AI is offered here, by the workspace's own model or any chat model it has."
+    quickChatAvailable: Boolean!
     """
     The model that suggests how a sentence typed in a chat goes on, shown after
     the caret for Tab to take. Null means nothing is suggested. Issue #649.
@@ -2639,6 +2656,8 @@ type Workspace {
     agentMaxSubagents: Int
     "What an agent here gets when `agentMaxSubagents` is null: the installation's number."
     agentMaxSubagentsDefault: Int!
+    "How many asked agents an agent here may have working at once when it has no number of its own: the installation's."
+    agentMaxSubagentsAtOnceDefault: Int!
     "Tool rounds an agent here gets when it has no number of its own; null is the installation's."
     chatMaxRounds: Int
     "What an agent here gets when neither it nor `chatMaxRounds` says: the installation's number."
@@ -3204,6 +3223,9 @@ the vocabulary is one vocabulary, and never in `componentRevisions`.
 
 DOCUMENT is a Design document: every save of its content is a version, kept
 by count rather than by days, and its `readable` is its Markdown.
+
+DIAGRAM is a diagram, versioned and kept as a document is; its `content` is
+the drawing as SVG.
 """
 enum ComponentRevisionKind {
     FUNCTION
@@ -3212,6 +3234,7 @@ enum ComponentRevisionKind {
     AGENT
     WORKFLOW
     DOCUMENT
+    DIAGRAM
 }
 
 "One line of a component's history: what it was, and when it stopped being it."
@@ -3269,7 +3292,7 @@ type ComponentRevisionDetail {
     markdown, an agent's system prompt. Null where this kind has none.
     """
     content: String
-    "`typescript`, `markdown` or `json`: what to colour `content` as."
+    "`typescript`, `markdown`, `json` or - a diagram's - `svg`: what `content` is written in."
     contentLanguage: String!
     "The whole component as it was, as JSON."
     snapshot: String!
@@ -3851,6 +3874,18 @@ type Agent {
     agent whose work is longer than the rest.
     """
     maxRounds: Int
+    """
+    How many of the agents it asked may be working at once in one of its
+    conversations; 1 to 20. Null follows the installation's own number. An ask
+    past it waits for one to finish, and the agent is told it is waiting.
+    """
+    maxSubagentsAtOnce: Int
+    """
+    How hard its model thinks - one of the words its provider takes, as the
+    model's chat parameters list them - unless a chat or a workflow node asks
+    for its own. Null is the provider's default.
+    """
+    reasoningEffort: String
     "How much it says while it works. A workflow node may override it with a `chattiness` parameter."
     chattiness: Chattiness!
 }
@@ -5106,6 +5141,10 @@ input UpdateAgentInput {
     memoryShare: Int
     "Its own ceiling on tool rounds; null follows the installation's."
     maxRounds: Int
+    "Its own ceiling on asked agents working at once, 1 to 20; null follows the installation's."
+    maxSubagentsAtOnce: Int
+    "How hard its model thinks unless a chat or a node asks otherwise; null is the provider's default. Refused where its model does not take the word."
+    reasoningEffort: String
     "How much it says while it works. Left out, it is left alone."
     chattiness: Chattiness
 }
@@ -5692,6 +5731,8 @@ type McpServer {
     workspaceId: ID!
     name: String!
     address: String!
+    "What it is for, in a sentence. Shown under its name and told to an agent beside it."
+    description: String
     authType: AuthType!
     headers: [HttpHeader!]!
     "Whether the server holds a credential of its own. False for one reading a variable."
@@ -5740,6 +5781,8 @@ input CreateMcpServerInput {
     workspaceId: ID!
     name: String!
     address: String!
+    "What it is for, in a sentence; blank is none."
+    description: String
     authType: AuthType
     secret: String
     """
@@ -5754,6 +5797,8 @@ input CreateMcpServerInput {
 input UpdateMcpServerInput {
     name: String!
     address: String!
+    "Null leaves it as it is; blank clears it."
+    description: String
     authType: AuthType
     "Null leaves the stored credential alone; empty clears it, reference and all."
     secret: String
@@ -7265,6 +7310,16 @@ The exception is `metricsAnonymous`, whose floor would be its own ceiling; the
 field says why.
 """
 type InstallationSettings {
+    "How long a browser tab is out of sight before it lets go of its live connection, in seconds; the tunable live.let.go.seconds."
+    liveLetGoSeconds: Int!
+    "Whether a diagram's picture at an address on this machine or its network is fetched for its exports; link-local never is."
+    diagramPicturesInternal: Boolean!
+    "What ORKNUX_DIAGRAM_PICTURES_INTERNAL says, where the screen has not."
+    diagramPicturesInternalConfigured: Boolean!
+    "Whether this server listens to Slack, the screen's answer or the file's."
+    slackListening: Boolean!
+    "What ORKNUX_SLACK_ENABLED says, where the screen has not."
+    slackListeningConfigured: Boolean!
     attachmentsEnabled: Boolean!
     "False when the configuration file has said no, and the switch is not offered."
     attachmentsConfigurable: Boolean!
@@ -10488,6 +10543,15 @@ input IssueInput {
     assigneeId: ID
 }
 
+"One tool the MCP endpoint can offer."
+type McpTool {
+    name: String!
+    "Its phrase: a summary, or its description's first sentence."
+    summary: String!
+    "Whether it only reads."
+    readOnly: Boolean!
+}
+
 type UserToken {
     id: ID!
     "What it is for, in the words of whoever made it."
@@ -10498,6 +10562,8 @@ type UserToken {
     lastUsedAt: String
     "Whether it may only read: every mutation, and every MCP tool that changes something, is refused it."
     readOnly: Boolean!
+    "Custom: the MCP tools it may call, and no others; null for a token that is not Custom."
+    tools: [String!]
 }
 
 "A token and its secret, which is returned exactly once."

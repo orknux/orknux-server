@@ -143,6 +143,11 @@ enum class Tunable(
         "The longest agent_wait may wait",
         "A model that may sleep for an hour will. An agent asking for longer is given this.",
     ),
+    AGENT_ANSWER_DATED_AFTER_SECONDS(
+        "agent.answer.dated.after.seconds", 120, 0, null, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "How old an asked agent's answer is before it says when it was asked",
+        "An answer that comes back long after its question is told to the agent with the time it was asked and how long ago, so it is not read as the reply to whatever the person wrote last. Quicker answers are left as they are.",
+    ),
     TOOLS_LOADED_AT_ONCE(
         "tools.loaded.at.once", 20, 1, null, TuningSection.AGENTS, TuningUnit.ITEMS,
         "How many findable tools one search loads",
@@ -504,6 +509,27 @@ enum class Tunable(
         "diagram.picture.pixels", 1600, 200, SvgRenderer.MOST_WIDTH, TuningSection.MEDIA, TuningUnit.PIXELS,
         "How wide the picture of a diagram may be",
         "The picture put in a chat beside the diagram's link, and the PNG and PDF an agent exports; a wider drawing is scaled down to this.",
+    ),
+    /*
+     * A diagram's history, kept by count as a document's is and for the same
+     * reason: the editor saves as it is drawn in, and each version is a whole
+     * copy of the drawing.
+     */
+    /*
+     * How often an editor's visit keeps a version while it goes on. The editor
+     * saves as it is drawn in, so a version per save would be a version per
+     * keystroke, and one per visit left an hour's work one step deep: a person
+     * could not go back to where they were twenty minutes ago.
+     */
+    DIAGRAM_VERSION_MINUTES(
+        "diagram.version.minutes", 5, 1, null, TuningSection.MEDIA, TuningUnit.MINUTES,
+        "How often a diagram being edited keeps a version",
+        "While somebody edits a diagram, a version is kept at most this often, so their work can be rolled back to any point in it; each chat turn and each agent's change keeps one of its own.",
+    ),
+    DIAGRAM_VERSIONS_KEPT(
+        "diagram.versions.kept", 50, 0, null, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many versions of each diagram are kept",
+        "The oldest go first as a save adds one; 0 keeps them all. The days component history is kept for do not apply to diagrams.",
     ),
 
     /*
@@ -983,6 +1009,26 @@ enum class Tunable(
         "The largest file a plugin may upload",
         "A file a plugin sends on from the session's store, as a picture to Slack.",
     ),
+    TASK_MODEL_RETRIES(
+        "task.model.retries", 6, 0, null, TuningSection.AGENTS, TuningUnit.TIMES,
+        "How many times a task tries its model again after it could not be reached",
+        "A rate limit or an outage parks the task and tries again, waiting longer each time; 0 ends the task at the first.",
+    ),
+    TASK_MODEL_RETRY_LONGEST_SECONDS(
+        "task.model.retry.longest.seconds", 300, 10, null, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "The longest a task waits before trying its model again",
+        "The wait starts at half a minute and doubles each time, up to this.",
+    ),
+    PLUGIN_RATE_LIMIT_WAIT_SECONDS(
+        "plugin.rate.limit.wait.seconds", 90, 0, null, TuningSection.PLUGINS, TuningUnit.SECONDS,
+        "The longest an agent's plugin tool waits out a service's rate limit",
+        "When a service such as GitHub says when its limit lifts, the tool is run again then; a longer wait is told to the agent instead. 0 never waits.",
+    ),
+    PLUGIN_RATE_LIMIT_ATTEMPTS(
+        "plugin.rate.limit.attempts", 2, 0, null, TuningSection.PLUGINS, TuningUnit.TIMES,
+        "How many times a rate-limited plugin tool is run again",
+        "Each after waiting for the limit to lift; 0 never runs one again.",
+    ),
     LIBRARY_MB(
         "library.mb", 4, 1, null, TuningSection.PLUGINS, TuningUnit.MB,
         "The largest script library a workspace may add",
@@ -997,6 +1043,16 @@ enum class Tunable(
         "npm.packages.most", 60, 1, null, TuningSection.PLUGINS, TuningUnit.ITEMS,
         "The most npm packages one library may pull in",
         "A package and everything it depends on, counted together.",
+    ),
+    LIVE_LET_GO_SECONDS(
+        "live.let.go.seconds", 30, 5, null, TuningSection.WORKFLOWS, TuningUnit.SECONDS,
+        "How long a browser tab is out of sight before it lets go of its live connection",
+        "An editor, a chat or a task open in a tab nobody is looking at closes its live stream after this, and takes it up again when looked at. A browser keeps six connections to a server over plain HTTP, so tabs holding streams in the background left the rest of Orknux waiting. Shorter frees them sooner; longer keeps a quick look at another tab from closing and reopening one. Its person shows as inactive to the others in an editor from then.",
+    ),
+    LIVE_AWAY_HOURS(
+        "live.away.hours", 8, 1, null, TuningSection.WORKFLOWS, TuningUnit.HOURS,
+        "How long a person whose editor tab is in the background is still shown in it",
+        "A tab out of sight lets go of its connection and its person is shown as inactive to the others in the editor. Past this they are no longer listed, as a tab left open and forgotten.",
     ),
     MARKETPLACE_ICON_HOURS(
         "marketplace.icon.hours", 6, 1, null, TuningSection.PLUGINS, TuningUnit.HOURS,
