@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.3.4
+
+### 🔧 Changed
+
+- **The desktop app is about 400 MB smaller to download, and the first start of each version takes a few seconds longer.** On that first start it unpacks the server's libraries into its data folder, then removes the previous version's copy. Later starts are as quick as before.
+
+### 🐛 Fixed
+
+- **An installed desktop app is offered updates again.** Since 1.3.1 the full desktop app had grown too big for orknux.ai to accept, so no update after 1.3.0 reached Admin › Updates. Orknux Client was not affected.
+
 ## 1.3.3
 
 ### 🔧 Changed
