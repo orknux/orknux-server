@@ -112,7 +112,11 @@ scripts/aot.sh                     # optional: the jar unpacked with an AOT cach
 `scripts/aot.sh` comes last, because the cache it makes is only good for the
 runtime that made it and the files it was made from; it takes a few minutes,
 and on Windows it runs from Git Bash. A package without it starts the jar as
-it is, which works and is slower.
+it is, which works and is slower. The cache's libraries are not packaged: they
+are the signed jar's own, and the app unpacks them from it into
+`server-libraries/` in the data directory on a version's first start, a few
+seconds once. Carrying both copies took the full package past the 1 GiB
+orknux.ai accepts.
 
 The runtime holds the modules the `orknux-one` image's JRE does
 (`scripts/modules.txt`), Graal's compiler included, stripped: about 80 MB

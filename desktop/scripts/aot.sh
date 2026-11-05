@@ -22,7 +22,9 @@
 # before anything listens or runs. That start is slow - minutes, not seconds -
 # because the JVM records what it loads; it is paid here, once, not by whoever
 # installs the package. resources/server/app.jar is kept: it is the jar the
-# release launcher and the update screen read the version and schema floor from.
+# release launcher and the update screen read the version and schema floor from,
+# and the one the unpacked libraries are taken from again on the first start,
+# since they are removed here once the cache is made.
 set -eu
 cd "$(dirname "$0")/.."
 JAVA="$PWD/resources/jre/bin/java"
@@ -96,4 +98,9 @@ there="$(native "$scratch")"
 # the 1.2.0 desktop started without it for exactly that. So the times are written down here, and server.js puts them back.
 (cd resources/server/app && find . -name '*.jar' -type f -printf '%T@\t%P\n' | sed 's/\.[0-9]*\t/\t/' > aot-times.tsv)
 [ -s resources/server/app/aot-times.tsv ] || { echo "no jar times were written" >&2; exit 1; }
+
+# The libraries are not shipped: they are the signed jar's own, byte for byte, and carrying both took the package past
+# the 1 GiB orknux.ai takes. server.js unpacks them from app.jar on a version's first start (extractLibraries), and the
+# times above put back on them are what the cache recognises them by.
+rm -rf resources/server/app/lib
 echo "aot: $(du -sh resources/server/app | cut -f1) at resources/server/app, cache $(du -h resources/server/app/app.aot | cut -f1)"

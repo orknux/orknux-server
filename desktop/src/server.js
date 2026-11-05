@@ -9,6 +9,7 @@
  * on a server, it decides here too, and a jar written for one works in both.
  */
 const { spawn, execFile } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
@@ -134,16 +135,89 @@ function javaOptions(temp, extra) {
  * @param {string} imageJar the jar shipped with this install
  * @returns {{ cwd: string | undefined, jar: string, options: string[] }}
  */
-function launchOf(jar, imageJar) {
+function launchOf(jar, imageJar, extracted = null) {
   const unpacked = path.join(path.dirname(imageJar), 'app');
+  const plain = { cwd: undefined, jar, options: [] };
   // Resolved, because the launcher prints the jar as Java spells a path.
-  if (path.resolve(jar) !== path.resolve(imageJar) || !fs.existsSync(path.join(unpacked, 'app.jar'))) {
-    return { cwd: undefined, jar, options: [] };
+  if (path.resolve(jar) !== path.resolve(imageJar) || !fs.existsSync(path.join(unpacked, 'app.jar'))) return plain;
+  const cacheFile = path.join(unpacked, 'app.aot');
+  const hasCache = fs.existsSync(cacheFile);
+  // A package that carries the libraries itself, as every one up to 1.3.3 did.
+  if (fs.existsSync(path.join(unpacked, 'lib'))) {
+    if (hasCache) restoreTimes(unpacked);
+    return { cwd: unpacked, jar: 'app.jar', options: hasCache ? ['-XX:AOTCache=app.aot'] : [] };
   }
-  const hasCache = fs.existsSync(path.join(unpacked, 'app.aot'));
-  if (hasCache) restoreTimes(unpacked);
-  const cache = hasCache ? ['-XX:AOTCache=app.aot'] : [];
-  return { cwd: unpacked, jar: 'app.jar', options: cache };
+  // The libraries are taken out of the jar at the first start instead; see extractLibraries.
+  if (extracted === null) return plain;
+  if (hasCache) restoreTimes(extracted);
+  return { cwd: extracted, jar: 'app.jar', options: hasCache ? [`-XX:AOTCache=${cacheFile}`] : [] };
+}
+
+/** Where under the data directory the libraries of the shipped jar are unpacked. */
+const EXTRACTED = 'server-libraries';
+
+/**
+ * The shipped jar's libraries, unpacked once per package into the data
+ * directory; the directory to start from, or null to start the jar as it is.
+ *
+ * The package used to carry them unpacked beside the jar, and so carried every
+ * library twice: the signed jar is what the launcher and the update screen
+ * read, and the unpacked copy is what the AOT cache was made from. That took
+ * the full package past orknux.ai's 1 GiB, and 1.3.1 to 1.3.3 were never
+ * offered to an installed app. Now it carries the thin `app.jar`, the cache and
+ * the list of times (scripts/aot.sh), and the libraries come out of the signed
+ * jar here - the same bytes the cache was made from, measured as starting just
+ * as fast - at the cost of a few seconds on the first start of a version.
+ *
+ * Made under a name of its own and renamed into place whole, so a start that
+ * was stopped half way unpacks again rather than running half a classpath.
+ * Every older one is removed once the new one is in place.
+ *
+ * @returns {Promise<string | null>}
+ */
+async function extractLibraries({ java, imageJar, data, log }) {
+  const unpacked = path.join(path.dirname(imageJar), 'app');
+  const thin = path.join(unpacked, 'app.jar');
+  if (!fs.existsSync(thin) || fs.existsSync(path.join(unpacked, 'lib'))) return null;
+  const root = path.join(data, EXTRACTED);
+  const partial = path.join(root, `${process.pid}.partial`);
+  try {
+    const times = path.join(unpacked, 'aot-times.tsv');
+    const key = crypto
+      .createHash('sha256')
+      .update(String(fs.statSync(imageJar).size))
+      .update(fs.readFileSync(thin))
+      .update(fs.existsSync(times) ? fs.readFileSync(times) : '')
+      .digest('hex')
+      .slice(0, 16);
+    const here = path.join(root, key);
+    if (fs.existsSync(here)) return here;
+
+    log.note(`unpacking the server's libraries into ${here}, once for this version`);
+    fs.rmSync(partial, { recursive: true, force: true });
+    fs.mkdirSync(root, { recursive: true });
+    await new Promise((resolve, reject) => {
+      execFile(
+        java,
+        ['-Djarmode=tools', '-jar', imageJar, 'extract', '--destination', partial, '--application-filename', 'app.jar'],
+        { windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+        (failure, stdout, stderr) => (failure ? reject(new Error(`${failure.message} ${stderr ?? ''}`.trim())) : resolve()),
+      );
+    });
+    // The thin jar and the times the cache was made with, rather than the ones just unpacked.
+    fs.copyFileSync(thin, path.join(partial, 'app.jar'));
+    if (fs.existsSync(times)) fs.copyFileSync(times, path.join(partial, 'aot-times.tsv'));
+    fs.renameSync(partial, here);
+
+    for (const old of fs.readdirSync(root)) {
+      if (old !== key && !old.endsWith('.partial')) fs.rmSync(path.join(root, old), { recursive: true, force: true });
+    }
+    return here;
+  } catch (failure) {
+    log.note(`could not unpack the server's libraries (${failure.message}); starting the jar as it is`);
+    fs.rmSync(partial, { recursive: true, force: true });
+    return null;
+  }
 }
 
 /**
@@ -244,6 +318,7 @@ class Server {
     this.apply(prepared, network);
     this.temp = prepared.temp;
     this.ranRelease = path.join(data, RAN_RELEASE);
+    this.extracted = await extractLibraries({ java: this.java, imageJar: this.imageJar, data, log: this.log });
 
     this.loop();
     await this.ready(`${url}/api/auth/method`);
@@ -380,7 +455,7 @@ class Server {
   /** One run of one jar, resolved with its exit code. */
   run(jar) {
     return new Promise((resolve) => {
-      const launch = launchOf(jar, this.imageJar);
+      const launch = launchOf(jar, this.imageJar, this.extracted);
       const args = [
         ...javaOptions(this.temp, launch.options),
         '-Dorknux.update.launched=true',
@@ -441,4 +516,4 @@ class Server {
   }
 }
 
-module.exports = { Server, launchOf, launcherNeeded, restoreTimes, uploadLimitOf };
+module.exports = { Server, extractLibraries, launchOf, launcherNeeded, restoreTimes, uploadLimitOf };

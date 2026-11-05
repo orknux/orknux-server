@@ -44,7 +44,12 @@ installations sharing the system's cleaned up each other's.
 runtime the package carries; `launchOf` in `server.js` starts that copy, from
 inside its directory, with a relative `-jar` - the cache records file names, and
 a relative one is what survives installation. Measured on Windows it halves the
-start (#650). `app.jar` stays the jar the launcher and the update screen read,
+start (#650). The copy ships without its `lib/`: those are the signed jar's
+libraries byte for byte, so `extractLibraries` unpacks them from `app.jar` into
+the data directory on a version's first start, puts back the times the cache
+recorded, and starts from there with the packaged cache by its full path.
+Packaging both copies is what took the full app past orknux.ai's 1 GiB, and
+1.3.1 to 1.3.3 were never offered to an installed app. `app.jar` stays the jar the launcher and the update screen read,
 and an installed release still starts as a jar. Rebuild the cache whenever the
 jar or the runtime changes; a stale one is refused by the JVM, not misused.
 
