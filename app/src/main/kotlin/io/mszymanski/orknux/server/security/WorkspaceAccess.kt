@@ -44,7 +44,20 @@ class WorkspaceAccess(
             authentication !is AnonymousAuthenticationToken
     }
 
-    fun isAdmin(): Boolean = resolver.administers(roles()) || assigned().any { it.administers }
+    /**
+     * Whether the caller administers the installation. Never through a token
+     * held to some workspaces: an installation administrator reaches every
+     * workspace, and that token was made to reach only the ones it names.
+     */
+    fun isAdmin(): Boolean = io.mszymanski.orknux.server.user.tokenWorkspaces() == null && ownerAdministers()
+
+    /**
+     * Whether the person behind the caller administers the installation, held
+     * to some workspaces or not. Inside the workspaces such a token names, it
+     * sees and administers what its owner would there; [isAdmin] is the
+     * installation-wide half it gives up.
+     */
+    private fun ownerAdministers(): Boolean = resolver.administers(roles()) || assigned().any { it.administers }
 
     /**
      * The roles this caller holds here, whatever the provider called them.
@@ -102,7 +115,9 @@ class WorkspaceAccess(
      */
     fun canSee(workspace: Workspace): Boolean {
         if (workspace.id != null && workspace.id == ActingIn.workspace()) return true
-        if (isAdmin()) return true
+        // A token held to some workspaces sees those and no others, whoever its owner is.
+        io.mszymanski.orknux.server.user.tokenWorkspaces()?.let { held -> if (workspace.id !in held) return false }
+        if (ownerAdministers()) return true
         /*
          * An admin workspace is installation administrators' and nobody else's,
          * whatever roles it names. Its agents read other workspaces, so seeing
@@ -167,6 +182,8 @@ class WorkspaceAccess(
     fun canAdminister(workspace: Workspace): Boolean {
         if (isAdmin()) return true
         if (!canSee(workspace)) return false
+        // Seen through a token held to it: administered as its owner would administer it.
+        if (ownerAdministers()) return true
         // Named on the workspace itself, by somebody who already administered it.
         val username = SecurityContextHolder.getContext().authentication?.name
         val id = workspace.id

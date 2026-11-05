@@ -1774,7 +1774,7 @@ type Mutation {
     readOnly makes a token that may read and never change anything; left out, it may do both.
     tools makes it Custom: the MCP tools it may call, by name, and no others; outside MCP it is held to reading.
     """
-    createUserToken(id: ID, name: String!, readOnly: Boolean, tools: [String!]): NewUserToken!
+    createUserToken(id: ID, name: String!, readOnly: Boolean, tools: [String!], workspaces: [ID!]): NewUserToken!
     deleteUserToken(id: ID!): Boolean!
     "Creates an INTERNAL user: an identity managed here. Administrators only."
     createUser(input: UserInput!): AppUser!
@@ -10564,6 +10564,8 @@ type UserToken {
     readOnly: Boolean!
     "Custom: the MCP tools it may call, and no others; null for a token that is not Custom."
     tools: [String!]
+    "The workspaces it may reach, and no others; null for every workspace its owner sees. Held to some, it administers no installation."
+    workspaces: [ID!]
 }
 
 "A token and its secret, which is returned exactly once."

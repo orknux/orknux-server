@@ -221,6 +221,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is PasswordNotSettableException,
             is TokenNotIssuableException,
             is io.mszymanski.orknux.server.user.TokenMintedByTokenException,
+            is io.mszymanski.orknux.server.user.TokenWorkspacesEmptyException,
             is EmailInvalidException,
             is RoleBuiltInException,
             is WorkflowNotPublishedException,

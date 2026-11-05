@@ -277,6 +277,17 @@ class AppUserToken(
      */
     @Column(name = "tools")
     val tools: String? = null,
+
+    /**
+     * The workspaces it may reach, by id, as a JSON array, and no others - a
+     * narrowing of what its owner may see, never a widening: a workspace named
+     * here that the owner cannot see stays out of sight. Null for every
+     * workspace the owner sees. A token held to workspaces administers no
+     * installation, since an installation administrator reaches every
+     * workspace; see [io.mszymanski.orknux.server.security.WorkspaceAccess].
+     */
+    @Column(name = "workspaces")
+    val workspaces: String? = null,
 )
 
 interface AppUserTokenRepository : JpaRepository<AppUserToken, Long> {
@@ -376,9 +387,22 @@ class EmailInvalidException(val email: String) :
  */
 /**
  * What a caller signed in with an access token carries, so a request can tell
- * it from a session. Issue #588.
+ * it from a session. Issue #588. [workspaces] is the token's own list of the
+ * workspaces it may reach, null for every one its owner sees; see
+ * [AppUserToken.workspaces].
  */
-data class ByToken(val tokenId: Long)
+data class ByToken(val tokenId: Long, val workspaces: Set<Long>? = null)
+
+/** The workspaces the caller's token is held to, or null for a session or a token held to none. */
+fun tokenWorkspaces(): Set<Long>? =
+    (org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.details as? ByToken)?.workspaces
+
+/** A token's stored list of workspace ids, read back; null for none stored, and an unreadable one is no workspace at all. */
+fun workspaceIdsOf(stored: String?): Set<Long>? = stored?.let { held ->
+    runCatching {
+        tools.jackson.databind.json.JsonMapper.builder().build().readValue(held, LongArray::class.java).toSet()
+    }.getOrDefault(emptySet())
+}
 
 /** Whether whoever is calling presented an access token rather than a session. */
 fun calledByToken(): Boolean =
@@ -410,6 +434,11 @@ class TokenNotIssuableException(val username: String) : RuntimeException(
 
     override val arguments get() = mapOf("username" to username)
 }
+
+/** A token held to workspaces must name at least one: held to none it could do nothing, and looks like it could. */
+class TokenWorkspacesEmptyException : RuntimeException(
+    "Choose at least one workspace for the token, or leave it reaching every workspace",
+)
 
 class TokenNotFoundException(val id: Long) : RuntimeException("No token with id $id"), Refusal {
 

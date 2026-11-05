@@ -41,6 +41,8 @@ class UserAPI(
      * changed against. Issue #588.
      */
     private val sessions: org.springframework.session.jdbc.JdbcIndexedSessionRepository,
+    /** Whether a workspace a token is to be held to is one there is. */
+    private val workspaceRows: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
 ) {
 
     @QueryMapping
@@ -344,7 +346,13 @@ class UserAPI(
      */
     @MutationMapping
     @Transactional
-    fun createUserToken(@Argument id: Long?, @Argument name: String, @Argument readOnly: Boolean?, @Argument tools: List<String>? = null): NewTokenView {
+    fun createUserToken(
+        @Argument id: Long?,
+        @Argument name: String,
+        @Argument readOnly: Boolean?,
+        @Argument tools: List<String>? = null,
+        @Argument workspaces: List<Long>? = null,
+    ): NewTokenView {
         /*
          * Not with a token. A token that can mint tokens is one that, once
          * leaked, makes itself a replacement nobody revoking the first knows
@@ -361,16 +369,29 @@ class UserAPI(
 
         // Custom: a list of tool names, kept as given; one that names nothing is simply never offered.
         val chosen = tools?.map { it.trim() }?.filter { it.isNotEmpty() }?.distinct()?.sorted()
+        /*
+         * The workspaces it may reach. Each must be one there is: an id that is
+         * not a workspace is a mistake, and kept it would be a token held to
+         * nothing that nobody could tell from one held to something. Whether the
+         * owner can see it is asked on every call, not here, so a role given
+         * them later opens it and one taken away closes it.
+         */
+        val reach = workspaces?.distinct()?.sorted()
+        if (reach != null) {
+            if (reach.isEmpty()) throw TokenWorkspacesEmptyException()
+            reach.firstOrNull { !workspaceRows.existsById(it) }?.let { throw io.mszymanski.orknux.server.workspace.WorkspaceNotFoundException(it) }
+        }
         val (stored, secret) = internal.mint(
             held, name.trim().ifEmpty { "Token" },
             readOnly = readOnly == true && chosen == null,
             tools = chosen?.let { TOKEN_JSON.writeValueAsString(it) },
+            workspaces = reach?.let { TOKEN_JSON.writeValueAsString(it) },
         )
         val access = when {
             chosen != null -> " (custom: ${chosen.size} tools)"
             stored.readOnly -> " (read-only)"
             else -> ""
-        }
+        } + (reach?.let { held -> " in ${held.size} workspace${if (held.size == 1) "" else "s"}" } ?: "")
         audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Access token ${stored.name}$access created for ${held.username}")
         return NewTokenView(describe(stored), secret)
     }
@@ -405,6 +426,7 @@ class UserAPI(
         lastUsedAt = token.lastUsedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         readOnly = token.readOnly,
         tools = token.tools?.let { held -> runCatching { TOKEN_JSON.readValue(held, Array<String>::class.java).toList() }.getOrNull() },
+        workspaces = workspaceIdsOf(token.workspaces)?.sorted(),
     )
 
     /** Resolved now rather than trusted: a role id that is not a role is a typo, not a grant. */
@@ -494,6 +516,8 @@ data class TokenView(
     val readOnly: Boolean = false,
     /** Custom: the MCP tools it may call, and no others; null for a token that is not Custom. */
     val tools: List<String>? = null,
+    /** The workspaces it may reach, by id, and no others; null for every one its owner sees. */
+    val workspaces: List<Long>? = null,
 )
 
 /** A token and its secret, which is returned exactly once. */

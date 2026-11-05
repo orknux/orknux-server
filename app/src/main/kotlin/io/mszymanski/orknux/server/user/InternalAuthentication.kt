@@ -63,7 +63,7 @@ class InternalAuthentication(
         held.lastUsedAt = OffsetDateTime.now()
         tokens.save(held)
         // Marked, so a door that must not be opened by a token can tell. #588.
-        val signedIn = tokenFor(owner).apply { details = ByToken(requireNotNull(held.id)) }
+        val signedIn = tokenFor(owner).apply { details = ByToken(requireNotNull(held.id), workspaceIdsOf(held.workspaces)) }
         // A Custom token is held to reading everywhere but the MCP tools it names; see AppUserToken.tools.
         if (!held.readOnly && held.tools == null) return signedIn
         // The owner as they are, held to reading. See TokenAccess.
@@ -71,7 +71,7 @@ class InternalAuthentication(
             signedIn.name,
             null,
             signedIn.authorities + SimpleGrantedAuthority(io.mszymanski.orknux.server.security.TokenAccess.READ_ONLY),
-        ).apply { details = ByToken(requireNotNull(held.id)) }
+        ).apply { details = signedIn.details }
     }
 
     /**
@@ -82,11 +82,11 @@ class InternalAuthentication(
      * anonymous string nobody dares touch.
      */
     @Transactional
-    fun mint(user: AppUser, name: String, readOnly: Boolean = false, tools: String? = null): Pair<AppUserToken, String> {
+    fun mint(user: AppUser, name: String, readOnly: Boolean = false, tools: String? = null, workspaces: String? = null): Pair<AppUserToken, String> {
         val secret = "orkx_" + Base64.getUrlEncoder().withoutPadding()
             .encodeToString(ByteArray(32).also(random::nextBytes))
         val stored = tokens.save(
-            AppUserToken(userId = requireNotNull(user.id), name = name, tokenHash = hash(secret), readOnly = readOnly, tools = tools),
+            AppUserToken(userId = requireNotNull(user.id), name = name, tokenHash = hash(secret), readOnly = readOnly, tools = tools, workspaces = workspaces),
         )
         log.info("Token \"{}\" minted for {}", name, user.username)
         return stored to secret

@@ -26,6 +26,7 @@ class UserTokenAPITest(
     @Autowired val tokens: AppUserTokenRepository,
     @Autowired val internal: InternalAuthentication,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val workspaceRows: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
 ) {
 
     private var bobId: Long = 0
@@ -118,5 +119,32 @@ class UserTokenAPITest(
                 it.extensions["code"] == "TokenNotIssuable" && it.message?.contains("access token") == true
             }.verify()
         assertThat(tokens.count()).isZero()
+    }
+
+    @Test
+    @WithMockUser(username = "bob", roles = ["USERS"])
+    fun `a token is held to the workspaces it is made with, and says which`() {
+        val first = requireNotNull(workspaceRows.save(io.mszymanski.orknux.server.workspace.Workspace(name = "token-a-${System.nanoTime()}")).id)
+        val second = requireNotNull(workspaceRows.save(io.mszymanski.orknux.server.workspace.Workspace(name = "token-b-${System.nanoTime()}")).id)
+        val made = graphQlTester.document(
+            """mutation { createUserToken(name: "two", tools: ["orknux_issues"], workspaces: ["$second", "$first", "$first"]) { token { workspaces tools } } }""",
+        ).execute()
+        made.path("createUserToken.token.workspaces").entityList(String::class.java)
+            .containsExactly(*listOf(first, second).sorted().map(Long::toString).toTypedArray())
+        assertThat(tokens.findAll().single().workspaces).isEqualTo("[${listOf(first, second).sorted().joinToString(",")}]")
+        assertThat(audit.findAll().map { it.message }).anyMatch { it.contains("Access token two (custom: 1 tools) in 2 workspaces created for bob") }
+
+        graphQlTester.document("""mutation { createUserToken(name: "plain") { token { workspaces } } }""").execute()
+            .path("createUserToken.token.workspaces").valueIsNull()
+    }
+
+    @Test
+    @WithMockUser(username = "bob", roles = ["USERS"])
+    fun `a token held to no workspace, or to one that is not there, is refused`() {
+        graphQlTester.document("""mutation { createUserToken(name: "none", workspaces: []) { secret } }""").execute()
+            .errors().expect { it.extensions?.get("code") == "TokenWorkspacesEmpty" }
+        graphQlTester.document("""mutation { createUserToken(name: "ghost", workspaces: ["987654321"]) { secret } }""").execute()
+            .errors().expect { it.extensions?.get("code") == "WorkspaceNotFound" }
+        assertThat(tokens.findAll()).isEmpty()
     }
 }
