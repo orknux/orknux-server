@@ -77,6 +77,8 @@ class McpAPI(
     private val files: McpFiles,
     /** Where this installation is reached from, so the upload door is said as an address a client can use. */
     private val web: io.mszymanski.orknux.server.security.WebProperties,
+    /** Who connects, from where, and what they call - what Admin -> MCP and a workspace's MCP page show. */
+    private val sessions: McpSessions,
 ) {
 
     /**
@@ -104,7 +106,11 @@ class McpAPI(
     }
 
     @PostMapping("/mcp/{workspaceId}", produces = [MediaType.APPLICATION_JSON_VALUE])
-    fun rpc(@PathVariable workspaceId: Long, @RequestBody body: JsonNode): CompletableFuture<ResponseEntity<Any>> {
+    fun rpc(
+        @PathVariable workspaceId: Long,
+        @RequestBody body: JsonNode,
+        request: jakarta.servlet.http.HttpServletRequest,
+    ): CompletableFuture<ResponseEntity<Any>> {
         val method = body.path("method").stringValue().orEmpty()
         val requestId = body.path("id").takeUnless { it.isMissingNode || it.isNull }
 
@@ -138,22 +144,62 @@ class McpAPI(
          */
         if (id == null) {
             log.debug("MCP notification {} for workspace {}", method, workspaceId)
+            sessions.seen(workspaceId, request)
             return done(ResponseEntity.accepted().build())
         }
 
+        /*
+         * A session begins at initialize, which hands the client the id it
+         * carries from then on; every other request is counted under the
+         * session it carries, or the one it looks like.
+         */
+        if (method == "initialize") {
+            val opened = sessions.open(workspaceId, request, body.path("params"))
+            return done(ResponseEntity.ok().header(McpSessions.HEADER, opened.key).body(ok(id, initialize(workspaceId)).body))
+        }
+        val session = sessions.seen(workspaceId, request)
+        val started = System.nanoTime()
+        fun took() = (System.nanoTime() - started) / 1_000_000
+        /** A prompt or a resource read, recorded with what it asked for and whether it was there. */
+        fun read(asked: String?, answer: ResponseEntity<Any>): ResponseEntity<Any> {
+            val refused = (answer.body as? Map<*, *>)?.get("error") as? Map<*, *>
+            sessions.record(session, workspaceId, method, asked, body.path("params").path("arguments").takeIf { it.isObject }, refused != null, refused?.get("message")?.toString(), took())
+            return answer
+        }
+
         return when (method) {
-            "initialize" -> done(ok(id, initialize(workspaceId)))
             "tools/list" -> done(ok(id, mapOf("tools" to (tools.specs(scope) + lent.specs(workspaceId, signedIn(), scope.mayWrite)).distinctBy { it.name }.filter { custom == null || chosen(custom, it.name) }.map(::described))))
-            "tools/call" -> call(scope, body.path("params"), custom).thenApply { answered -> ok(id, answered) }
+            "tools/call" -> call(scope, body.path("params"), custom).thenApply { answered ->
+                val failed = answered["isError"] == true
+                val said = ((answered["content"] as? List<*>)?.firstOrNull() as? Map<*, *>)?.get("text")?.toString()
+                sessions.record(
+                    session, workspaceId, method,
+                    body.path("params").path("name").stringValue(null),
+                    body.path("params").path("arguments").takeIf { it.isObject },
+                    failed, if (failed) said else null, took(),
+                )
+                ok(id, answered)
+            }
             "ping" -> done(ok(id, emptyMap<String, Any>()))
             "prompts/list" -> done(ok(id, mapOf("prompts" to offered(workspaceId).map { (name, skill) -> prompt(name, skill) })))
-            "prompts/get" -> done(promptGot(id, workspaceId, body.path("params")))
+            "prompts/get" -> done(read(body.path("params").path("name").stringValue(null), promptGot(id, workspaceId, body.path("params"))))
             "resources/list" -> done(ok(id, mapOf("resources" to offered(workspaceId).map { (_, skill) -> resource(skill) })))
             // No templates: every skill is listed by its own address.
             "resources/templates/list" -> done(ok(id, mapOf("resourceTemplates" to emptyList<Any>())))
-            "resources/read" -> done(resourceRead(id, workspaceId, body.path("params")))
+            "resources/read" -> done(read(body.path("params").path("uri").stringValue(null), resourceRead(id, workspaceId, body.path("params"))))
             else -> done(ResponseEntity.ok(error(id, METHOD_NOT_FOUND, "This server does not do $method")))
         }
+    }
+
+    /**
+     * A client saying it is done with its session, as the protocol has it: a
+     * DELETE carrying its Mcp-Session-Id. Its session is then shown as ended
+     * rather than idle.
+     */
+    @org.springframework.web.bind.annotation.DeleteMapping("/mcp/{workspaceId}")
+    fun close(@PathVariable workspaceId: Long, request: jakarta.servlet.http.HttpServletRequest): ResponseEntity<Void> {
+        if (!access.canSee(workspaceId)) return ResponseEntity.notFound().build()
+        return if (sessions.end(workspaceId, request)) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
     }
 
     /**

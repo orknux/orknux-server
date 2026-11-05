@@ -16,6 +16,7 @@ enum class TuningSection(val title: String) {
     WORKFLOWS("Workflows and triggers"),
     PLUGINS("Plugins and libraries"),
     FILES("Temporary files"),
+    MCP("MCP clients"),
 }
 
 /** What a [Tunable]'s number counts, as the box beside it says. */
@@ -34,6 +35,7 @@ enum class TuningUnit(val said: String) {
     HERTZ("Hz"),
     KILOBITS_PER_SECOND("kbit/s"),
     MILLISECONDS("ms"),
+    DAYS("days"),
 }
 
 /**
@@ -1082,6 +1084,19 @@ enum class Tunable(
         "temporary.file.seconds", 300, 1, null, TuningSection.FILES, TuningUnit.SECONDS,
         "How long a temporary file is kept",
         "The longest anybody may keep one, and how long it is kept when they do not say. A caller may ask for less, never for more.",
+    ),
+
+    /* ---- MCP clients ---- */
+
+    MCP_CONNECTED_MINUTES(
+        "mcp.connected.minutes", 10, 1, null, TuningSection.MCP, TuningUnit.MINUTES,
+        "How long since its last request an MCP client still counts as connected",
+        "MCP is a request at a time, so a client that has gone quiet has not said so. Past this it is listed as idle rather than connected, on Admin -> MCP and on a workspace's MCP page.",
+    ),
+    MCP_HISTORY_DAYS(
+        "mcp.history.days", 30, 1, null, TuningSection.MCP, TuningUnit.DAYS,
+        "How long MCP clients' sessions and calls are kept",
+        "Who reached a workspace over MCP, from where, and every call they made. Older than this, it is let go of.",
     ),
     ;
 

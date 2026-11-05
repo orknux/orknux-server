@@ -551,6 +551,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_TEMPORARY_FILES_PER_SESSION` | How many temporary files one session holds at once, in items. | `3` |
 | `ORKNUX_TUNING_TEMPORARY_FILES_MOST` | How many temporary files the installation holds at once, in items. | `50` |
 | `ORKNUX_TUNING_TEMPORARY_FILE_SECONDS` | How long a temporary file is kept, and the longest a caller may ask for, in seconds. | `300` |
+| `ORKNUX_TUNING_MCP_CONNECTED_MINUTES` | How long since its last request an MCP client still counts as connected, in minutes. | `10` |
+| `ORKNUX_TUNING_MCP_HISTORY_DAYS` | How long MCP clients' sessions and calls are kept, in days. | `30` |
 | `ORKNUX_TUNING_SHEET_CELLS_MOST` | How many filled cells one sheet may hold, in items. | `50000` |
 | `ORKNUX_TUNING_SHEET_IMPORT_MB` | How large a file a sheet is made from, in MB. | `25` |
 

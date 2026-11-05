@@ -1,0 +1,69 @@
+# Who reaches a workspace over MCP, from where, and what they called:
+# Admin -> MCP for every workspace, a workspace's MCP page for that one.
+
+extend type Query {
+    "MCP clients' sessions, newest seen first. Every workspace for an administrator when workspaceId is left out; one workspace for somebody who administers it."
+    mcpSessions(workspaceId: ID, connectedOnly: Boolean, page: Int, size: Int): McpSessionPage!
+    "The calls MCP clients made, newest first: in one workspace, one session, or - for an administrator - everywhere."
+    mcpCalls(workspaceId: ID, sessionId: ID, failedOnly: Boolean, page: Int, size: Int): McpCallPage!
+}
+
+type McpSession {
+    id: ID!
+    workspaceId: ID!
+    workspaceName: String
+    username: String!
+    tokenName: String
+    clientName: String
+    clientVersion: String
+    userAgent: String
+    "The client's address: the first X-Forwarded-For hop where a proxy wrote one."
+    ipAddress: String!
+    "The connection's own address, where it differs from ipAddress - the proxy's."
+    peerAddress: String
+    "The address's name, from a reverse lookup; null until it has been looked up or where there is none."
+    hostname: String
+    startedAt: String!
+    lastSeenAt: String!
+    endedAt: String
+    "Whether it has made a request within Admin -> Settings' window and has not said it is done."
+    connected: Boolean!
+    calls: Int!
+}
+
+type McpSessionPage {
+    content: [McpSession!]!
+    page: Int!
+    size: Int!
+    totalElements: Int!
+    totalPages: Int!
+    "How many of the sessions asked about are connected now."
+    connectedCount: Int!
+}
+
+type McpCall {
+    id: ID!
+    sessionId: ID!
+    workspaceId: ID!
+    workspaceName: String
+    username: String!
+    clientName: String
+    ipAddress: String!
+    hostname: String
+    method: String!
+    tool: String
+    "What it was called with, each text cut short."
+    arguments: String
+    failed: Boolean!
+    error: String
+    durationMs: Int!
+    at: String!
+}
+
+type McpCallPage {
+    content: [McpCall!]!
+    page: Int!
+    size: Int!
+    totalElements: Int!
+    totalPages: Int!
+}
