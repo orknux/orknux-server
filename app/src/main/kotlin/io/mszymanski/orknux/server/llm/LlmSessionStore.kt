@@ -50,6 +50,14 @@ class LlmSessionStoreEntry(
      */
     @Column(name = "attachment_id")
     var attachmentId: Long? = null,
+
+    /**
+     * The temporary file this key stands for, where it is one - see
+     * [TemporaryFiles]. Like an attachment the row holds no value of its own,
+     * and once the file's time is up the key reads as holding nothing.
+     */
+    @Column(name = "temporary_file_id")
+    var temporaryFileId: Long? = null,
 )
 
 data class LlmSessionStoreKey(val sessionId: Long = 0, val name: String = "") : Serializable
@@ -71,6 +79,10 @@ interface LlmSessionStoreRepository : JpaRepository<LlmSessionStoreEntry, LlmSes
         "select e.name from LlmSessionStoreEntry e where e.sessionId = :sessionId and e.attachmentId = :attachmentId",
     )
     fun keysOf(sessionId: Long, attachmentId: Long): List<String>
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("delete from LlmSessionStoreEntry e where e.temporaryFileId = :fileId")
+    fun deleteByTemporaryFileId(fileId: Long): Int
 }
 
 /**
@@ -90,14 +102,26 @@ class LlmSessionStore(
     private val attachments: io.mszymanski.orknux.server.attachment.ChatAttachmentRepository,
     private val files: io.mszymanski.orknux.server.attachment.AttachmentStore,
     private val mapper: tools.jackson.databind.ObjectMapper,
+    /** Lazy: temporary files are written through the store, and read back through it. */
+    @param:org.springframework.context.annotation.Lazy private val temporary: TemporaryFiles,
 ) : SessionScratch {
+
+    /**
+     * What [key] holds, where it holds anything: a key standing for a
+     * temporary file whose time is up holds nothing, whether or not the sweep
+     * has freed it yet.
+     */
+    private fun entry(sessionId: Long, key: String): LlmSessionStoreEntry? =
+        entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.takeIf { held ->
+            held.temporaryFileId == null || temporary.live(held.temporaryFileId!!) != null
+        }
 
     @Transactional
     override fun put(sessionId: Long, key: String, json: String): String? = put(sessionId, key, json, null)
 
     @Transactional(readOnly = true)
     override fun kindOf(sessionId: Long, key: String): StoredKind? =
-        entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.let { held ->
+        entry(sessionId, key)?.let { held ->
             held.binary?.let { StoredKind(held.contentType, it) }
         }
 
@@ -127,6 +151,7 @@ class LlmSessionStore(
                 held.binary = kind?.binary
                 // Written over, it is the tool's value now and no longer the attachment.
                 held.attachmentId = null
+                held.temporaryFileId = null
                 entries.save(held)
             }
             null
@@ -166,9 +191,32 @@ class LlmSessionStore(
             entry.contentType = kind.contentType
             entry.binary = kind.binary
             entry.attachmentId = attachmentId
+            entry.temporaryFileId = null
             entries.save(entry)
             null
         }.getOrElse { "this session no longer exists, so there is nothing to store into" }
+    }
+
+    /**
+     * Holds temporary file [fileId] under [key], by reference as [putAttachment]
+     * holds an attachment. Only [TemporaryFiles] calls this; it has checked
+     * the file's own bounds, and the ceiling on keys still applies.
+     */
+    @Transactional
+    fun putTemporary(sessionId: Long, key: String, fileId: Long, kind: StoredKind): String? {
+        val held = entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))
+        val mostKeys = settings.sessionStoreMaxKeys()
+        if (held == null && entries.countBySessionId(sessionId) >= mostKeys) {
+            return "this session's store already holds $mostKeys keys"
+        }
+        val entry = held ?: LlmSessionStoreEntry(sessionId, key)
+        entry.value = ""
+        entry.contentType = kind.contentType
+        entry.binary = kind.binary
+        entry.attachmentId = null
+        entry.temporaryFileId = fileId
+        entries.save(entry)
+        return null
     }
 
     /**
@@ -179,9 +227,9 @@ class LlmSessionStore(
      */
     @Transactional(readOnly = true)
     override fun get(sessionId: Long, key: String): String? {
-        val held = entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key)) ?: return null
-        if (held.attachmentId == null) return held.value
-        val content = attachmentContent(held) ?: return null
+        val held = entry(sessionId, key) ?: return null
+        if (held.attachmentId == null && held.temporaryFileId == null) return held.value
+        val content = (if (held.temporaryFileId != null) temporaryContent(held) else attachmentContent(held)) ?: return null
         val bytes = content.bytes()
         return if (held.binary == false) {
             mapper.writeValueAsString(bytes.decodeToString())
@@ -192,7 +240,7 @@ class LlmSessionStore(
 
     /** Whether anything is kept under [key], without reading it. */
     @Transactional(readOnly = true)
-    fun has(sessionId: Long, key: String): Boolean = entries.existsById(LlmSessionStoreKey(sessionId, key))
+    fun has(sessionId: Long, key: String): Boolean = entry(sessionId, key) != null
 
     /**
      * What [key] holds, as bytes - the one place that knows where they are.
@@ -206,7 +254,8 @@ class LlmSessionStore(
      */
     @Transactional(readOnly = true)
     fun content(sessionId: Long, key: String): StoredContent? {
-        val held = entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key)) ?: return null
+        val held = entry(sessionId, key) ?: return null
+        if (held.temporaryFileId != null) return temporaryContent(held)
         if (held.attachmentId != null) return attachmentContent(held)
         val kind = held.binary?.let { StoredKind(held.contentType, it) }
         val value = runCatching { mapper.readTree(held.value) }.getOrNull()?.takeIf { it.isString }?.stringValue() ?: held.value
@@ -218,6 +267,9 @@ class LlmSessionStore(
         }
         return StoredContent.of(bytes, kind)
     }
+
+    private fun temporaryContent(held: LlmSessionStoreEntry): StoredContent? =
+        held.temporaryFileId?.let { temporary.live(it) }?.let { temporary.content(it) }
 
     private fun attachmentContent(held: LlmSessionStoreEntry): StoredContent? {
         val attachment = held.attachmentId?.let { attachments.findByIdOrNull(it) } ?: return null
@@ -261,7 +313,10 @@ class LlmSessionStore(
     override fun remove(sessionId: Long, key: String) {
         // Idempotent: a key that holds nothing is left as it was, so a caller
         // clearing something it may or may not have set need not check first.
-        entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.let { entries.delete(it) }
+        val held = entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key)) ?: return
+        // A temporary file goes with its key, so it stops counting against the bounds at once.
+        if (held.temporaryFileId != null && temporary.forget(sessionId, key)) return
+        entries.delete(held)
     }
 
     /**
@@ -284,7 +339,7 @@ class LlmSessionStore(
         entries.findBySessionId(from).forEach { held ->
             if (room == 0L) return@forEach
             if (entries.findByIdOrNull(LlmSessionStoreKey(into, held.name)) != null) return@forEach
-            entries.save(LlmSessionStoreEntry(into, held.name, held.value, held.contentType, held.binary, held.attachmentId))
+            entries.save(LlmSessionStoreEntry(into, held.name, held.value, held.contentType, held.binary, held.attachmentId, held.temporaryFileId))
             room -= 1
             copied += 1
         }

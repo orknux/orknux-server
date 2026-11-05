@@ -547,6 +547,10 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_LIVE_LET_GO_SECONDS` | How long a browser tab is out of sight before it lets go of its live connection, in seconds. | `30` |
 | `ORKNUX_TUNING_LIVE_AWAY_HOURS` | How long a person whose editor tab is in the background is still shown in it, as inactive, in hours. | `8` |
 | `ORKNUX_TUNING_MARKETPLACE_ICON_HOURS` | How long a marketplace icon is kept before it is fetched again, in hours. | `6` |
+| `ORKNUX_TUNING_TEMPORARY_FILE_MB` | The largest temporary file - a file an MCP client or an agent keeps for a few minutes under a key, in the database - in MB. | `100` |
+| `ORKNUX_TUNING_TEMPORARY_FILES_PER_SESSION` | How many temporary files one session holds at once, in items. | `3` |
+| `ORKNUX_TUNING_TEMPORARY_FILES_MOST` | How many temporary files the installation holds at once, in items. | `50` |
+| `ORKNUX_TUNING_TEMPORARY_FILE_SECONDS` | How long a temporary file is kept, and the longest a caller may ask for, in seconds. | `300` |
 | `ORKNUX_TUNING_SHEET_CELLS_MOST` | How many filled cells one sheet may hold, in items. | `50000` |
 | `ORKNUX_TUNING_SHEET_IMPORT_MB` | How large a file a sheet is made from, in MB. | `25` |
 

@@ -238,6 +238,8 @@ class OrknuxTools(
     private val sheetTools: SheetTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
     private val newsTools: NewsTools,
+    /** Keeping a file for a few minutes under a key; see [FileTools]. */
+    private val fileTools: FileTools,
     private val web: WebProperties,
     private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val mapper: ObjectMapper,
@@ -312,7 +314,7 @@ class OrknuxTools(
 
     /** What to offer, which depends on whether this caller may start anything. */
     fun specs(scope: OrknuxScope): List<ToolSpec> =
-        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + skillTools.specs(scope) + documentTools.specs(scope) + sheetTools.specs(scope) + manualTools.specs()
+        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + skillTools.specs(scope) + documentTools.specs(scope) + sheetTools.specs(scope) + fileTools.specs(scope) + manualTools.specs()
 
     /**
      * The orknux_* tools an agent starts with hidden, which its owner turns on
@@ -1095,6 +1097,8 @@ class OrknuxTools(
                 access.actingIn(scope.workspaceId, scope.actor) { skillTools.run(scope, name, arguments) }
             } else if (diagramTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { diagramTools.run(scope, name, arguments) }
+            } else if (fileTools.handles(name)) {
+                fileTools.run(scope, name, arguments)
             } else if (sheetTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { sheetTools.run(scope, name, arguments) }
             } else {

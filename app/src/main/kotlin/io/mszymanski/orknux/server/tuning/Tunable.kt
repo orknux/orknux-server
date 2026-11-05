@@ -15,6 +15,7 @@ enum class TuningSection(val title: String) {
     MEDIA("Pictures and speech"),
     WORKFLOWS("Workflows and triggers"),
     PLUGINS("Plugins and libraries"),
+    FILES("Temporary files"),
 }
 
 /** What a [Tunable]'s number counts, as the box beside it says. */
@@ -1058,6 +1059,29 @@ enum class Tunable(
         "marketplace.icon.hours", 6, 1, null, TuningSection.PLUGINS, TuningUnit.HOURS,
         "How long a marketplace icon is kept before it is fetched again",
         "Icons are fetched once and kept, so the plugin list does not reach the marketplace on every view.",
+    ),
+
+    /* ---- Temporary files ---- */
+
+    TEMPORARY_FILE_MB(
+        "temporary.file.mb", 100, 1, null, TuningSection.FILES, TuningUnit.MB,
+        "The largest temporary file",
+        "An MCP client or an agent keeps a file for a few minutes under a key, to hand to a tool such as jira_attach. A larger one is refused before it is kept. They are kept in the database.",
+    ),
+    TEMPORARY_FILES_PER_SESSION(
+        "temporary.files.per.session", 3, 1, null, TuningSection.FILES, TuningUnit.ITEMS,
+        "How many temporary files one session holds at once",
+        "An MCP client has a session of its own in each workspace, and an agent's conversation is one. Past this, a new file is refused until one is forgotten or expires.",
+    ),
+    TEMPORARY_FILES_MOST(
+        "temporary.files.most", 50, 1, null, TuningSection.FILES, TuningUnit.ITEMS,
+        "How many temporary files the installation holds at once",
+        "Counted across every workspace and session. Past this, a new file is refused until one expires.",
+    ),
+    TEMPORARY_FILE_SECONDS(
+        "temporary.file.seconds", 300, 1, null, TuningSection.FILES, TuningUnit.SECONDS,
+        "How long a temporary file is kept",
+        "The longest anybody may keep one, and how long it is kept when they do not say. A caller may ask for less, never for more.",
     ),
     ;
 

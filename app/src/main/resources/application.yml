@@ -1077,6 +1077,11 @@ orknux:
     live.let.go.seconds: ${ORKNUX_TUNING_LIVE_LET_GO_SECONDS:30}
     live.away.hours: ${ORKNUX_TUNING_LIVE_AWAY_HOURS:8}
     marketplace.icon.hours: ${ORKNUX_TUNING_MARKETPLACE_ICON_HOURS:6}
+    # Files kept for a few minutes under a key, for the tools that take one; kept in the database.
+    temporary.file.mb: ${ORKNUX_TUNING_TEMPORARY_FILE_MB:100}
+    temporary.files.per.session: ${ORKNUX_TUNING_TEMPORARY_FILES_PER_SESSION:3}
+    temporary.files.most: ${ORKNUX_TUNING_TEMPORARY_FILES_MOST:50}
+    temporary.file.seconds: ${ORKNUX_TUNING_TEMPORARY_FILE_SECONDS:300}
   model:
     check:
       # Every configured provider is asked whether it still answers, so a status

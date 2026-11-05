@@ -894,6 +894,8 @@
                         <!-- No sweep calls a provider while a suite is running. -->
                         <orknux.model.check.enabled>false</orknux.model.check.enabled>
                         <orknux.connection.check.enabled>false</orknux.connection.check.enabled>
+                        <!-- No clock frees temporary files; one sweeps before every new file anyway. -->
+                        <orknux.temporary-files.sweep-seconds>0</orknux.temporary-files.sweep-seconds>
                         <!-- No clock re-reads the log levels; LogLevelAPITest calls refresh itself. -->
                         <orknux.logging.levels.follow-enabled>false</orknux.logging.levels.follow-enabled>
                         <!-- No clock deletes a revision mid-suite; RevisionRetentionTest

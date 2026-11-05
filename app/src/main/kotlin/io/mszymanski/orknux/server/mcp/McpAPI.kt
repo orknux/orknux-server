@@ -245,8 +245,10 @@ class McpAPI(
             // How a file reaches a tool that sends one: by key, the bytes uploaded rather than typed.
             "A tool that sends a file takes a contentKey, never the file's content: upload the file's " +
             "bytes as they are - curl --data-binary @report.pdf -H \"Authorization: Bearer <your token>\" " +
-            "\"${web.baseUrl.trimEnd('/')}${McpFiles.path(workspaceId)}?filename=report.pdf\" - and pass the " +
-            "contentKey it answers. Prefer that to any tool that takes the content as base64.",
+            "\"${web.baseUrl.trimEnd('/')}${McpFiles.path(workspaceId)}?filename=report.pdf&seconds=120\" - and pass the " +
+            "contentKey it answers. Prefer that to any tool that takes the content as base64. The file is " +
+            "temporary: kept for `seconds`, or the longest allowed, and then gone; ${FileTools.KEEP} keeps text " +
+            "or base64 the same way, ${FileTools.KEPT} lists what you hold and ${FileTools.FORGET} lets one go.",
     )
 
     /**

@@ -2,6 +2,9 @@ package io.mszymanski.orknux.server.mcp
 
 import io.mszymanski.orknux.server.agent.AgentTool
 import io.mszymanski.orknux.server.agent.AgentToolRepository
+import io.mszymanski.orknux.server.llm.TemporaryFiles
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tunables
 import io.mszymanski.orknux.server.security.Role
 import io.mszymanski.orknux.server.security.RoleRepository
 import io.mszymanski.orknux.server.security.RoleScope
@@ -39,6 +42,7 @@ class McpFilesTest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val tools: AgentToolRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val tunables: Tunables,
 ) {
 
     private val client = RestClient.builder()
@@ -76,10 +80,11 @@ class McpFilesTest(
         token: String,
         workspace: Long = workspaceId,
         filename: String? = "flow.png",
+        seconds: Int? = null,
         type: MediaType = MediaType.APPLICATION_OCTET_STREAM,
         body: ByteArray = bytes,
     ): Pair<Int, JsonNode> {
-        val answer = client.post().uri("/mcp/$workspace/files" + (filename?.let { "?filename=$it" } ?: ""))
+        val answer = client.post().uri("/mcp/$workspace/files" + (filename?.let { "?filename=$it" } ?: "") + (seconds?.let { "&seconds=$it" } ?: ""))
             .contentType(type)
             .header(HttpHeaders.AUTHORIZATION, "Bearer $token")
             .body(body)
@@ -108,7 +113,8 @@ class McpFilesTest(
         val (status, answer) = upload(token)
         assertThat(status).describedAs(answer.toString()).isEqualTo(200)
         val key = answer.path("contentKey").asText()
-        assertThat(key).startsWith(McpFiles.KEY_PREFIX)
+        assertThat(key).startsWith(TemporaryFiles.KEY_PREFIX)
+        assertThat(answer.path("secondsLeft").asLong()).isBetween(1L, 300L)
         assertThat(answer.path("contentType").asText()).isEqualTo("image/png")
         assertThat(answer.path("size").asLong()).isEqualTo(bytes.size.toLong())
 
@@ -167,6 +173,87 @@ class McpFilesTest(
         val token = internal.mint(owner, "careless").second
         assertThat(upload(token, filename = null).first).isEqualTo(400)
         assertThat(upload(token, workspace = 987_654_321).first).isEqualTo(404)
+    }
+
+    /** What a tool called over MCP answered, read as the JSON it is. */
+    private fun said(read: JsonNode): JsonNode = mapper.readTree(read.path("result").path("content").get(0).path("text").asText())
+
+    private fun heldUnder(token: String, key: String): String? =
+        said(call(token, "heldUnder", mapOf("key" to key))).path("held").stringValue(null)
+
+    @Test
+    fun `text kept by the tool is read by another tool under its key, for as long as was asked`() {
+        val token = internal.mint(owner, "keeper").second
+        val kept = said(call(token, FileTools.KEEP, mapOf("filename" to "notes.txt", "text" to "zażółć", "seconds" to 60)))
+        val key = kept.path("contentKey").asText()
+        assertThat(key).describedAs(kept.toString()).startsWith(TemporaryFiles.KEY_PREFIX)
+        assertThat(kept.path("secondsLeft").asLong()).isBetween(55L, 60L)
+        assertThat(heldUnder(token, key)).isEqualTo("zażółć")
+
+        val bytesKept = said(call(token, FileTools.KEEP, mapOf("filename" to "flow.png", "base64" to Base64.getEncoder().encodeToString(bytes))))
+        assertThat(Base64.getDecoder().decode(heldUnder(token, bytesKept.path("contentKey").asText()))).isEqualTo(bytes)
+        // Asked for nothing, it is kept for the longest allowed.
+        assertThat(bytesKept.path("secondsLeft").asLong()).isBetween(295L, 300L)
+
+        val listed = said(call(token, FileTools.KEPT, emptyMap()))
+        assertThat(listed.path("files").toString()).contains("\"$key\"", "\"${bytesKept.path("contentKey").asText()}\"")
+        assertThat(listed.path("mostAtOnce").asInt()).isEqualTo(3)
+    }
+
+    @Test
+    fun `a file is kept no longer than allowed, and is nothing once its time is up`() {
+        val token = internal.mint(owner, "short").second
+        val long = said(call(token, FileTools.KEEP, mapOf("filename" to "a.txt", "text" to "a", "seconds" to 100_000)))
+        assertThat(long.path("secondsLeft").asLong()).describedAs(long.toString()).isLessThanOrEqualTo(300L)
+        assertThat(long.path("note").asText()).contains("the longest allowed")
+
+        val (_, brief) = upload(token, seconds = 1)
+        val key = brief.path("contentKey").asText()
+        assertThat(heldUnder(token, key)).isNotNull()
+        Thread.sleep(1_200)
+        assertThat(heldUnder(token, key)).isNull()
+        assertThat(said(call(token, FileTools.KEPT, emptyMap())).path("files").toString()).doesNotContain("\"$key\"")
+    }
+
+    @Test
+    fun `one session holds three at once, and forgetting one makes room`() {
+        val token = internal.mint(owner, "many").second
+        val keys = (1..3).map { said(call(token, FileTools.KEEP, mapOf("filename" to "$it.txt", "text" to "$it", "seconds" to 30))).path("contentKey").asText() }
+        val fourth = said(call(token, FileTools.KEEP, mapOf("filename" to "4.txt", "text" to "4", "seconds" to 30)))
+        assertThat(fourth.path("error").asText()).contains("already holds 3").contains(keys.first())
+        assertThat(upload(token).first).isEqualTo(409)
+
+        assertThat(said(call(token, FileTools.FORGET, mapOf("key" to keys.first()))).path("forgotten").asText()).isEqualTo(keys.first())
+        assertThat(heldUnder(token, keys.first())).isNull()
+        assertThat(said(call(token, FileTools.KEEP, mapOf("filename" to "4.txt", "text" to "4", "seconds" to 30))).has("contentKey")).isTrue()
+    }
+
+    @Test
+    fun `the installation's bound and the largest file are an administrator's to set`() {
+        val token = internal.mint(owner, "bounded").second
+        try {
+            tunables.set(Tunable.TEMPORARY_FILE_MB, 1, "test")
+            val (status, answer) = upload(token, body = ByteArray(1024 * 1024 + 1))
+            assertThat(status).describedAs(answer.toString()).isEqualTo(413)
+            assertThat(answer.path("error").asText()).contains("at most 1 MB")
+
+            tunables.set(Tunable.TEMPORARY_FILES_MOST, 1, "test")
+            val first = upload(token, seconds = 5)
+            val second = upload(internal.mint(owner, "another").second, workspace = workspaceId, seconds = 5)
+            // Whatever else the suite keeps, two at once is past one.
+            assertThat(listOf(first.first, second.first)).contains(409)
+        } finally {
+            tunables.set(Tunable.TEMPORARY_FILE_MB, null, "test")
+            tunables.set(Tunable.TEMPORARY_FILES_MOST, null, "test")
+        }
+    }
+
+    @Test
+    fun `a read-only token is not offered keeping a file`() {
+        val token = internal.mint(owner, "looker", readOnly = true).second
+        val answer = said(call(token, FileTools.KEEP, mapOf("filename" to "a.txt", "text" to "a")))
+        assertThat(answer.path("error").asText()).isNotEmpty()
+        assertThat(said(call(token, FileTools.KEPT, emptyMap())).has("files")).isTrue()
     }
 
     private companion object {
