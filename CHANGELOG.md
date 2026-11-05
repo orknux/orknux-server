@@ -15,6 +15,29 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.3.5
+
+### ✨ Added
+
+- **Admin › MCP, and an MCP page in every workspace.** Every AI client connected over MCP: who, with which token and client, from which address and host name, when it was last seen, and every call it made, with its result, how long it took and its arguments cut short. A workspace's page shows only that workspace's clients, to whoever administers it. Both tables sort by any column.
+- **Temporary files for AI clients.** A client keeps a file under a key for up to five minutes (`orknux_keep_file`), lists what it is keeping and lets one go before its time; the files are kept in the database. The limits are under Admin › Settings › Temporary files: 100 MB a file, 3 at once in a session, 50 on the whole server.
+- **An AI client can upload a file and hand a tool its key.** A tool that sends a file, such as a Jira attachment or a Slack upload, takes the key instead of the file's contents, which a model copying base64 gets wrong.
+- **A Custom access token can be held to some workspaces.** Listed under Workspaces on the token form; with none listed it reaches every workspace its owner sees, as before.
+- **A Custom token's tools can be filtered by where they come from:** MCP servers, built-in, plugins and a workspace's own tools, one or several at once. An entry that grants a whole MCP server is marked so, on the form and in the token list.
+
+### 🔧 Changed
+
+- **The Variables page saves from the strip at the foot of the window.** One Save writes every changed row in both tables and the rows being added, and Discard puts them all back; the save tick on each row is gone, and Enter in a row is the same Save.
+- **MCP clients are recorded.** Each client is handed a session id when it connects, and its calls, with their arguments cut short, are kept for 30 days. The connected window and how long history is kept are under Admin › Settings › MCP clients.
+- **The catalog pages are wider.** Variables, Memory, Skills and the Design and Explore catalog pages now end 40 px from the window's edge, as every other page does, instead of 100.
+- **The footer stays at the foot of the window on list pages** such as Agents, Tools and Sessions, instead of scrolling away with a long list.
+
+### 🐛 Fixed
+
+- **A refused variable is said once, under its row,** and no longer again at the top of the page; a duplicate name reads "This catalog already holds…" rather than starting with the catalog's bare name.
+- **The AI client dialog says how a directory account gets a token:** an administrator makes it under Admin › Users, on the person's Access Tokens.
+- **A Custom token's tool lists are drawn whole,** rather than in a box that stopped scrolling short and cut rows at its edges.
+
 ## 1.3.4
 
 ### 🔧 Changed
