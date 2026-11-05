@@ -126,7 +126,12 @@ class McpLentTools(
 
     fun handles(name: String): Boolean = specs().any { it.name == name }
 
-    fun run(workspaceId: Long, name: String, arguments: String, who: String = "", mayWrite: Boolean = false): String = when {
+    /**
+     * Runs one lent tool. [sessionId] is the caller's MCP store ([McpFiles]),
+     * so a tool that takes a contentKey reads a file the caller uploaded; null
+     * where they have uploaded nothing.
+     */
+    fun run(workspaceId: Long, name: String, arguments: String, who: String = "", mayWrite: Boolean = false, sessionId: Long? = null): String = when {
         name == AgentTools.VALIDATE -> validator.check(arguments)
         name == LinkTools.LINK -> links.shed().run(ToolCall("mcp", name, arguments))
         lentEmbedded(name) -> embedded.getObject().run(name, arguments, workspaceId, sessionId = null)
@@ -135,7 +140,7 @@ class McpLentTools(
             if (offered.none { it.name == name }) {
                 """{"error":"There is no tool called $name"}"""
             } else {
-                agentTools.getObject().run(agent, ToolCall("mcp", name, arguments), sessionId = null)
+                agentTools.getObject().run(agent, ToolCall("mcp", name, arguments), sessionId = sessionId)
             }
         }
     }

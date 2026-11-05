@@ -73,6 +73,10 @@ class McpAPI(
     private val userTokens: io.mszymanski.orknux.server.user.AppUserTokenRepository,
     /** The agents' tools offered here too: the ones a workspace alone can run. */
     private val lent: McpLentTools,
+    /** Each caller's store for the files they upload, which the lent tools are run in. */
+    private val files: McpFiles,
+    /** Where this installation is reached from, so the upload door is said as an address a client can use. */
+    private val web: io.mszymanski.orknux.server.security.WebProperties,
 ) {
 
     /**
@@ -138,7 +142,7 @@ class McpAPI(
         }
 
         return when (method) {
-            "initialize" -> done(ok(id, initialize()))
+            "initialize" -> done(ok(id, initialize(workspaceId)))
             "tools/list" -> done(ok(id, mapOf("tools" to (tools.specs(scope) + lent.specs(workspaceId, signedIn(), scope.mayWrite)).distinctBy { it.name }.filter { custom == null || chosen(custom, it.name) }.map(::described))))
             "tools/call" -> call(scope, body.path("params"), custom).thenApply { answered -> ok(id, answered) }
             "ping" -> done(ok(id, emptyMap<String, Any>()))
@@ -222,7 +226,7 @@ class McpAPI(
     private fun error(id: JsonNode?, code: Int, says: String): Map<String, Any?> =
         mapOf("jsonrpc" to "2.0", "id" to id, "error" to mapOf("code" to code, "message" to says))
 
-    private fun initialize(): Map<String, Any> = mapOf(
+    private fun initialize(workspaceId: Long): Map<String, Any> = mapOf(
         // Answered with the version this was written against. A client asking
         // for a newer one is told what it is talking to and decides for itself.
         "protocolVersion" to PROTOCOL,
@@ -237,7 +241,12 @@ class McpAPI(
             "Orknux, a workflow and agent platform. These tools read and operate one workspace: its " +
             "workflows, its runs and its agents. Everything that has a page comes back with a `url`; " +
             "use it when you refer to something, and never invent one. The workspace's skills - how it " +
-            "goes about things - are offered as prompts and as resources.",
+            "goes about things - are offered as prompts and as resources. " +
+            // How a file reaches a tool that sends one: by key, the bytes uploaded rather than typed.
+            "A tool that sends a file takes a contentKey, never the file's content: upload the file's " +
+            "bytes as they are - curl --data-binary @report.pdf -H \"Authorization: Bearer <your token>\" " +
+            "\"${web.baseUrl.trimEnd('/')}${McpFiles.path(workspaceId)}?filename=report.pdf\" - and pass the " +
+            "contentKey it answers. Prefer that to any tool that takes the content as base64.",
     )
 
     /**
@@ -254,7 +263,10 @@ class McpAPI(
         }
         if (!tools.handles(name)) {
             val arguments = params.path("arguments").takeUnless { it.isMissingNode || it.isNull }
-            val answer = lent.run(scope.workspaceId, name, arguments?.let(mapper::writeValueAsString) ?: "{}", signedIn(), scope.mayWrite)
+            val answer = lent.run(
+                scope.workspaceId, name, arguments?.let(mapper::writeValueAsString) ?: "{}", signedIn(), scope.mayWrite,
+                sessionId = files.sessionOf(scope.workspaceId, signedIn(), create = false),
+            )
             val read = runCatching { mapper.readTree(answer) }.getOrNull()
             val refused = read?.has("error") == true
             /*
