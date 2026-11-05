@@ -1,11 +1,15 @@
 package io.mszymanski.orknux.server.mcp
 
 import io.mszymanski.orknux.server.security.WorkspaceAccess
+import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
-import org.springframework.data.domain.Sort
 import org.springframework.data.jpa.domain.Specification
+import jakarta.persistence.criteria.CriteriaBuilder
+import jakarta.persistence.criteria.CriteriaQuery
+import jakarta.persistence.criteria.Expression
+import jakarta.persistence.criteria.Root
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.stereotype.Controller
@@ -36,6 +40,8 @@ class McpSessionAPI(
         @Argument connectedOnly: Boolean?,
         @Argument page: Int?,
         @Argument size: Int?,
+        @Argument order: McpSessionOrder?,
+        @Argument ascending: Boolean?,
     ): McpSessionPage {
         allowed(workspaceId)
         val now = OffsetDateTime.now()
@@ -44,9 +50,26 @@ class McpSessionAPI(
         val connected = where.and { root, _, builder ->
             builder.and(builder.isNull(root.get<OffsetDateTime>("endedAt")), builder.greaterThan(root.get("lastSeenAt"), since))
         }
+        val by = order ?: McpSessionOrder.LAST_SEEN
         val found = sessions.findAll(
-            if (connectedOnly == true) connected else where,
-            PageRequest.of(page ?: 0, (size ?: DEFAULT_SIZE).coerceIn(1, MOST), Sort.by(Sort.Order.desc("lastSeenAt"), Sort.Order.desc("id"))),
+            ordered(if (connectedOnly == true) connected else where, ascending ?: (by != McpSessionOrder.LAST_SEEN && by != McpSessionOrder.CALLS)) { root, query, builder ->
+                when (by) {
+                    // Connected, idle, ended - the order the pills mean - and the most recent first within each.
+                    McpSessionOrder.STATUS -> listOf(
+                        builder.selectCase<Int>()
+                            .`when`(builder.isNotNull(root.get<OffsetDateTime>("endedAt")), 2)
+                            .`when`(builder.greaterThan(root.get("lastSeenAt"), since), 0)
+                            .otherwise(1),
+                    )
+                    McpSessionOrder.CLIENT -> listOf(builder.lower(builder.coalesce(root.get<String>("clientName"), "")), root.get<String>("clientVersion"))
+                    McpSessionOrder.PERSON -> listOf(builder.lower(root.get("username")), root.get<String>("tokenName"))
+                    McpSessionOrder.ADDRESS -> listOf(root.get<String>("ipAddress"))
+                    McpSessionOrder.WORKSPACE -> listOf(workspaceName(root, query, builder))
+                    McpSessionOrder.LAST_SEEN -> listOf(root.get<OffsetDateTime>("lastSeenAt"))
+                    McpSessionOrder.CALLS -> listOf(root.get<Int>("calls"))
+                }
+            },
+            PageRequest.of(page ?: 0, (size ?: DEFAULT_SIZE).coerceIn(1, MOST)),
         )
         val names = namesOf(found.content.map { it.workspaceId })
         return McpSessionPage(
@@ -66,6 +89,8 @@ class McpSessionAPI(
         @Argument failedOnly: Boolean?,
         @Argument page: Int?,
         @Argument size: Int?,
+        @Argument order: McpCallOrder?,
+        @Argument ascending: Boolean?,
     ): McpCallPage {
         // A session asked about by itself is checked against the workspace it belongs to.
         val session = sessionId?.let { sessions.findById(it).orElse(null) }
@@ -77,9 +102,20 @@ class McpSessionAPI(
         var where = inWorkspace<McpCall>(scope)
         if (sessionId != null) where = where.and { root, _, builder -> builder.equal(root.get<Long>("sessionId"), sessionId) }
         if (failedOnly == true) where = where.and { root, _, builder -> builder.isTrue(root.get("failed")) }
+        val by = order ?: McpCallOrder.AT
         val found: Page<McpCall> = calls.findAll(
-            where,
-            PageRequest.of(page ?: 0, (size ?: DEFAULT_SIZE).coerceIn(1, MOST), Sort.by(Sort.Order.desc("at"), Sort.Order.desc("id"))),
+            ordered(where, ascending ?: (by != McpCallOrder.AT && by != McpCallOrder.DURATION && by != McpCallOrder.RESULT)) { root, query, builder ->
+                when (by) {
+                    McpCallOrder.AT -> listOf(root.get<OffsetDateTime>("at"))
+                    McpCallOrder.CALLED -> listOf(builder.lower(builder.coalesce(root.get<String>("tool"), root.get<String>("method"))))
+                    McpCallOrder.PERSON -> listOf(ofSession(root, query, builder, "username"))
+                    McpCallOrder.ADDRESS -> listOf(ofSession(root, query, builder, "ipAddress"))
+                    McpCallOrder.WORKSPACE -> listOf(workspaceName(root, query, builder))
+                    McpCallOrder.RESULT -> listOf(root.get<Boolean>("failed"))
+                    McpCallOrder.DURATION -> listOf(root.get<Long>("durationMs"))
+                }
+            },
+            PageRequest.of(page ?: 0, (size ?: DEFAULT_SIZE).coerceIn(1, MOST)),
         )
         val owners = sessions.findAllById(found.content.map { it.sessionId }.toSet()).associateBy { it.id }
         val names = namesOf(found.content.map { it.workspaceId })
@@ -100,6 +136,40 @@ class McpSessionAPI(
         if (workspaceId == null) builder.conjunction() else builder.equal(root.get<Long>("workspaceId"), workspaceId)
     }
 
+    /**
+     * [where], put in the order of [keys] and then the newest row first.
+     *
+     * In the specification rather than a `Sort`, because three of the columns
+     * are not this table's: a workspace is read by its name and a call by its
+     * session's person and address, which a `Sort` on a property cannot reach.
+     * Left off the count query, which has nothing to order.
+     */
+    private fun <T : Any> ordered(
+        where: Specification<T>,
+        ascending: Boolean,
+        keys: (Root<T>, CriteriaQuery<*>, CriteriaBuilder) -> List<Expression<*>>,
+    ): Specification<T> = Specification { root, query, builder ->
+        if (query.resultType != Long::class.javaObjectType) {
+            val orders = keys(root, query, builder).map { if (ascending) builder.asc(it) else builder.desc(it) }
+            query.orderBy(orders + builder.desc(root.get<Long>("id")))
+        }
+        where.toPredicate(root, query, builder)
+    }
+
+    private fun <T : Any> workspaceName(root: Root<T>, query: CriteriaQuery<*>, builder: CriteriaBuilder): Expression<String> {
+        val name = query.subquery(String::class.java)
+        val workspace = name.from(Workspace::class.java)
+        return name.select(builder.lower(workspace.get("name")))
+            .where(builder.equal(workspace.get<Long>("id"), root.get<Long>("workspaceId")))
+    }
+
+    private fun ofSession(root: Root<McpCall>, query: CriteriaQuery<*>, builder: CriteriaBuilder, field: String): Expression<String> {
+        val held = query.subquery(String::class.java)
+        val session = held.from(McpClientSession::class.java)
+        return held.select(builder.lower(session.get(field)))
+            .where(builder.equal(session.get<Long>("id"), root.get<Long>("sessionId")))
+    }
+
     private fun namesOf(ids: Collection<Long>): Map<Long, String> =
         workspaces.findAllById(ids.toSet()).associate { requireNotNull(it.id) to it.name }
 
@@ -108,6 +178,12 @@ class McpSessionAPI(
         const val MOST = 200
     }
 }
+
+/** A column of Admin -> MCP's sessions table, to put the sessions in the order of. */
+enum class McpSessionOrder { STATUS, CLIENT, PERSON, ADDRESS, WORKSPACE, LAST_SEEN, CALLS }
+
+/** A column of its history, to put the calls in the order of; the arguments are not one. */
+enum class McpCallOrder { AT, CALLED, PERSON, ADDRESS, WORKSPACE, RESULT, DURATION }
 
 data class McpSessionView(
     val id: Long,

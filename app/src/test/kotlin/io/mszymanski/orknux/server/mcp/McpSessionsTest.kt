@@ -175,6 +175,36 @@ class McpSessionsTest(
     }
 
     @Test
+    fun `every column of both tables puts the rows in its order, either way round`() {
+        val token = internal.mint(owner, "sorting").second
+        callTool(token, first, connect(token, first), "orknux_workflows")
+        val busy = connect(token, second)
+        callTool(token, second, busy, "orknux_workflows")
+        callTool(token, second, busy, "orknux_no_such_tool")
+
+        fun sessionsBy(order: String, ascending: Boolean) = graphQlTester.document(
+            """{ mcpSessions(size: 200, order: $order, ascending: $ascending) { content { workspaceName calls } } }""",
+        ).execute().path("mcpSessions.content").entityList(Map::class.java).get()
+        for (order in McpSessionOrder.entries) {
+            assertThat(sessionsBy(order.name, true)).describedAs(order.name).isNotEmpty()
+            assertThat(sessionsBy(order.name, false)).describedAs(order.name).isNotEmpty()
+        }
+        val byCalls = sessionsBy("CALLS", false).map { (it["calls"] as Number).toInt() }
+        assertThat(byCalls).isSortedAccordingTo(Comparator.reverseOrder())
+        val byWorkspace = sessionsBy("WORKSPACE", true).map { it["workspaceName"].toString().lowercase() }
+        assertThat(byWorkspace).isSorted()
+
+        fun callsBy(order: String, ascending: Boolean) = graphQlTester.document(
+            """{ mcpCalls(workspaceId: $second, order: $order, ascending: $ascending) { content { tool failed } } }""",
+        ).execute().path("mcpCalls.content").entityList(Map::class.java).get()
+        for (order in McpCallOrder.entries) {
+            assertThat(callsBy(order.name, true)).describedAs(order.name).hasSize(2)
+        }
+        assertThat(callsBy("CALLED", true).map { it["tool"] }).containsExactly("orknux_no_such_tool", "orknux_workflows")
+        assertThat(callsBy("RESULT", false).map { it["failed"] }).containsExactly(true, false)
+    }
+
+    @Test
     fun `a host is named by reverse lookup of a literal address, and a name is never looked up`() {
         assertThat(McpSessions.hostOf("127.0.0.1")).isNotNull()
         // Whatever a client writes in X-Forwarded-For: a name there is refused rather than resolved.

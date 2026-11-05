@@ -3,9 +3,36 @@
 
 extend type Query {
     "MCP clients' sessions, newest seen first. Every workspace for an administrator when workspaceId is left out; one workspace for somebody who administers it."
-    mcpSessions(workspaceId: ID, connectedOnly: Boolean, page: Int, size: Int): McpSessionPage!
+    mcpSessions(workspaceId: ID, connectedOnly: Boolean, page: Int, size: Int, order: McpSessionOrder, ascending: Boolean): McpSessionPage!
     "The calls MCP clients made, newest first: in one workspace, one session, or - for an administrator - everywhere."
-    mcpCalls(workspaceId: ID, sessionId: ID, failedOnly: Boolean, page: Int, size: Int): McpCallPage!
+    mcpCalls(workspaceId: ID, sessionId: ID, failedOnly: Boolean, page: Int, size: Int, order: McpCallOrder, ascending: Boolean): McpCallPage!
+}
+
+"What the sessions can be put in the order of: a column of the page's table. LAST_SEEN, newest first, when none is given."
+enum McpSessionOrder {
+    "Connected, then idle, then ended."
+    STATUS
+    CLIENT
+    PERSON
+    ADDRESS
+    "By the workspace's name."
+    WORKSPACE
+    LAST_SEEN
+    CALLS
+}
+
+"What the calls can be put in the order of: a column of the page's table. AT, newest first, when none is given."
+enum McpCallOrder {
+    AT
+    "The tool, or the method where there is none."
+    CALLED
+    PERSON
+    ADDRESS
+    "By the workspace's name."
+    WORKSPACE
+    "Failed ones together, then the rest."
+    RESULT
+    DURATION
 }
 
 type McpSession {
