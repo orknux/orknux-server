@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.3.3
+
+### 🔧 Changed
+
+- **The diagram toolbar keeps half its quick shapes for windows wider than 1500 pixels.** Below that width those shapes are under More shapes. The toolbar used to wrap onto a second row at 1440 pixels as soon as somebody else opened the diagram, and the canvas jumped down.
+
+### 🐛 Fixed
+
+- **A closed or reloaded editor tab leaves the others' avatars at once.** In diagrams, documents, wireframes, sheets and workflows it used to stay listed, as a second copy of the same person, until the server next wrote to it.
+
 ## 1.3.2
 
 ### ✨ Added
