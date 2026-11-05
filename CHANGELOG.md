@@ -15,6 +15,50 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.3.2
+
+### ✨ Added
+
+- **Diagram layers.** A diagram's boxes and lines sit on layers that are shown, hidden, locked, reordered and renamed from the layers button. New shapes go on the current layer. Hiding a layer in View hides it for you alone, and an export leaves out what is hidden.
+- **Find in a diagram.** A search box on the canvas finds boxes by their label or notes and lines by their label. The matches are listed down the left, and Enter, the arrows, Up and Down step through them. Ctrl+F opens it, and the key is a preference.
+- **More shapes**: subroutine, manual input, delay, display, off-page link, documents, step, callout, stop and star, and an Architecture group of queue, storage, server, browser and mobile. Each is drawn as its own outline, on the canvas and in exports.
+- **Text, pictures and links in a diagram.** Text is words alone, with no box; pasting text onto the canvas puts it down as text. Pictures come from a file, a paste, a drop or a web address. A link card leads to another diagram, a document, a wireframe or a web page, found by name. Selecting words and pasting an address makes them a link, opened by a click on the words.
+- **Diagram history.** Every version of a diagram is kept, with who changed it, when and through what. A version is opened, compared and restored, and a restore is a version of its own.
+- **A diagram is read as well as edited.** View mode moves and changes nothing. A selected box lights its lines. Lines hop where they cross. Clicking somebody's avatar goes to where they point, and a double click follows them. Right-click menus, outline and line colours, Copy link to a box, and scroll and zoom kept per diagram.
+- **An agent checks and routes a diagram.** `orknux_check_diagram` lists overlapping lines, lines through boxes and unreadable labels, and `orknux_route_diagram` lays the lines out in right angles around the boxes.
+- **Orknux MCP button** beside Ask AI: the workspace's MCP address and what to paste into Claude Code, Codex, Cursor, VS Code or any other client.
+- **Orknux MCP offers what agents use.** Besides the `orknux_*` tools, a client now gets the workspace's memories, `find_connections`, its own tools, the plugins' tools and the tools of the MCP servers it has added, plus dates, charts and diagram drawing. A drawn chart arrives as a picture.
+- **Custom access tokens.** A token can be given exactly the MCP tools it may call, the ones that read apart from the ones that change something, found by a search. Outside MCP a Custom token only reads.
+- **Agents at once.** How many agents one agent may have working for it at the same time is set per agent and for the installation. An agent can stop the agents it asked, and read its own token count.
+- **An agent writes skills** with Orknux access, and a GitHub pull request skill (`::github-pr`) reads a pull request's review comments and answers them.
+- **MCP servers have a description**, shown on Integrations, searched there and read by agents.
+- **Listen to Slack is a setting**: Admin › Settings › Slack switches it on and off without a restart.
+
+### 🔧 Changed
+
+- **A task waits out a model it cannot reach.** A rate limit or an outage parks the task and tries again after half a minute, doubling up to five minutes, six times, without using its turns. It used to fail at the first. Admin › Settings › Limits › Agents sets both numbers; 0 tries keeps the old behaviour.
+- **Plugins wait out a service's rate limit.** A plugin tool or function GitHub limited is run again once the limit lifts, up to a minute and a half, twice. Past that the agent, or the step, is told when the limit lifts. Both numbers are under Admin › Settings › Limits › Plugins.
+- **Existing access tokens reach more over MCP.** A read-and-write token now reaches the workspace's memories, connections, tools, plugin tools and added MCP servers, with the credentials saved on those servers. **Revoke and make a Custom token** for any client that should not.
+- **Ask AI is offered on any chat model by default.** A workspace that never chose a quick chat model uses the first chat model switched on, and shows Ask AI. One that chose None keeps None.
+- **`ORKNUX_SLACK_ENABLED` is where a new installation starts.** After that the setting on the screen decides.
+- **Tools carried at once may be 0**: the agent carries only the search, and finds every other tool.
+- **A diagram's PDF is drawn as vectors**, sharp at any zoom, and every box that links somewhere is a link in the PDF. It was a picture of the diagram.
+- **The document chat says when an answer changed nothing.** A turn that could edit and wrote nothing is reminded once of what was asked; one that still writes nothing shows its answer with "Nothing in the document was changed" under it. A plain question costs one more model call.
+- **A task carries every setting of its agent**, its connections, MCP servers and limits included. Some were left behind, so a task could not use a connection its agent had.
+
+### 🐛 Fixed
+
+- **PDFs draw Polish letters**, and every other one, in every style; they came out as `#`.
+- **A diagram with a WebP picture exports again**, as PNG and PDF; the export failed whole.
+- **A diagram's picture is no longer dropped from a PDF**, which left a blank page.
+- **A link to a box (`?node=`) moves the canvas to the box**, not only selects it.
+- **Charts are titled only where asked**, and bar charts list their bars the right way up.
+- **A subagent's files reach the agent that asked**, whatever turn of its answered; a drawing's key could not be opened.
+- **A flag shows on the session page as it is raised**, without a reload.
+- **A browser tab out of sight lets go of its live connection**, so many open editors no longer use up the browser's connections and freeze Orknux; somebody away is shown as away.
+- **Check on an MCP server uses the key on screen**, and a connection with no authentication asks for no token.
+- **Scratchpad search finds matches in a fetched page**, kept as one long line, with where each is.
+
 ## 1.3.1
 
 ### ✨ Added
