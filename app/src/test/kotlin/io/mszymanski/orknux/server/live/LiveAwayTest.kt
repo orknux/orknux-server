@@ -36,6 +36,14 @@ class LiveAwayTest(@Autowired val rooms: LiveRooms) {
         assertThat(rooms.viewers(key).count { it.viewer == "tab-alice" }).isEqualTo(1)
     }
 
+    /** Seated outranks away, so the seat goes when the tab says so, not when its stream is next written to. */
+    @Test
+    fun `a tab that goes out of sight lets go of its seat at once`() {
+        val alice = rooms.join(key, "tab-alice", "alice")
+        rooms.away(key, "tab-alice", "alice")
+        assertThat(alice.frames).contains(LiveRooms.Frame.CLOSED)
+    }
+
     @Test
     fun `a tab closed while away leaves the room at once`() {
         rooms.join(key, "tab-bob", "bob")
@@ -45,6 +53,23 @@ class LiveAwayTest(@Autowired val rooms: LiveRooms) {
 
         rooms.gone(key, "tab-alice", "alice")
         assertThat(shown()).doesNotContainKey("alice")
+    }
+
+    /**
+     * A tab closed or reloaded while looked at says so too: its stream's end is
+     * only noticed at the next write, and until then it stayed among the
+     * avatars. Saying it is gone ends the stream's wait, which leaves the room.
+     */
+    @Test
+    fun `a tab closed while looked at ends its stream at once`() {
+        rooms.join(key, "tab-bob", "bob")
+        val alice = rooms.join(key, "tab-alice", "alice")
+
+        rooms.gone(key, "tab-alice", "alice")
+        // The stream reads up to the close and ends there.
+        assertThat(alice.frames).contains(LiveRooms.Frame.CLOSED)
+        rooms.leave(alice)
+        assertThat(shown()).doesNotContainKey("alice").containsKey("bob")
     }
 
     /** A stream that just ends - a tab closed while looked at - leaves as it always did. */

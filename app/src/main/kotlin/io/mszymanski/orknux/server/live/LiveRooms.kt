@@ -160,12 +160,18 @@ class LiveRooms(
      * stream it is about to close takes it out of the room without taking it
      * off the list. Only from a viewer sitting there under the same login, as
      * a pointer is.
+     *
+     * Its seat is let go of here rather than when the stream is seen to end:
+     * that is noticed only at the next thing written to it, and a seated tab
+     * outranks an away one, so a tab out of sight stayed listed as looking at
+     * the diagram until somebody happened to move.
      */
     fun away(key: Key, viewer: String, login: String) {
-        val seat = rooms[key].orEmpty().firstOrNull { it.viewer == viewer } ?: return
-        if (seat.login != login) return
+        val seats = rooms[key].orEmpty().filter { it.viewer == viewer }
+        if (seats.isEmpty() || seats.any { it.login != login }) return
         forgetLongAway()
         away.computeIfAbsent(key) { ConcurrentHashMap() }[viewer] = Away(login, java.time.OffsetDateTime.now())
+        seats.forEach(::close)
         present(key)
     }
 
@@ -190,8 +196,14 @@ class LiveRooms(
         }
     }
 
-    /** [viewer]'s tab was closed: off the list at once, rather than away for hours. */
+    /**
+     * [viewer]'s tab was closed: off the list at once, rather than away for
+     * hours. A tab still sitting in the room is let go of too: its stream's end
+     * is only noticed at the next thing written to it, and until then a closed
+     * or reloaded tab stayed among the avatars as a second copy of somebody.
+     */
     fun gone(key: Key, viewer: String, login: String) {
+        rooms[key].orEmpty().filter { it.viewer == viewer && it.login == login }.forEach(::close)
         val held = away[key] ?: return
         if (held[viewer]?.login != login) return
         held.remove(viewer)
