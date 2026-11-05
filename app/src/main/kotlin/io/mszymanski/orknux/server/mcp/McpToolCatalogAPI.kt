@@ -10,7 +10,18 @@ data class McpToolView(
     val summary: String,
     /** Whether it only reads; a Custom token chooses its reading and writing tools apart. */
     val readOnly: Boolean,
+    /** Where it comes from, which the form filters by. */
+    val source: McpToolSource,
 )
+
+/**
+ * Where a tool on the Custom token form comes from: the server itself, a loaded
+ * plugin, another MCP server lent through a workspace, or a workspace's own
+ * JavaScript tool. Decided here, where the catalogue is put together, because
+ * a name says it only for an MCP server's `__` - `date_today` is built in and
+ * `github_listRepos` is a plugin's, and nothing in either name says which.
+ */
+enum class McpToolSource { BUILT_IN, PLUGIN, MCP_SERVER, WORKSPACE }
 
 /**
  * Every tool the MCP endpoint can offer, for choosing a Custom token's.
@@ -26,6 +37,7 @@ class McpToolCatalogAPI(
     private val lent: McpLentTools,
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
+    private val plugins: io.mszymanski.orknux.server.agent.PluginToolCaller,
 ) {
 
     @QueryMapping
@@ -36,9 +48,25 @@ class McpToolCatalogAPI(
         val alsoReading = lent.specs().map { it.name }.toSet() + setOf("memory_search", "find_connections")
         // And each workspace's own reach that this person can see: its memories, connections, tools and servers.
         val reach = workspaces.findAll().filter { access.canSee(it) }.flatMap { workspace -> runCatching { lent.catalog(requireNotNull(workspace.id)) }.getOrDefault(emptyList()) }
-        return (tools.specs(OrknuxScope(workspaceId = 0, mayWrite = true)) + lent.specs() + reach)
+        val surface = tools.specs(OrknuxScope(workspaceId = 0, mayWrite = true))
+        val builtIn = (surface + lent.specs()).map { it.name }.toSet() + alsoReading
+        val fromPlugins = runCatching { plugins.all().map { it.name }.toSet() }.getOrDefault(emptySet())
+        fun sourceOf(name: String) = when {
+            name in builtIn -> McpToolSource.BUILT_IN
+            name.contains("__") -> McpToolSource.MCP_SERVER
+            name in fromPlugins -> McpToolSource.PLUGIN
+            else -> McpToolSource.WORKSPACE
+        }
+        return (surface + lent.specs() + reach)
             .distinctBy { it.name }
-            .map { spec -> McpToolView(spec.name, spec.summary ?: firstSentence(spec.description), spec.name in reading || spec.name in alsoReading || spec.readOnly) }
+            .map { spec ->
+                McpToolView(
+                    spec.name,
+                    spec.summary ?: firstSentence(spec.description),
+                    spec.name in reading || spec.name in alsoReading || spec.readOnly,
+                    sourceOf(spec.name),
+                )
+            }
             .sortedWith(compareBy({ !it.readOnly }, { it.name }))
     }
 

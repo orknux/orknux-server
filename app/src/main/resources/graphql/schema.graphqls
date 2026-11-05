@@ -10550,6 +10550,15 @@ type McpTool {
     summary: String!
     "Whether it only reads."
     readOnly: Boolean!
+    "Where it comes from: the server itself, a plugin, another MCP server, or a workspace's own tool."
+    source: McpToolSource!
+}
+
+enum McpToolSource {
+    BUILT_IN
+    PLUGIN
+    MCP_SERVER
+    WORKSPACE
 }
 
 type UserToken {

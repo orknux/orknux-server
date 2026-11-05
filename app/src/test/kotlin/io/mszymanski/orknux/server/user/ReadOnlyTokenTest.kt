@@ -139,8 +139,13 @@ class ReadOnlyTokenTest(
         val listed = graphql(secret, "{ myTokens { name tools } }").path("data").path("myTokens")
         val mine = (0 until listed.size()).map { listed.get(it) }.first { it.path("name").asText() == "filing" }
         // The form's list says which tools read and which change something, as the endpoint decides it.
-        val catalog = graphql(secret, "{ mcpTools { name readOnly } }").path("data").path("mcpTools")
+        val catalog = graphql(secret, "{ mcpTools { name readOnly source } }").path("data").path("mcpTools")
         val reads = (0 until catalog.size()).associate { catalog.get(it).path("name").asText() to catalog.get(it).path("readOnly").asBoolean() }
+        // And where each comes from, which it filters by: the surface and what is lent with it are the server's own.
+        val sources = (0 until catalog.size()).associate { catalog.get(it).path("name").asText() to catalog.get(it).path("source").asText() }
+        assertThat(sources["orknux_issues"]).isEqualTo("BUILT_IN")
+        assertThat(sources["date_today"]).isEqualTo("BUILT_IN")
+        assertThat(sources.filterKeys { it.contains("__") }.values).allMatch { it == "MCP_SERVER" }
         assertThat(reads["orknux_issues"]).isTrue()
         assertThat(reads["orknux_open_issue"]).isFalse()
         assertThat(reads.keys).doesNotContain("orknux_suggest_function_code")
