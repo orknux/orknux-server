@@ -10,6 +10,7 @@ import io.mszymanski.orknux.server.user.UserType
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -58,6 +59,17 @@ class McpSessionsTest(
             ?: users.save(AppUser(username = OWNER, displayName = "Sessions Owner", type = UserType.INTERNAL, roles = mutableSetOf(admins)))
         first = requireNotNull(workspaces.save(Workspace(name = "mcp-sessions-a-${System.nanoTime()}")).id)
         second = requireNotNull(workspaces.save(Workspace(name = "mcp-sessions-b-${System.nanoTime()}")).id)
+    }
+
+    /*
+     * Its workspaces go with it. Left behind, the next class to start an
+     * application had the research seeder give each one actions on the research
+     * functions - and a class that empties the functions table first was refused
+     * by the foreign key, on SQLite, whichever order the suite ran in.
+     */
+    @AfterEach
+    fun leave() {
+        workspaces.deleteAllById(listOf(first, second))
     }
 
     /** One JSON-RPC request; answers the session id header and the body. */

@@ -15,6 +15,7 @@ import io.mszymanski.orknux.server.user.UserType
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -55,6 +56,12 @@ class McpFilesTest(
 
     /** Bytes no text encoding would leave alone. */
     private val bytes = ByteArray(300) { (it * 7 % 256).toByte() }
+
+    /* Its workspace goes with it; see McpSessionsTest.leave for what one left behind did. */
+    @AfterEach
+    fun leave() {
+        workspaces.deleteById(workspaceId)
+    }
 
     @BeforeEach
     fun arrive() {

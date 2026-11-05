@@ -43,10 +43,18 @@ class OrknuxFunctionToolsTest(
 
     @BeforeEach
     fun reset() {
-        functions.deleteAll()
-        objects.deleteAll()
+        /*
+         * The workspaces first: each takes its actions and functions with it.
+         * Functions first was refused by the foreign key whenever a workspace an
+         * earlier class left behind - QuickChatRoundsTest's "support" - had been
+         * given the research modes by the seeder, whose actions call research
+         * functions. That happens on any application start after it, so it
+         * depended on the order the suite ran in.
+         */
         audit.deleteAll()
         workspaces.deleteAll()
+        functions.deleteAll()
+        objects.deleteAll()
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "support")).id)
         elsewhereId = requireNotNull(workspaces.save(Workspace(name = "billing")).id)
     }
