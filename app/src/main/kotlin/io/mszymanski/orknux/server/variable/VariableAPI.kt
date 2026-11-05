@@ -303,7 +303,9 @@ class VariableAPI(
         val name = input.name?.let { requireNameable(it) } ?: variable.name
         if (catalog != variable.catalogId || name != variable.name) {
             val clash = variables.findByCatalogIdAndName(catalog, name)
-            if (clash != null && clash.id != variable.id) throw VariableNameTakenException(name, catalogName(catalog))
+            if (clash != null && clash.id != variable.id) {
+                throw VariableNameTakenException(name, catalogName(catalog), moving = catalog != variable.catalogId)
+            }
         }
         variable.catalogId = catalog
         variable.name = name

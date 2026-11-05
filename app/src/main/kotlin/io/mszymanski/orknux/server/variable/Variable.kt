@@ -228,8 +228,21 @@ class VariableNotFoundException(val id: Long) : RuntimeException("No variable wi
     override val arguments get() = mapOf("id" to id)
 }
 
-class VariableNameTakenException(val name: String, val catalog: String) :
-    RuntimeException("$catalog already holds a variable named \"$name\""), Refusal {
+/**
+ * A second variable of one name in one catalog.
+ *
+ * Said as "this catalog" where the variable is made or renamed: the refusal is
+ * drawn under the row, inside the catalog it is about, and the catalog's bare
+ * name as the subject read badly - one called "we" made it "we already holds".
+ * A move is refused about another catalog than the one on screen, so that one
+ * names it. The name is among the arguments either way.
+ */
+class VariableNameTakenException(val name: String, val catalog: String, moving: Boolean = false) :
+    RuntimeException(
+        if (moving) "The catalog \"$catalog\" already holds a variable named \"$name\""
+        else "This catalog already holds a variable named \"$name\"",
+    ),
+    Refusal {
 
     override val arguments get() = mapOf("name" to name, "catalog" to catalog)
 }

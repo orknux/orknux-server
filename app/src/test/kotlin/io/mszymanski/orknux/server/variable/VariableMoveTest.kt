@@ -41,7 +41,16 @@ class VariableMoveTest(
         graphQlTester.document("""mutation { updateVariable(id: $moving, input: { catalogId: $second }) { id } }""")
             .execute().errors().satisfy {
                 assertThat(it.single().extensions["code"]).isEqualTo("VariableNameTaken")
+                // About another catalog than the one on screen, so it is named.
+                assertThat(it.single().message).isEqualTo("The catalog \"Second\" already holds a variable named \"region\"")
             }
+
+        // Made where the name is taken, the refusal is drawn inside that catalog: "this catalog", not its bare name.
+        graphQlTester.document(
+            """mutation { createVariable(input: { workspaceId: $workspace, catalogId: $second, name: "region", type: STRING, kind: VALUE }) { id } }""",
+        ).execute().errors().satisfy {
+            assertThat(it.single().message).isEqualTo("This catalog already holds a variable named \"region\"")
+        }
 
         val third = catalog("Third")
         graphQlTester.document("""mutation { updateVariable(id: $moving, input: { catalogId: $third }) { catalogId } }""")
