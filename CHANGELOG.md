@@ -15,6 +15,30 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.3.6
+
+### ✨ Added
+
+- **Tools in Python.** The Create Tool dialog offers TypeScript or Python, and a tool still holding its starter code can switch in its editor; a Python tool defines `main`, runs in the same sandbox with the same limits, and is given the same `orknux` helpers. It cannot import the workspace's JavaScript functions or libraries. A set, a date or a `Decimal` it returns comes back as a sorted list, ISO text and a number. The first Python call after a start takes a second or two while Python loads.
+- **Workspace functions in Python.** A new function's editor offers TypeScript or Python while it is still its starter; a Python function defines `main`, runs where any function runs - an action, a condition, a webhook's gatekeeper, the editor's Run - and takes part in no imports, either way.
+- **The assistants write Python for Python code.** On a Python tool or function the wand and the function editor's chat are briefed in Python alone, and an offer that does not parse as Python is refused before it is shown.
+- **Plugins in Python.** A `.py` file, or a zip with one at its root, that subclasses `OrknuxPlugin` from `orknux` loads like any plugin and is held to the same contract, permissions and capabilities. One file only: a Python plugin cannot ship libraries.
+- **`code_run`: an agent can compute over its files.** It writes a short Python or JavaScript program and runs it in the functions' sandbox, over the conversation's scratchpads and keys - a join, a filter, a count or a rewrite of every row of a CSV in one call rather than one call per row. Lent beside the scratchpads wherever an agent has a session, and it can call the agent's own tools in its loop - an MCP query a page of ids at a time - within the agent's grants, bounded by Admin Settings (Code run seconds, Code run tool calls), which the agent is told. Unlike a function, a program makes no web requests and reaches no Slack connection of its own: past the conversation's files, it reaches only what the agent's own tools do.
+
+### 🔧 Changed
+
+- **The server's jar and both images are about 115 MB larger**, which is GraalPy, the Python runtime.
+- **On Temporal, a workflow step may run for 30 minutes rather than 5** (`ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS`, now `1800`). An agent step is a whole turn and often runs past five; a worker that dies is still noticed within a minute by the step heartbeat. An installation that set the variable keeps its own number. It is also on Admin Settings now, as **Step timeout** under Workflow runs; it bounds a task's turns as well as a workflow's steps, and a change applies from the next step or turn without a restart.
+
+### 🐛 Fixed
+
+- **A table longer than a page no longer runs under the gap between two sheets** in the document editor, hiding the rows there: it breaks between its rows, as a list breaks between its items.
+- **An asked agent can read the keys it is handed.** A subagent given the key of a file attached to the chat was told nothing was kept under it; keys of the conversation that asked are now readable all the way down, while what the subagent writes stays its own until it answers.
+- **A Slack reply is no longer lost when an agent's turn outlasts its step's time.** On Temporal, a turn past the step limit was written off and the step asked again while the turn carried on; the retry finished with nothing, and the turn's last message - in the transcript, never in the thread - went nowhere. A retry that finds its own step still answering now waits and hands on that answer.
+- **Session transcripts no longer hide a file's key as `***`.** `newKey`, `contentKey` and a plain `key` holding a store key such as `attachment.16` or `slack.1m50370` are shown; a `key` holding anything else is still hidden.
+- **A CSV that starts with a byte-order mark reads by its column names** in a program or a function: `orknux.session.store.get` and `orknux.scratchpad.text` leave the mark off, so the first column is `id` rather than `\ufeffid`.
+- **Scratchpad answers no longer say `"shared": false`.** Every pad has been the whole conversation's since sharing went away, and the leftover flag led an agent to believe the agents it asked could not see its files.
+
 ## 1.3.5
 
 ### ✨ Added
