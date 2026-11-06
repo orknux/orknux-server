@@ -265,6 +265,60 @@ class SessionTurnsTest(
         assertThat(order).doesNotContain("retry runs")
     }
 
+    /**
+     * A step asked again while its own first attempt is still answering takes
+     * that attempt's answer.
+     *
+     * On Temporal a step is given five minutes, and an agent turn past them is
+     * written off and the step asked again while the turn carries on. The retry
+     * joined that turn and completed with nothing; the turn's answer, a minute
+     * later, went to an attempt nobody was listening to, and a Slack thread
+     * never got the reply the transcript showed.
+     */
+    @Test
+    fun `a retry that finds its own step's turn still going answers with that turn's answer`() {
+        val session = recorder.open(workspaceId, "slack", "C42-1793973087.053429")
+        val going = CompletableFuture<Unit>()
+        val order = CopyOnWriteArrayList<String>()
+
+        val first = CompletableFuture.supplyAsync {
+            turns.oneAtATime(session, 7L, { "zerkniesz?" }, step = "agent-1") {
+                order += "first starts"
+                going.get(30, TimeUnit.SECONDS)
+                "Tak, zgodnie z doprecyzowaniem Eryka"
+            }
+        }
+        while (order.isEmpty()) Thread.sleep(10)
+        val retried = CompletableFuture.supplyAsync {
+            turns.oneAtATime(session, 7L, { "zerkniesz?" }, delivered = { true }, step = "agent-1") {
+                order += "retry runs"
+                "a second turn"
+            }
+        }
+        Thread.sleep(300)
+        going.complete(Unit)
+
+        assertThat(retried.get(30, TimeUnit.SECONDS))
+            .isEqualTo(SessionTurns.Outcome.Ran("Tak, zgodnie z doprecyzowaniem Eryka"))
+        assertThat(first.get(30, TimeUnit.SECONDS)).isEqualTo(SessionTurns.Outcome.Ran("Tak, zgodnie z doprecyzowaniem Eryka"))
+        assertThat(order).doesNotContain("retry runs")
+        assertThat(inbox.findAll()).isEmpty()
+
+        // Another node of the same run is somebody else's turn, and joins it as before.
+        val other = CompletableFuture<Unit>()
+        val holding = CompletableFuture.supplyAsync {
+            turns.oneAtATime(session, 7L, { "a" }, step = "agent-1") { other.get(30, TimeUnit.SECONDS); "one" }
+        }
+        Thread.sleep(200)
+        val sibling = CompletableFuture.supplyAsync {
+            turns.oneAtATime(session, 7L, { "b" }, delivered = { true }, step = "agent-2") { "two" }
+        }
+        Thread.sleep(200)
+        other.complete(Unit)
+        assertThat(holding.get(30, TimeUnit.SECONDS)).isEqualTo(SessionTurns.Outcome.Ran("one"))
+        assertThat(sibling.get(30, TimeUnit.SECONDS)).isEqualTo(SessionTurns.Outcome.Joined<String>(7L))
+    }
+
     /** Started on a thread of its own, as a second Slack event is, with the test's user on it. */
     private fun startAside(input: String): CompletableFuture<Long> {
         val context = SecurityContextHolder.getContext()

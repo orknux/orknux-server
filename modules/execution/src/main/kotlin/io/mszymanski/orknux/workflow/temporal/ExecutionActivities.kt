@@ -159,6 +159,7 @@ class ExecutionActivitiesImpl(
             // second becomes one: sleeping for none of it would only spin.
             resumeAfterSeconds = outcome.resumeAfter?.toSeconds()?.coerceAtLeast(1),
             heartbeatSeconds = recovery.stepHeartbeatSeconds(),
+            stepTimeoutSeconds = recovery.stepTimeoutSeconds(),
         )
     }
 

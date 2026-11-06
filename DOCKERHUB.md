@@ -199,7 +199,7 @@ the step runs. The reference's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_NAMESPACE` | The Temporal namespace to run in. | `default` | No |
 | `ORKNUX_TEMPORAL_TASK_QUEUE` | The queue workers take work from. Change it to share one Temporal between installations. | `orknux-workflow` | No |
 | `ORKNUX_TEMPORAL_RUN_TIMEOUT_HOURS` | How long a whole run may take, waits included. | `24` | No |
-| `ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS` | How long one step's own work may take. It does not bound a *wait*, which parks the step. | `300` | No |
+| `ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS` | How long one step's own work may take; Admin Settings overrides. It does not bound a *wait*. | `1800` | No |
 | `ORKNUX_TEMPORAL_STEP_ATTEMPTS` | Tries of a failing step; a node's own retry is separate. | `3` | No |
 | `ORKNUX_TEMPORAL_WORKFLOW_CACHE` | Runs kept in memory between steps, with their outputs. | `50` | No |
 | `ORKNUX_TEMPORAL_WORKFLOW_THREADS` | Workflow threads they may hold. | `100` | No |

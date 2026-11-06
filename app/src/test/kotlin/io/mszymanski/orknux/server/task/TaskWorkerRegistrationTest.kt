@@ -54,6 +54,49 @@ class TaskWorkerRegistrationTest {
         assertThat(OneTurnThenDone.turns).isEqualTo(1)
     }
 
+    /**
+     * A task's turns are held to Admin Settings' Step timeout rather than the
+     * worker's: the number the task started with, then the one each turn
+     * hands back - so a change reaches a task already going, from its next turn.
+     */
+    @Test
+    fun `a task's turns take their timeout from the setting, and a change reaches the next turn`() {
+        val worker = environment.newWorker(QUEUE)
+        val turns = TwoTurns()
+        val engine = TemporalTaskEngine(
+            client = environment.workflowClient,
+            temporal = TemporalProperties(taskQueue = QUEUE, stepTimeoutSeconds = 300),
+            properties = TaskProperties(),
+            activities = turns,
+            recovery = object : io.mszymanski.orknux.workflow.execution.StepRecovery {
+                override fun stepHeartbeatSeconds() = 0L
+                override fun restartAttempts() = 1
+                override fun stepTimeoutSeconds() = 1200L
+            },
+        )
+        engine.register(worker)
+        environment.start()
+
+        engine.begin(7L)
+        val id = TemporalTaskEngine.temporalWorkflowId(7L)
+        io.temporal.client.WorkflowStub.fromTyped(environment.workflowClient.newWorkflowStub(TaskWorkflow::class.java, id))
+            .getResult(Void::class.java)
+
+        val timeouts = environment.workflowClient.fetchHistory(id).events
+            .filter { it.eventType == io.temporal.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED }
+            .map { it.activityTaskScheduledEventAttributes.startToCloseTimeout.seconds }
+        assertThat(timeouts).containsExactly(1200L, 900L)
+    }
+
+    /** One turn that hands back a changed timeout, then the end. */
+    private class TwoTurns : TaskActivities {
+        var turns = 0
+        override fun advanceTask(plan: TaskPlan): TaskTurnReport {
+            turns += 1
+            return if (turns == 1) TaskTurnReport(going = true, turnTimeoutSeconds = 900) else TaskTurnReport(going = false)
+        }
+    }
+
     /** Ends the loop after one turn; the point is that it is reached at all. */
     private object OneTurnThenDone : TaskActivities {
         var turns = 0

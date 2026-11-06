@@ -22,6 +22,15 @@ import java.util.concurrent.ConcurrentHashMap
  * answers it in a turn of its own, after the first and with all of it in the
  * session. Either way there is never more than one turn in a session.
  *
+ * Unless the turn running is this same step's own earlier attempt. On
+ * Temporal a step is given a fixed time, and an agent still working past it is
+ * not stopped: the attempt is written off and the step asked again while the
+ * first turn carries on. The retry found the session busy, joined, and
+ * completed with nothing - and the first attempt's answer, finished a minute
+ * later, went to a step Temporal had stopped listening to. A Slack thread was
+ * left without the reply its transcript showed. So a retry that finds its own
+ * step's turn waits for that turn and answers with what it answered.
+ *
  * Held in this process, which is where the inline engine runs every turn. A
  * Temporal deployment with workers in several processes keeps one turn per
  * session per process, not across them.
@@ -29,8 +38,9 @@ import java.util.concurrent.ConcurrentHashMap
 @Component
 class SessionTurns(private val inbox: SessionInbox) {
 
-    private class Turn(val executionId: Long) {
-        val ended = CompletableFuture<Unit>()
+    private class Turn(val executionId: Long, val step: String?) {
+        /** What the turn came to, or what it threw, for an attempt of the same step that waited on it. */
+        val ended = CompletableFuture<Any?>()
     }
 
     private val running = ConcurrentHashMap<Long, Turn>()
@@ -59,29 +69,51 @@ class SessionTurns(private val inbox: SessionInbox) {
         executionId: Long,
         question: () -> String,
         delivered: () -> Boolean = { false },
+        /** Which node of the run this is, so an attempt can know a turn as its own; see the class. */
+        step: String? = null,
         turn: () -> T,
     ): Outcome<T> {
         if (session == null) return Outcome.Ran(turn())
         while (true) {
-            val mine = Turn(executionId)
+            val mine = Turn(executionId, step)
             val other = running.putIfAbsent(session, mine)
             if (other == null) {
-                try {
-                    return Outcome.Ran(turn())
-                } finally {
+                // Removed before it is said to have ended, so whoever waited on it finds the session free.
+                val result = try {
+                    turn()
+                } catch (failure: Throwable) {
                     running.remove(session, mine)
-                    mine.ended.complete(Unit)
+                    mine.ended.completeExceptionally(failure)
+                    throw failure
                 }
+                running.remove(session, mine)
+                mine.ended.complete(result)
+                return Outcome.Ran(result)
+            }
+            if (step != null && other.executionId == executionId && other.step == step) {
+                // This step's own earlier attempt, still going: its answer is this attempt's answer.
+                @Suppress("UNCHECKED_CAST")
+                val theirs = try {
+                    other.ended.join() as T
+                } catch (failed: java.util.concurrent.CompletionException) {
+                    throw failed.cause ?: failed
+                }
+                return Outcome.Ran(theirs)
             }
             if (delivered()) {
-                other.ended.join()
+                waitOut(other)
                 return Outcome.Joined(other.executionId)
             }
             val left = inbox.postArrived(session, question())
-            other.ended.join()
+            waitOut(other)
             if (!inbox.withdraw(session, left)) return Outcome.Joined(other.executionId)
             // The turn ended before reading it, so this run takes the session itself - or, if a
             // third run got there first, leaves it with that one.
         }
+    }
+
+    /** Until [other] has ended, however it ended: a turn that threw is still a turn that is over. */
+    private fun waitOut(other: Turn) {
+        runCatching { other.ended.join() }
     }
 }

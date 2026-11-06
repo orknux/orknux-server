@@ -1391,6 +1391,12 @@ type Mutation {
     """
     setWorkflowStepHeartbeatSeconds(seconds: Int!): InstallationSettings!
     """
+    How long one attempt at a workflow step may take on Temporal before it is
+    written off and asked again, 60 to 86400 seconds. Administrators only; a run
+    already going takes it up from its next step.
+    """
+    setWorkflowStepTimeoutSeconds(seconds: Int!): InstallationSettings!
+    """
     How long the lease that decides which server runs the timers and the Slack
     sockets lasts, in seconds. Issue #597. Administrators only; every server reads
     it at its next renewal.
@@ -7534,6 +7540,10 @@ type InstallationSettings {
     workflowStepHeartbeatSeconds: Int!
     "What the file says: ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS, thirty unless set."
     workflowStepHeartbeatSecondsConfigured: Int!
+    "Temporal: how long one attempt at a step may take before it is written off and asked again, in seconds."
+    workflowStepTimeoutSeconds: Int!
+    "What the file says: ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS, 1800 unless set."
+    workflowStepTimeoutSecondsConfigured: Int!
     """
     How long the cluster lease lasts, in seconds. Issue #597.
 

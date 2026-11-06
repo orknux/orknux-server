@@ -98,6 +98,7 @@ class DeadWorkerStepTest(
         environment.close()
         // Rows outlive the class that wrote them.
         settings.setWorkflowStepHeartbeatSeconds(settings.workflowStepHeartbeatSecondsConfigured(), "alice")
+        settings.setWorkflowStepTimeoutSeconds(settings.workflowStepTimeoutSecondsConfigured(), "alice")
     }
 
     @Test
@@ -212,6 +213,56 @@ class DeadWorkerStepTest(
     }
 
     /**
+     * The step timeout from Admin Settings reaches a run already going the way
+     * the heartbeat does: in with the plan, back with each report, and on the
+     * step asked after the change - and the run replays, since a timeout is an
+     * option on a command rather than a command.
+     */
+    @Test
+    fun `a step timeout changed mid-run applies to the steps asked after it, and the run replays`() {
+        (graphs as FakeWorkflowGraphSource).graphs[WORKFLOW] = WorkflowGraph(
+            workflowId = WORKFLOW,
+            name = "Wait, then answer",
+            nodes = listOf(
+                GraphNode(key = "wait-first", kind = NodeKind.ACTION, name = "wait-first"),
+                GraphNode(key = "reply", kind = NodeKind.AGENT, name = "ok-reply"),
+            ),
+            edges = listOf(GraphEdge("wait-first", "reply")),
+        )
+        settings.setWorkflowStepTimeoutSeconds(TIMEOUT_SECONDS, "alice")
+        val planned = planner.plan(WORKSPACE, WORKFLOW, ExecutionTrigger.API, "hello")
+        val executionId = requireNotNull(planned.execution.id)
+        val workflowId = "timeout-change-$executionId"
+        val stub = environment.workflowClient.newWorkflowStub(
+            ExecutionWorkflow::class.java,
+            WorkflowOptions.newBuilder().setTaskQueue(QUEUE).setWorkflowId(workflowId).build(),
+        )
+        WorkflowClient.start(stub::run, runPlanOf(planned, "hello", recovery.stepHeartbeatSeconds(), recovery.stepTimeoutSeconds()))
+
+        await().atMost(java.time.Duration.ofSeconds(20)).until {
+            steps.findByExecutionIdAndNodeKey(executionId, "wait-first")?.status == StepStatus.WAITING
+        }
+        settings.setWorkflowStepTimeoutSeconds(CHANGED_TIMEOUT_SECONDS, "alice")
+
+        assertThat(WorkflowStub.fromTyped(stub).getResult(ExecutionStatus::class.java)).isEqualTo(ExecutionStatus.COMPLETED)
+        val history = environment.workflowClient.fetchHistory(workflowId)
+        val timeouts = history.events
+            .filter { it.eventType == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED }
+            .map { it.activityTaskScheduledEventAttributes }
+            .filter { it.activityType.name.equals("runStep", ignoreCase = true) }
+            .map { it.startToCloseTimeout.seconds }
+        // Not the worker's own number, which is what every step had before.
+        assertThat(timeouts).containsExactly(TIMEOUT_SECONDS, TIMEOUT_SECONDS, CHANGED_TIMEOUT_SECONDS)
+
+        settings.setWorkflowStepTimeoutSeconds(600, "alice")
+        TestWorkflowEnvironment.newInstance().use { replaying ->
+            val replayer = replaying.newWorker("replay-$workflowId")
+            TemporalConfig.registerExecutionWorkflow(replayer, STEP_OPTIONS)
+            WorkflowReplayer.replayWorkflowExecution(history, replayer)
+        }
+    }
+
+    /**
      * The real activities, except that the first attempt at `answer` is a
      * worker that dies: it begins the step as [io.mszymanski.orknux.workflow.execution.StepRunner]
      * does - RUNNING, an attempt spent - and is then never heard from again,
@@ -249,6 +300,8 @@ class DeadWorkerStepTest(
         const val WORKFLOW = 1L
         const val HEARTBEAT_SECONDS = 2L
         const val CHANGED_SECONDS = 9L
+        const val TIMEOUT_SECONDS = 1200L
+        const val CHANGED_TIMEOUT_SECONDS = 900L
         const val STEP_TIMEOUT_SECONDS = 60L
         val STEP_OPTIONS = TemporalConfig.activityOptions(stepTimeoutSeconds = STEP_TIMEOUT_SECONDS, stepAttempts = 3)
     }

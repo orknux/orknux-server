@@ -109,6 +109,8 @@ class InstallationSettingsAPI(
         workflowCallCheckSecondsConfigured = settings.workflowCallCheckSecondsConfigured(),
         workflowStepHeartbeatSeconds = settings.workflowStepHeartbeatSeconds().toInt(),
         workflowStepHeartbeatSecondsConfigured = settings.workflowStepHeartbeatSecondsConfigured().toInt(),
+        workflowStepTimeoutSeconds = settings.workflowStepTimeoutSeconds().toInt(),
+        workflowStepTimeoutSecondsConfigured = settings.workflowStepTimeoutSecondsConfigured().toInt(),
         workflowRestartAttempts = settings.workflowRestartAttempts(),
         workflowRestartAttemptsConfigured = settings.workflowRestartAttemptsConfigured(),
         clusterLeaseSeconds = settings.clusterLeaseSeconds().toInt(),
@@ -1015,6 +1017,16 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /** How long one attempt at a step may take on Temporal; a run already going takes it up from its next step. */
+    @MutationMapping
+    fun setWorkflowStepTimeoutSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWorkflowStepTimeoutSeconds(seconds.toLong(), currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Workflow steps may run for ${seconds}s before they are asked again")
+        return installationSettings()
+    }
+
     /**
      * How long the lease that decides which replica runs the timers lasts.
      * Issue #597. Every replica reads it at its next renewal.
@@ -1477,6 +1489,9 @@ data class InstallationSettingsView(
     /** How soon a step whose server died is handed to a live worker, on Temporal. Issue #601. */
     val workflowStepHeartbeatSeconds: Int,
     val workflowStepHeartbeatSecondsConfigured: Int,
+    /** How long one attempt at a step may take, on Temporal. */
+    val workflowStepTimeoutSeconds: Int,
+    val workflowStepTimeoutSecondsConfigured: Int,
     /** How many goes an agent step cut short by restarts gets, on the inline engine. Issue #601. */
     val workflowRestartAttempts: Int,
     val workflowRestartAttemptsConfigured: Int,

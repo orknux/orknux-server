@@ -900,7 +900,10 @@ orknux:
     # couple of times, since most of what a step does is call something else.
     # This bounds the work a step does, not what it waits for: a wait parks the
     # step and answers, so it is the run timeout that bounds a long wait.
-    step-timeout-seconds: ${ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS:300}
+    # Thirty minutes: an agent step is a whole turn, and five cut ordinary
+    # ones short. A dead worker is the heartbeat's to notice, below. Where a
+    # fresh installation starts: Admin Settings (Step timeout) overrides it.
+    step-timeout-seconds: ${ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS:1800}
     step-attempts: ${ORKNUX_TEMPORAL_STEP_ATTEMPTS:3}
     # Runs kept in memory between steps, and the workflow threads they may hold.
     # Temporal's own default is 600 of each, and every cached run keeps its

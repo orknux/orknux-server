@@ -115,6 +115,13 @@ data class RunPlan(
      * always did: with the worker's options and no heartbeat.
      */
     @JsonProperty("heartbeatSeconds") val heartbeatSeconds: Long? = null,
+    /**
+     * How long one attempt at a step may take, in seconds, read when the run
+     * was started and updated from each step's report like [heartbeatSeconds].
+     * Null - a history from before it, or an installation that never set it -
+     * keeps the worker's own timeout.
+     */
+    @JsonProperty("stepTimeoutSeconds") val stepTimeoutSeconds: Long? = null,
 ) {
     companion object {
         /**
@@ -144,6 +151,7 @@ data class RunPlan(
             @JsonProperty("splits") splits: List<String>?,
             @JsonProperty("parallelism") parallelism: Int?,
             @JsonProperty("heartbeatSeconds") heartbeatSeconds: Long?,
+            @JsonProperty("stepTimeoutSeconds") stepTimeoutSeconds: Long?,
         ) = RunPlan(
             executionId = executionId,
             workflowName = workflowName,
@@ -156,6 +164,7 @@ data class RunPlan(
             splits = splits.orEmpty(),
             parallelism = parallelism?.takeIf { it > 0 } ?: 1,
             heartbeatSeconds = heartbeatSeconds,
+            stepTimeoutSeconds = stepTimeoutSeconds,
         )
     }
 }
@@ -240,6 +249,8 @@ data class StepReport @JsonCreator constructor(
      * run on what it had.
      */
     @JsonProperty("heartbeatSeconds") val heartbeatSeconds: Long? = null,
+    /** The step timeout as the installation has it now, carried back for the same reason as [heartbeatSeconds]. */
+    @JsonProperty("stepTimeoutSeconds") val stepTimeoutSeconds: Long? = null,
 )
 
 /** A run that was asked to stop, to be ended where it stands. Issue #440. */
@@ -286,8 +297,11 @@ class ExecutionWorkflowImpl(
      */
     private var heartbeat: Long? = null
 
-    /** One stub per heartbeat a run has used, since a stub's options are fixed when it is made. */
-    private val beating = mutableMapOf<Long, ExecutionActivities>()
+    /** How long the next step's attempt may take, in seconds; null keeps the worker's timeout. */
+    private var timeout: Long? = null
+
+    /** One stub per heartbeat and timeout a run has used, since a stub's options are fixed when it is made. */
+    private val beating = mutableMapOf<Pair<Long?, Long?>, ExecutionActivities>()
 
     /**
      * What a step is asked through: held to the heartbeat the run knows now.
@@ -301,14 +315,16 @@ class ExecutionWorkflowImpl(
      */
     private fun stepActivities(): ExecutionActivities {
         val base = stepOptions ?: return activities
-        val seconds = heartbeat?.takeIf { it > 0 } ?: return activities
-        return beating.getOrPut(seconds) {
-            // Built on the step options, so a step keeps its timeout and its
-            // retries and only gains the heartbeat.
-            Workflow.newActivityStub(
-                ExecutionActivities::class.java,
-                ActivityOptions.newBuilder(base).setHeartbeatTimeout(Duration.ofSeconds(seconds)).build(),
-            )
+        val seconds = heartbeat?.takeIf { it > 0 }
+        val limit = timeout?.takeIf { it > 0 }
+        if (seconds == null && limit == null) return activities
+        return beating.getOrPut(seconds to limit) {
+            // Built on the step options, so a step keeps its retries and gains
+            // only what the installation set.
+            val options = ActivityOptions.newBuilder(base)
+            seconds?.let { options.setHeartbeatTimeout(Duration.ofSeconds(it)) }
+            limit?.let { options.setStartToCloseTimeout(Duration.ofSeconds(it)) }
+            Workflow.newActivityStub(ExecutionActivities::class.java, options.build())
         }
     }
 
@@ -347,6 +363,7 @@ class ExecutionWorkflowImpl(
 
     private fun walk(plan: RunPlan): ExecutionStatus {
         heartbeat = plan.heartbeatSeconds
+        timeout = plan.stepTimeoutSeconds
         /*
          * What still has a reason to run. Built from the edges the plan
          * carries, so this workflow decides the same way the inline engine
@@ -554,6 +571,7 @@ class ExecutionWorkflowImpl(
                 return Arrival.Failed(failure.reason())
             }
             attempt.heartbeatSeconds?.let { heartbeat = it }
+            attempt.stepTimeoutSeconds?.let { timeout = it }
 
             if (attempt.stopped) return Arrival.Stopped
             if (attempt.status != StepStatus.WAITING) return Arrival.Answered(attempt)

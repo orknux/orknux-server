@@ -154,6 +154,7 @@ class AgentNodeRunner(
             step.executionId,
             { questionOf(step, input, trigger) },
             delivered = { ahead != null && triedBefore(step) && sessions.heard(ahead, questionOf(step, input, trigger), runStart(step)) },
+            step = step.nodeKey,
         ) {
             bulkheads.turn({ why ->
                 throw StepFailedException(step.nodeKey, "${step.name} could not start: $why", permanent = false)

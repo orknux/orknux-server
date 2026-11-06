@@ -19,6 +19,13 @@ interface StepRecovery {
     fun stepHeartbeatSeconds(): Long
 
     /**
+     * Temporal: how long one attempt at a step may take before Temporal writes
+     * it off and asks again. Null leaves the worker's own number, which is
+     * `ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS`.
+     */
+    fun stepTimeoutSeconds(): Long? = null
+
+    /**
      * Inline engine: how many goes in all an agent step gets when restarts keep
      * cutting it short, the ones that died included. See
      * [NodeRunner.asksAgainAfterRestart].

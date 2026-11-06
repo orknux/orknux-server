@@ -38,6 +38,34 @@ class WorkflowStepRecoveryTest(
     fun restore() {
         settings.setWorkflowStepHeartbeatSeconds(settings.workflowStepHeartbeatSecondsConfigured(), "alice")
         settings.setWorkflowRestartAttempts(settings.workflowRestartAttemptsConfigured(), "alice")
+        settings.setWorkflowStepTimeoutSeconds(settings.workflowStepTimeoutSecondsConfigured(), "alice")
+    }
+
+    /** The step timeout: thirty minutes from the file, set on Admin Settings, read by the engine, and bounded. */
+    @Test
+    fun `the step timeout starts at thirty minutes, is set by an administrator and read by the engine`() {
+        graphQlTester.document("""{ installationSettings { workflowStepTimeoutSeconds workflowStepTimeoutSecondsConfigured } }""")
+            .execute()
+            .path("installationSettings.workflowStepTimeoutSeconds").entity(Int::class.java).isEqualTo(1800)
+            .path("installationSettings.workflowStepTimeoutSecondsConfigured").entity(Int::class.java).isEqualTo(1800)
+        assertThat(recovery.stepTimeoutSeconds()).isEqualTo(1800)
+
+        graphQlTester.document("""mutation { setWorkflowStepTimeoutSeconds(seconds: 3600) { workflowStepTimeoutSeconds } }""")
+            .execute()
+            .path("setWorkflowStepTimeoutSeconds.workflowStepTimeoutSeconds").entity(Int::class.java).isEqualTo(3600)
+        assertThat(recovery.stepTimeoutSeconds()).isEqualTo(3600)
+        assertThat(audit.findAll().map { it.message }).contains("Workflow steps may run for 3600s before they are asked again")
+
+        listOf(59, 86_401).forEach { seconds ->
+            graphQlTester.document("""mutation { setWorkflowStepTimeoutSeconds(seconds: $seconds) { workflowStepTimeoutSeconds } }""")
+                .execute()
+                .errors()
+                .satisfy { errors ->
+                    assertThat(errors.first().message).contains("Choose between 60 and 86400 seconds")
+                    assertThat(errors.first().extensions["code"]).isEqualTo("StepTimeoutOutOfRange")
+                }
+        }
+        assertThat(recovery.stepTimeoutSeconds()).isEqualTo(3600)
     }
 
     @Test

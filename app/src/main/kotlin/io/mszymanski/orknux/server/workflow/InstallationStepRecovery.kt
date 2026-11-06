@@ -17,5 +17,7 @@ class InstallationStepRecovery(private val settings: InstallationSettings) : Ste
 
     override fun stepHeartbeatSeconds(): Long = settings.workflowStepHeartbeatSeconds()
 
+    override fun stepTimeoutSeconds(): Long = settings.workflowStepTimeoutSeconds()
+
     override fun restartAttempts(): Int = settings.workflowRestartAttempts()
 }

@@ -61,7 +61,7 @@ class TemporalExecutionEngine(
         )
 
         // Started, not awaited: a run outlives the request that asked for it.
-        WorkflowClient.start(workflow::run, runPlanOf(plan, input, recovery.stepHeartbeatSeconds()))
+        WorkflowClient.start(workflow::run, runPlanOf(plan, input, recovery.stepHeartbeatSeconds(), recovery.stepTimeoutSeconds()))
 
         return plan.execution
     }
@@ -92,7 +92,12 @@ class TemporalExecutionEngine(
 fun temporalWorkflowId(executionId: Long): String = "orknux-execution-$executionId"
 
 /** What the workflow is handed for a recorded plan: everything it decides from, and nothing it would fetch. */
-fun runPlanOf(plan: ExecutionPlan, input: String?, heartbeatSeconds: Long? = null): RunPlan = RunPlan(
+fun runPlanOf(
+    plan: ExecutionPlan,
+    input: String?,
+    heartbeatSeconds: Long? = null,
+    stepTimeoutSeconds: Long? = null,
+): RunPlan = RunPlan(
     executionId = requireNotNull(plan.execution.id),
     workflowName = plan.execution.workflowName,
     steps = plan.steps.map { it.nodeKey },
@@ -104,4 +109,5 @@ fun runPlanOf(plan: ExecutionPlan, input: String?, heartbeatSeconds: Long? = nul
     splits = plan.splits.toList(),
     parallelism = plan.parallelism,
     heartbeatSeconds = heartbeatSeconds,
+    stepTimeoutSeconds = stepTimeoutSeconds,
 )

@@ -35,6 +35,8 @@ class TemporalTaskEngine(
     private val temporal: TemporalProperties,
     private val properties: TaskProperties,
     private val activities: TaskActivities,
+    /** Where a task's turn timeout comes from: Admin Settings' Step timeout, as the task starts. Null keeps the worker's. */
+    private val recovery: io.mszymanski.orknux.workflow.execution.StepRecovery? = null,
 ) : TaskEngine, TemporalRegistrar {
 
     /**
@@ -100,7 +102,7 @@ class TemporalTaskEngine(
                 .setWorkflowExecutionTimeout(properties.workingTime.plus(properties.patience).plusHours(1))
                 .build(),
         )
-        WorkflowClient.start(workflow::run, TaskPlan(taskId))
+        WorkflowClient.start(workflow::run, TaskPlan(taskId, recovery?.stepTimeoutSeconds()))
         log.debug("Task {} handed to Temporal", taskId)
     }
 

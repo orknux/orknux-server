@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonProperty
 import io.temporal.activity.ActivityInterface
 import io.temporal.activity.ActivityMethod
+import io.temporal.activity.ActivityOptions
+import io.temporal.common.RetryOptions
 import io.temporal.workflow.Workflow
 import io.temporal.workflow.WorkflowInterface
 import io.temporal.workflow.WorkflowMethod
@@ -40,7 +42,14 @@ interface TaskWorkflow {
  * state is a growing transcript - carrying any of it here would record the whole
  * conversation again at every turn.
  */
-data class TaskPlan @JsonCreator constructor(@JsonProperty("taskId") val taskId: Long)
+data class TaskPlan @JsonCreator constructor(
+    @JsonProperty("taskId") val taskId: Long,
+    /**
+     * How long one turn may take, from Admin Settings' Step timeout as the task
+     * started. Null - a task started before this - keeps the worker's timeout.
+     */
+    @JsonProperty("turnTimeoutSeconds") val turnTimeoutSeconds: Long? = null,
+)
 
 /** What one turn did, as the workflow needs to know it. */
 data class TaskTurnReport @JsonCreator constructor(
@@ -48,6 +57,8 @@ data class TaskTurnReport @JsonCreator constructor(
     @JsonProperty("going") val going: Boolean,
     /** Set when the task parked: how long before it is asked again. */
     @JsonProperty("askAgainAfterSeconds") val askAgainAfterSeconds: Long? = null,
+    /** The Step timeout as the installation has it now, for the next turn; history, so a replay reads it back. */
+    @JsonProperty("turnTimeoutSeconds") val turnTimeoutSeconds: Long? = null,
 )
 
 @ActivityInterface
@@ -67,12 +78,18 @@ interface TaskActivities {
  */
 @Component
 @ConditionalOnProperty(name = ["orknux.temporal.enabled"], havingValue = "true", matchIfMissing = true)
-class TaskActivitiesImpl(private val loop: TaskLoop) : TaskActivities {
+class TaskActivitiesImpl(
+    private val loop: TaskLoop,
+    private val recovery: io.mszymanski.orknux.workflow.execution.StepRecovery,
+) : TaskActivities {
 
-    override fun advanceTask(plan: TaskPlan): TaskTurnReport = when (val turn = loop.advance(plan.taskId)) {
-        is TaskTurn.Working -> TaskTurnReport(going = true)
-        is TaskTurn.Parked -> TaskTurnReport(going = true, askAgainAfterSeconds = turn.after.toSeconds())
-        is TaskTurn.Over -> TaskTurnReport(going = false)
+    override fun advanceTask(plan: TaskPlan): TaskTurnReport {
+        val timeout = recovery.stepTimeoutSeconds()
+        return when (val turn = loop.advance(plan.taskId)) {
+            is TaskTurn.Working -> TaskTurnReport(going = true, turnTimeoutSeconds = timeout)
+            is TaskTurn.Parked -> TaskTurnReport(going = true, askAgainAfterSeconds = turn.after.toSeconds(), turnTimeoutSeconds = timeout)
+            is TaskTurn.Over -> TaskTurnReport(going = false)
+        }
     }
 }
 
@@ -94,9 +111,33 @@ class TaskWorkflowImpl : TaskWorkflow {
 
     private val activities = Workflow.newActivityStub(TaskActivities::class.java)
 
+    /** One stub per turn timeout the task has used, since a stub's options are fixed when it is made. */
+    private val timed = mutableMapOf<Long, TaskActivities>()
+
+    /**
+     * A turn held to Admin Settings' Step timeout, or the worker's own where no
+     * number came with the plan. Built whole rather than over the worker's
+     * defaults, which a stub's options are not merged with - so the one attempt
+     * the registration gives a turn is said again here.
+     */
+    private fun turnActivities(seconds: Long?): TaskActivities {
+        val limit = seconds?.takeIf { it > 0 } ?: return activities
+        return timed.getOrPut(limit) {
+            Workflow.newActivityStub(
+                TaskActivities::class.java,
+                ActivityOptions.newBuilder()
+                    .setStartToCloseTimeout(Duration.ofSeconds(limit))
+                    .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(1).build())
+                    .build(),
+            )
+        }
+    }
+
     override fun run(plan: TaskPlan) {
+        var timeout = plan.turnTimeoutSeconds
         while (true) {
-            val turn = activities.advanceTask(plan)
+            val turn = turnActivities(timeout).advanceTask(plan)
+            turn.turnTimeoutSeconds?.let { timeout = it }
             // Nothing is returned. Which of the four endings it reached is on
             // the task's own row, and a second answer here could only ever be
             // the same fact written twice.

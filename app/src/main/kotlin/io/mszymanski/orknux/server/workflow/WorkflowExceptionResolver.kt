@@ -4,6 +4,10 @@ import graphql.GraphQLError
 import graphql.schema.DataFetchingEnvironment
 import io.mszymanski.orknux.server.graphql.refused
 import io.mszymanski.orknux.server.action.ActionFailedException
+import io.mszymanski.orknux.server.action.FunctionImportedStaysTypeScriptException
+import io.mszymanski.orknux.server.action.FunctionLanguageNeedsCodeException
+import io.mszymanski.orknux.server.action.FunctionPythonImportsException
+import io.mszymanski.orknux.server.action.ImportPythonException
 import io.mszymanski.orknux.server.action.ActionInUseException
 import io.mszymanski.orknux.server.action.ActionNameInvalidException
 import io.mszymanski.orknux.server.action.ActionNameTakenException
@@ -202,6 +206,10 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is FunctionPluginNeedsNoWorkspaceException,
             is FunctionArgumentInvalidException,
             is FunctionCodeIncompleteException,
+            is FunctionPythonImportsException,
+            is FunctionLanguageNeedsCodeException,
+            is FunctionImportedStaysTypeScriptException,
+            is ImportPythonException,
             is FunctionAnswerFailedException,
             is FunctionObjectRequiredException,
             is RoleNameTakenException,
@@ -307,6 +315,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.CallCheckSecondsOutOfRangeException,
             /* How a step a dead server was in is recovered. Issue #601. */
             is io.mszymanski.orknux.server.attachment.StepHeartbeatOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.StepTimeoutOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.RestartAttemptsOutOfRangeException,
             /* How long the cluster lease lasts. Issue #597. */
             is io.mszymanski.orknux.server.attachment.ClusterLeaseOutOfRangeException,

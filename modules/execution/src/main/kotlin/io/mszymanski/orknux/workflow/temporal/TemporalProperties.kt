@@ -28,8 +28,15 @@ data class TemporalProperties(
      * How long one step may take. A model call is slow, so this is generous,
      * but not unbounded: a step nobody is waiting on any more must not hold a
      * worker for ever.
+     *
+     * Thirty minutes, from five. An agent step is a whole turn - it asks
+     * another agent, runs a program, calls an API page by page - and six
+     * minutes of one is ordinary; at five the attempt was written off while
+     * the turn carried on, and its answer never reached the Slack thread. A
+     * worker that died is not what this is for any more: the heartbeat hands
+     * its step on within a minute.
      */
-    val stepTimeoutSeconds: Long = 300,
+    val stepTimeoutSeconds: Long = 1800,
     /**
      * How many times a step is tried. Most of what a step does is a call to
      * something else, and most of those failures are worth trying again; a node

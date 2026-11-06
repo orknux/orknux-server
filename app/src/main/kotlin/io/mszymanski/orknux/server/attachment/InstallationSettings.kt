@@ -133,6 +133,7 @@ object SettingNames {
 
     /** How a step a dead server was in the middle of is recovered. Issue #601. */
     const val WORKFLOW_STEP_HEARTBEAT_SECONDS = "workflow.step.heartbeat.seconds"
+    const val WORKFLOW_STEP_TIMEOUT_SECONDS = "workflow.step.timeout.seconds"
     const val WORKFLOW_RESTART_ATTEMPTS = "workflow.restart.attempts"
 
     /** How long the lease that decides which replica runs the timers lasts. Issue #597. */
@@ -267,6 +268,9 @@ class InstallationSettings(
      */
     @Value("\${orknux.temporal.step-heartbeat-seconds:$DEFAULT_STEP_HEARTBEAT_SECONDS}")
     private val stepHeartbeatSecondsFile: Long = DEFAULT_STEP_HEARTBEAT_SECONDS,
+    /** Where a fresh installation starts on the step timeout - ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS. */
+    @Value("\${orknux.temporal.step-timeout-seconds:$DEFAULT_STEP_TIMEOUT_SECONDS}")
+    private val stepTimeoutSecondsFile: Long = DEFAULT_STEP_TIMEOUT_SECONDS,
     @Value("\${orknux.execution.inline.restart-attempts:$DEFAULT_RESTART_ATTEMPTS}")
     private val restartAttemptsFile: Int = DEFAULT_RESTART_ATTEMPTS,
     /** Where a fresh installation starts on the cluster lease - ORKNUX_CLUSTER_LEASE_SECONDS. Issue #597. */
@@ -1078,6 +1082,36 @@ class InstallationSettings(
             throw StepHeartbeatOutOfRangeException(seconds)
         }
         write(SettingNames.WORKFLOW_STEP_HEARTBEAT_SECONDS, seconds.toString(), by)
+    }
+
+    /**
+     * Temporal: how long one attempt at a step may take before Temporal writes
+     * it off and asks again.
+     *
+     * An agent step is a whole turn, and a turn past this was not stopped - the
+     * attempt was written off while the agent carried on, and its answer went
+     * to a step nobody was listening to any more. Read as each run starts and
+     * handed back with every step's report, like the heartbeat, so a change
+     * applies to the steps asked after it without a restart.
+     */
+    fun workflowStepTimeoutSeconds(): Long {
+        val held = settings.findByIdOrNull(SettingNames.WORKFLOW_STEP_TIMEOUT_SECONDS)
+            ?: return workflowStepTimeoutSecondsConfigured()
+        return held.value.toLongOrNull()?.takeIf { it in MIN_STEP_TIMEOUT_SECONDS..MAX_STEP_TIMEOUT_SECONDS }
+            ?: workflowStepTimeoutSecondsConfigured()
+    }
+
+    /** What the file says - ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS, thirty minutes unless set. */
+    fun workflowStepTimeoutSecondsConfigured(): Long =
+        stepTimeoutSecondsFile.takeIf { it in MIN_STEP_TIMEOUT_SECONDS..MAX_STEP_TIMEOUT_SECONDS }
+            ?: DEFAULT_STEP_TIMEOUT_SECONDS
+
+    @Transactional
+    fun setWorkflowStepTimeoutSeconds(seconds: Long, by: String) {
+        if (seconds !in MIN_STEP_TIMEOUT_SECONDS..MAX_STEP_TIMEOUT_SECONDS) {
+            throw StepTimeoutOutOfRangeException(seconds)
+        }
+        write(SettingNames.WORKFLOW_STEP_TIMEOUT_SECONDS, seconds.toString(), by)
     }
 
     /**
@@ -2832,11 +2866,20 @@ const val DEFAULT_CALL_CHECK_SECONDS = 60
 /** Zero is no heartbeat: a dead worker is noticed only when the step's timeout runs out. Issue #601. */
 const val MIN_STEP_HEARTBEAT_SECONDS = 0L
 
-/** Ten minutes; past that the five-minute step timeout notices a dead worker first anyway. */
+/** Ten minutes; a dead worker is better noticed by the heartbeat than by the step timeout. */
 const val MAX_STEP_HEARTBEAT_SECONDS = 600L
 
 /** About how long a restarted server takes to come back. */
 const val DEFAULT_STEP_HEARTBEAT_SECONDS = 30L
+
+/** Below a minute, a model's first answer on a slow server is already past it. */
+const val MIN_STEP_TIMEOUT_SECONDS = 60L
+
+/** A day: a step longer than that is a parked wait, which is a timer and not an attempt. */
+const val MAX_STEP_TIMEOUT_SECONDS = 86_400L
+
+/** An agent step is a whole turn, and turns of five or ten minutes are ordinary. */
+const val DEFAULT_STEP_TIMEOUT_SECONDS = 1800L
 
 /** Below this a renewal is a write every couple of seconds and a long GC pause is a lost lease. Issue #597. */
 const val MIN_CLUSTER_LEASE_SECONDS = 5L
@@ -2915,6 +2958,13 @@ class RepeatWindowOutOfRangeException(val seconds: Int) : RuntimeException(
 class StepHeartbeatOutOfRangeException(val seconds: Long) : RuntimeException(
     "$seconds is not a step heartbeat. " +
         "Choose between $MIN_STEP_HEARTBEAT_SECONDS and $MAX_STEP_HEARTBEAT_SECONDS seconds; 0 turns it off.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+class StepTimeoutOutOfRangeException(val seconds: Long) : RuntimeException(
+    "$seconds is not a step timeout. Choose between $MIN_STEP_TIMEOUT_SECONDS and $MAX_STEP_TIMEOUT_SECONDS seconds.",
 ), Refusal {
 
     override val arguments get() = mapOf("seconds" to seconds)
