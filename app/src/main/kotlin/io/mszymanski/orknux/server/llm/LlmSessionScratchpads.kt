@@ -81,7 +81,8 @@ class LlmSessionScratchpads(
         val content = text(node, "content").orEmpty()
         val description = text(node, "description")
         val existing = pads.find(session, name)
-        val result = if (existing == null || existing.sessionId != session) {
+        // A pad this session can see is one it writes, as the write tool does since #497 - not a second copy.
+        val result = if (existing == null) {
             pads.create(session, name, description, content)
         } else {
             val written = pads.write(session, name, content)
@@ -98,7 +99,7 @@ class LlmSessionScratchpads(
 
     private fun reported(result: ScratchpadResult): String = when (result) {
         is ScratchpadResult.Ok -> mapper.writeValueAsString(
-            mapOf("ok" to mapOf("name" to result.pad.name, "bytes" to result.pad.bytes, "shared" to result.pad.shared)),
+            mapOf("ok" to mapOf("name" to result.pad.name, "bytes" to result.pad.bytes, "shared" to result.pad.shared, "ownedHere" to result.ownedHere)),
         )
         is ScratchpadResult.No -> error(result.why)
     }

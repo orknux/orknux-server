@@ -33,6 +33,14 @@ class AuditRedactionTest {
             .isEqualTo("""{"title":"rotate the password policy"}""")
         assertThat(AuditRedaction.redact("""{"password":"a\"b\\c","name":"x"}"""))
             .isEqualTo("""{"password":"***","name":"x"}""")
+        // The store keys a pad edit or a read names are addresses, not credentials.
+        // A file's store key under plain `key`, as sheet_read and every upload tool take it, is shown;
+        // a credential under the same name is not.
+        assertThat(AuditRedaction.redact("""{"key":"attachment.16","from":"1"}""")).isEqualTo("""{"key":"attachment.16","from":"1"}""")
+        assertThat(AuditRedaction.redact("""{"key":"s3cr3t-Value-99"}""")).isEqualTo("""{"key":"***"}""")
+        assertThat(AuditRedaction.redact("""{"apiKey":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"}""")).doesNotContain("eyJ")
+        assertThat(AuditRedaction.redact("""{"name":"orders.csv","old":"X","newKey":"slack.1m50370","contentKey":"pad:a"}"""))
+            .isEqualTo("""{"name":"orders.csv","old":"X","newKey":"slack.1m50370","contentKey":"pad:a"}""")
     }
 
     /**

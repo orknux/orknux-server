@@ -323,7 +323,6 @@ class ScratchpadTools(
                      */
                     "bytes" to if (it.contentType == null) it.bytes else it.content.length / 4 * 3,
                     "contentType" to (it.contentType ?: "text"),
-                    "shared" to it.shared,
                     "ownedHere" to (it.sessionId == session),
                 )
             }
@@ -556,7 +555,12 @@ class ScratchpadTools(
                     put(verb, true)
                     put("name", result.pad.name)
                     put("bytes", result.pad.bytes)
-                    put("shared", result.pad.shared)
+                    /*
+                     * No "shared": since #498 every pad is the conversation's,
+                     * and the old flag answered false on every one of them -
+                     * which a model read as its file being out of reach of the
+                     * agents it asks, against what the briefing had told it.
+                     */
                     /*
                      * Whose file it is. Issue #497: an agent that has just
                      * written a file belonging to the conversation above it
@@ -568,8 +572,8 @@ class ScratchpadTools(
                         put("ownedHere", false)
                         put(
                             "note",
-                            "This file belongs to the conversation that started you, which shared it. " +
-                                "The change is there too, which is the point of a shared file.",
+                            "This file belongs to the conversation that started you. Its files are yours " +
+                                "too, so the change is there as well.",
                         )
                     }
                 },

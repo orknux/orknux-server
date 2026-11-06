@@ -47,7 +47,7 @@ class SessionFamily(private val sessions: LlmSessionRepository) {
     fun of(sessionId: Long): List<Long> = listOf(sessionId) + relativesOf(sessionId)
 
     /** The sessions this one descends from, nearest first, bounded like the family. */
-    private fun ancestorsOf(sessionId: Long): List<Long> {
+    fun ancestorsOf(sessionId: Long): List<Long> {
         val chain = mutableListOf<Long>()
         var parent = sessions.findByIdOrNull(sessionId)?.parentSessionId
         var guard = 0

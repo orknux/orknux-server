@@ -104,14 +104,32 @@ class LlmSessionStore(
     private val mapper: tools.jackson.databind.ObjectMapper,
     /** Lazy: temporary files are written through the store, and read back through it. */
     @param:org.springframework.context.annotation.Lazy private val temporary: TemporaryFiles,
+    /** The conversation a session belongs to, whose keys it reads. */
+    private val family: SessionFamily,
 ) : SessionScratch {
 
     /**
      * What [key] holds, where it holds anything: a key standing for a
      * temporary file whose time is up holds nothing, whether or not the sweep
      * has freed it yet.
+     *
+     * This session's own key first, then the nearest ancestor's. A subagent
+     * is the conversation asking somebody to do part of its work, and the
+     * asker hands it keys in the question - a file attached to the chat, a
+     * page it drew. Read only in its own store, those keys named nothing: a
+     * subagent handed `slack.1m50370` was told nothing was kept under it,
+     * while the asker read the same key a moment later. Keys already travel
+     * the other way, copied up when a subagent's turn ends ([copy]), so with
+     * this a key works anywhere in the line it was made in. Only reading
+     * climbs: a write lands in the session that made it, so a subagent never
+     * changes what its asker holds.
      */
-    private fun entry(sessionId: Long, key: String): LlmSessionStoreEntry? =
+    private fun entry(sessionId: Long, key: String): LlmSessionStoreEntry? {
+        own(sessionId, key)?.let { return it }
+        return family.ancestorsOf(sessionId).firstNotNullOfOrNull { own(it, key) }
+    }
+
+    private fun own(sessionId: Long, key: String): LlmSessionStoreEntry? =
         entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.takeIf { held ->
             held.temporaryFileId == null || temporary.live(held.temporaryFileId!!) != null
         }
@@ -293,9 +311,13 @@ class LlmSessionStore(
     fun attachmentKeyNamed(sessionId: Long?, name: String): String? {
         if (sessionId == null) return null
         val wanted = name.trim().substringAfterLast('/').substringAfterLast('\\').takeIf { it.isNotEmpty() } ?: return null
-        val ids = entries.attachmentIdsOf(sessionId).takeIf { it.isNotEmpty() } ?: return null
-        val match = attachments.findAllById(ids).firstOrNull { it.filename.equals(wanted, ignoreCase = true) } ?: return null
-        return entries.keysOf(sessionId, requireNotNull(match.id)).firstOrNull()
+        // Through the line it reads keys from, so a subagent handed a file's name is told its key too.
+        return (listOf(sessionId) + family.ancestorsOf(sessionId)).firstNotNullOfOrNull { held ->
+            val ids = entries.attachmentIdsOf(held).takeIf { it.isNotEmpty() } ?: return@firstNotNullOfOrNull null
+            val match = attachments.findAllById(ids).firstOrNull { it.filename.equals(wanted, ignoreCase = true) }
+                ?: return@firstNotNullOfOrNull null
+            entries.keysOf(held, requireNotNull(match.id)).firstOrNull()
+        }
     }
 
     /**

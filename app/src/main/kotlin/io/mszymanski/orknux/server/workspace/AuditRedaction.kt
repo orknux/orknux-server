@@ -294,8 +294,15 @@ object AuditRedaction {
         "host", "port", "user", "type", "format", "length", "count", "env", "mode", "algorithm",
     )
 
-    /** Names that carry a fragment by accident and are never a credential. */
-    private val BENIGN_NAMES = setOf("author", "authors")
+    /**
+     * Names that carry a fragment by accident and are never a credential.
+     *
+     * `newKey` and `contentKey` are this product's own: the session-store key a
+     * scratchpad edit or a read hands on, such as `slack.1m50370`. Hidden, the
+     * transcript of an agent that put an attachment into a pad read
+     * `"newKey": "***"`, and nobody could tell which file it had used.
+     */
+    private val BENIGN_NAMES = setOf("author", "authors", "newkey", "contentkey")
 
     private fun looksLikeCredentialName(name: String): Boolean {
         val cleaned = name.trimStart('-').lowercase()
@@ -317,12 +324,26 @@ object AuditRedaction {
     private val JSON_MEMBER = Regex("""("([A-Za-z0-9_.\-]{1,64})"\s*:\s*")([^"\\]*+(?:\\.[^"\\]*+)*+)"""")
 
     private fun jsonMembers(text: String): String = text.replace(JSON_MEMBER) { match ->
-        if (looksLikeCredentialName(match.groupValues[2]) && match.groupValues[3].isNotEmpty()) {
+        val value = match.groupValues[3]
+        if (looksLikeCredentialName(match.groupValues[2]) && value.isNotEmpty() && !storeKey(match.groupValues[2], value)) {
             "${match.groupValues[1]}$MARKER\""
         } else {
             match.value
         }
     }
+
+    /**
+     * A member named `key` (or ending in it) whose value is shaped like a
+     * session-store key - `attachment.16`, `slack.1m50370`, `picture.ab12`: a
+     * short lowercase kind, a dot, and an id. Every tool that reads or sends a
+     * stored file takes its key as `key`, so hiding the name hid which file was
+     * used in every such call; a credential is not a lowercase word, a dot and
+     * a short id. A JWT is three segments, and its first starts `eyJ`.
+     */
+    private val STORE_KEY = Regex("""[a-z][a-z0-9_-]{0,31}\.[A-Za-z0-9_-]{1,64}""")
+
+    private fun storeKey(name: String, value: String): Boolean =
+        name.lowercase().endsWith("key") && STORE_KEY.matches(value)
 
     private val QUOTED_ASSIGNMENT = Regex("""([A-Za-z0-9_.\-]{1,64})=(["'])([^"']*)\2""")
     private val BARE_ASSIGNMENT = Regex("""([A-Za-z0-9_.\-]{1,64})=([^\s"']+)""")

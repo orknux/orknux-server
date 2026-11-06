@@ -275,7 +275,9 @@ class AgentRunTools(
                 }) + "Use it where the work needs something you have no tool " +
                 "for and one of them does - it will look things up in its own conversation, so ask " +
                 "for what you want to know rather than for the steps. It cannot see this " +
-                "conversation, so say everything it needs in the question. The answer comes back " +
+                "conversation, so say everything it needs in the question - but a key of this " +
+                "conversation, such as an attached file's contentKey, works in its conversation too, so " +
+                "name the key rather than pasting what it holds. The answer comes back " +
                 "as text and under a contentKey as well, and any key the answer names - a file it " +
                 "saved, a picture it drew - works in this conversation too: to upload or send what " +
                 "it made, pass the key to the tool that takes one rather than typing the text back, " +
