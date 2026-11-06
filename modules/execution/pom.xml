@@ -30,6 +30,16 @@
             <version>${graaljs.version}</version>
             <type>pom</type>
         </dependency>
+        <!-- GraalPy, for a tool or a plugin written in Python. The same version
+             as GraalJS because the two share one Truffle and one engine: a
+             Python context also holds JavaScript, which is where the `orknux`
+             helpers it is handed are written. -->
+        <dependency>
+            <groupId>org.graalvm.polyglot</groupId>
+            <artifactId>python-community</artifactId>
+            <version>${graaljs.version}</version>
+            <type>pom</type>
+        </dependency>
 
         <!--
             A step keeps its own copy of the mappings it was given, as JSON in a

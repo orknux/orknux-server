@@ -282,6 +282,7 @@ class ConditionEvaluator(
                     on = condition.workspaceId,
                     origin = origin.copy(functionId = function.id),
                     timeoutMillis = timeouts.forFunction(function.timeoutSeconds, condition.workspaceId),
+                    language = function.language.script,
                 )
             }
         }

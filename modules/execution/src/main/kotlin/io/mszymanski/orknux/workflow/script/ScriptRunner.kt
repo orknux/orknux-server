@@ -160,6 +160,12 @@ class ScriptRunner(
          * store's doors are simply not bound, and the helper says so.
          */
         sessionId: Long? = null,
+        /**
+         * What [source] is written in. A Python script defines `main` where a
+         * JavaScript one exports a default, and imports nothing: [modules] are
+         * JavaScript, and a Python script given any is refused in words.
+         */
+        language: ScriptLanguage = ScriptLanguage.JAVASCRIPT,
     ): ScriptResult {
         val started = System.nanoTime()
         val stopped = AtomicReference<Overrun?>(null)
@@ -171,12 +177,17 @@ class ScriptRunner(
          */
         val said = Collections.synchronizedList(mutableListOf<String>())
         return try {
-            guard.bounded(stopped, ::newContext, timeoutMillis) {
-                ScriptResult.Returned(
-                    evaluate(it, source, functionName, arguments, context, modules, imports, on, said, functionName, origin, sessionId),
-                    millisSince(started),
-                    said.toList(),
-                )
+            if (language == ScriptLanguage.PYTHON && (modules.isNotEmpty() || imports.isNotEmpty())) {
+                throw ScriptContractException("$functionName is Python, and a Python script cannot import JavaScript functions or libraries")
+            }
+            guard.bounded(stopped, contextFor(language), timeoutMillis) {
+                val answer = when (language) {
+                    ScriptLanguage.JAVASCRIPT ->
+                        evaluate(it, source, functionName, arguments, context, modules, imports, on, said, functionName, origin, sessionId)
+                    ScriptLanguage.PYTHON ->
+                        evaluatePython(it, source, functionName, arguments, context, on, said, origin, sessionId)
+                }
+                ScriptResult.Returned(answer, millisSince(started), said.toList())
             }
         } catch (failure: PolyglotException) {
             val budget = failure.isCancelled || failure.isResourceExhausted
@@ -241,7 +252,10 @@ class ScriptRunner(
      * A syntax error is what this catches; a script that only fails when it runs
      * is not something parsing can tell anyone about.
      */
-    fun validate(source: String): ScriptValidation = try {
+    fun validate(source: String, language: ScriptLanguage = ScriptLanguage.JAVASCRIPT): ScriptValidation =
+        if (language == ScriptLanguage.PYTHON) validatePython(source) else validateJavaScript(source)
+
+    private fun validateJavaScript(source: String): ScriptValidation = try {
         /*
          * Parsing is bounded too, for the same reason running is. It is the one
          * entry point that had no watchdog, which made it the one entry point
@@ -277,7 +291,10 @@ class ScriptRunner(
      * `length` stops at the first parameter with a default: `(a, b = 2)` reports one
      * and accepts two, and refusing that would be refusing correct code.
      */
-    fun arity(source: String): ScriptArity = try {
+    fun arity(source: String, language: ScriptLanguage = ScriptLanguage.JAVASCRIPT): ScriptArity =
+        if (language == ScriptLanguage.PYTHON) arityPython(source) else arityJavaScript(source)
+
+    private fun arityJavaScript(source: String): ScriptArity = try {
         /*
          * Bounded like the other two, and it is the one that needed it most:
          * counting the parameters means evaluating the module, so a source's
@@ -420,6 +437,162 @@ class ScriptRunner(
         // default export is found without the script having to register itself.
         .option("js.esm-eval-returns-exports", "true")
         .build()
+
+    private fun contextFor(language: ScriptLanguage): () -> Context = when (language) {
+        ScriptLanguage.JAVASCRIPT -> ::newContext
+        ScriptLanguage.PYTHON -> ::newPythonContext
+    }
+
+    /**
+     * An engine holding both languages, made the first time anything asks for
+     * Python. Lazy because it is the heavier of the two by far, and an
+     * installation that never writes a line of Python should not carry it.
+     */
+    private val pythonEngine: Engine by lazy {
+        Engine.newBuilder("js", "python")
+            .option("engine.WarnInterpreterOnly", "false")
+            .build()
+    }
+
+    /**
+     * The sandbox for Python: the JavaScript one above, word for word, with
+     * Python added beside it - because the `orknux` helpers a Python guest calls
+     * are the JavaScript ones, evaluated into the same context.
+     *
+     * The Python options only take away. `PosixModuleBackend=java` sends what
+     * `os` does through Truffle's own filesystem, which [IOAccess.NONE] denies,
+     * rather than to native calls; and the guest's standard streams go nowhere,
+     * because `print` is turned into `orknux.log` inside the guest and anything
+     * that bypassed that has no business in the server's own output. Polyglot
+     * access stays [PolyglotAccess.NONE]: the guest cannot evaluate JavaScript
+     * itself, and the one function that crosses is put there by the host.
+     *
+     * **The clock is what stops a Python loop.** The statement limit is set, as
+     * for JavaScript, but GraalPy counts a statement only where the line changes
+     * and, in a context that also holds JavaScript, was not seen to stop a loop
+     * at all - so for Python the wall-clock bound in [ScriptGuard] is the one
+     * that holds, and `ScriptRunnerPythonTest` checks that it does.
+     */
+    private fun newPythonContext(): Context = Context.newBuilder("js", "python")
+        .engine(pythonEngine)
+        .allowExperimentalOptions(true)
+        .allowHostAccess(hostAccess)
+        .allowHostClassLookup { false }
+        .allowHostClassLoading(false)
+        .allowIO(IOAccess.NONE)
+        .allowCreateThread(false)
+        .allowCreateProcess(false)
+        .allowNativeAccess(false)
+        .allowPolyglotAccess(org.graalvm.polyglot.PolyglotAccess.NONE)
+        .allowEnvironmentAccess(org.graalvm.polyglot.EnvironmentAccess.NONE)
+        .allowValueSharing(false)
+        .resourceLimits(
+            ResourceLimits.newBuilder()
+                .statementLimit(properties.statementLimit, null)
+                .build(),
+        )
+        .out(java.io.OutputStream.nullOutputStream())
+        .err(java.io.OutputStream.nullOutputStream())
+        .`in`(java.io.InputStream.nullInputStream())
+        .option("js.load", "false")
+        .option("js.print", "false")
+        .option("js.java-package-globals", "false")
+        .option("js.polyglot-builtin", "false")
+        .option("js.graal-builtin", "false")
+        .option("js.ecmascript-version", "2023")
+        .option("python.PosixModuleBackend", "java")
+        .build()
+
+    /**
+     * Runs a Python script's `main` and brings the answer back as text.
+     *
+     * The JavaScript doors are bound exactly as for a JavaScript script, and
+     * `globalThis.orknux` is built from them, before the Python `orknux` is
+     * installed over it - so the helpers a Python script calls are those, not a
+     * copy. Then `context`, then the script, then `main` through the harness.
+     */
+    private fun evaluatePython(
+        polyglot: Context,
+        source: String,
+        functionName: String,
+        arguments: List<String>,
+        context: String,
+        on: Long?,
+        said: MutableList<String>,
+        origin: ScriptOrigin,
+        sessionId: Long?,
+    ): String? {
+        serve(polyglot, on, said, functionName, origin, sessionId)
+        val orknux = PythonGuest.install(polyglot)
+        val python = polyglot.getBindings("python")
+        python.putMember(CONTEXT, context)
+        polyglot.eval(
+            PythonGuest.source(
+                "import json as __j, types as __t\ncontext = __t.MappingProxyType(__j.loads($CONTEXT))\ndel __j, __t, $CONTEXT\n",
+                "context.py",
+            ),
+        )
+
+        polyglot.eval(PythonGuest.source(source, "$functionName.py"))
+        val main = python.getMember("main")
+            ?: throw ScriptContractException("$functionName defines no main function to call")
+        if (!main.canExecute()) throw ScriptContractException("main in $functionName is not a function")
+
+        val answered = orknux.getMember("_call").execute(
+            main,
+            "[${arguments.joinToString(",")}]",
+            properties.resultLimitChars,
+        )
+        val error = answered.getArrayElement(0)
+        if (!error.isNull) throw ScriptContractException(error.asString())
+        val result = answered.getArrayElement(1)
+        return if (result.isNull) null else result.asString()
+    }
+
+    private fun validatePython(source: String): ScriptValidation = try {
+        guard.bounded(AtomicReference(), ::newPythonContext) { polyglot ->
+            val parsed = PythonGuest.install(polyglot).getMember("_parsed").execute(source, "tool.py")
+            if (parsed.isNull) {
+                ScriptValidation(valid = true)
+            } else {
+                ScriptValidation(
+                    valid = false,
+                    message = parsed.getArrayElement(0).asString(),
+                    line = parsed.getArrayElement(1).takeIf { it.fitsInInt() }?.asInt(),
+                    column = parsed.getArrayElement(2).takeIf { it.fitsInInt() }?.asInt(),
+                )
+            }
+        }
+    } catch (failure: PolyglotException) {
+        ScriptValidation(valid = false, message = failure.message ?: "the script could not be parsed")
+    } catch (failure: ScriptBusyException) {
+        ScriptValidation(valid = false, message = failure.message ?: "the script could not be checked")
+    } catch (failure: IllegalStateException) {
+        ScriptValidation(valid = false, message = failure.message ?: "the script could not be checked")
+    }
+
+    /**
+     * How many positional arguments `main` takes, counted by `inspect` - which,
+     * unlike JavaScript's `length`, counts a parameter with a default, so it is
+     * read off the function rather than its text.
+     */
+    private fun arityPython(source: String): ScriptArity = try {
+        guard.bounded(AtomicReference(), ::newPythonContext) { polyglot ->
+            val orknux = PythonGuest.install(polyglot)
+            polyglot.eval(PythonGuest.source(source, "tool.py"))
+            val main = polyglot.getBindings("python").getMember("main")
+                ?: return@bounded ScriptArity.Unreadable("it defines no main function to call")
+            if (!main.canExecute()) return@bounded ScriptArity.Unreadable("its main is not a function")
+            val counted = orknux.getMember("_arity").execute(main)
+            if (counted.isString) ScriptArity.Unreadable(counted.asString()) else ScriptArity.Counted(counted.asInt())
+        }
+    } catch (failure: PolyglotException) {
+        ScriptArity.Unreadable(failure.message ?: "the script could not be read")
+    } catch (failure: ScriptBusyException) {
+        ScriptArity.Unreadable(failure.message ?: "the script could not be read")
+    } catch (failure: IllegalStateException) {
+        ScriptArity.Unreadable(failure.message ?: "the script could not be read")
+    }
 
     /**
      * Runs the call inside the guest and brings the answer back as text.

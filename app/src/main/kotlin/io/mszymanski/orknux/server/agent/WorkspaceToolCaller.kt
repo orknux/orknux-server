@@ -90,6 +90,7 @@ class WorkspaceToolCaller(
             on = agent.workspaceId,
             timeoutMillis = timeouts.forTool(tool.timeoutSeconds, agent.workspaceId),
             sessionId = sessionId,
+            language = tool.language.script,
         )
         return when (result) {
             is ScriptResult.Returned -> result.json ?: mapper.writeValueAsString(mapOf("result" to null))

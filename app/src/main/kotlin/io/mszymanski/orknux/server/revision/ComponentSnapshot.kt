@@ -8,6 +8,7 @@ import io.mszymanski.orknux.server.action.WorkflowFunction
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentSkill
 import io.mszymanski.orknux.server.agent.AgentTool
+import io.mszymanski.orknux.server.action.CodeLanguage
 import io.mszymanski.orknux.server.agent.AgentToolParam
 import io.mszymanski.orknux.server.design.DesignDocument
 import io.mszymanski.orknux.server.design.DocumentMarkdown
@@ -52,6 +53,7 @@ object ComponentSnapshot {
             "name" to function.name,
             "description" to function.description,
             "timeoutSeconds" to function.timeoutSeconds,
+            "language" to function.language.name,
             "source" to function.source,
             "typescript" to function.typescript,
             "returnType" to function.returnType.name,
@@ -91,6 +93,7 @@ object ComponentSnapshot {
             "name" to tool.name,
             "description" to tool.description,
             "timeoutSeconds" to tool.timeoutSeconds,
+            "language" to tool.language.name,
             "source" to tool.source,
             "typescript" to tool.typescript,
             "enabled" to tool.enabled,
@@ -255,10 +258,17 @@ object ComponentSnapshot {
         val held = mapper.readTree(snapshot)
         return when (kind) {
             ComponentRevisionKind.FUNCTION ->
-                RevisionContent(text(held, "typescript") ?: text(held, "source"), "typescript")
+                RevisionContent(
+                    text(held, "typescript") ?: text(held, "source"),
+                    if (text(held, "language") == CodeLanguage.PYTHON.name) "python" else "typescript",
+                )
 
+            // A version taken before tools had a language is TypeScript, as every tool then was.
             ComponentRevisionKind.TOOL ->
-                RevisionContent(text(held, "typescript") ?: text(held, "source"), "typescript")
+                RevisionContent(
+                    text(held, "typescript") ?: text(held, "source"),
+                    if (text(held, "language") == CodeLanguage.PYTHON.name) "python" else "typescript",
+                )
 
             ComponentRevisionKind.SKILL -> RevisionContent(text(held, "content"), "markdown")
             ComponentRevisionKind.AGENT -> RevisionContent(text(held, "systemPrompt"), "markdown")
@@ -331,6 +341,8 @@ object ComponentSnapshot {
         function.name = text(held, "name") ?: function.name
         function.description = text(held, "description")
         function.timeoutSeconds = number(held, "timeoutSeconds")?.toInt()
+        // The language travels with the code it describes; a version from before there was one is TypeScript.
+        function.language = enumOf(held, "language", CodeLanguage.TYPESCRIPT)
         function.source = text(held, "source") ?: function.source
         function.typescript = text(held, "typescript")
         function.returnType = enumOf(held, "returnType", function.returnType)
@@ -362,6 +374,8 @@ object ComponentSnapshot {
         tool.name = text(held, "name") ?: tool.name
         tool.description = text(held, "description")
         tool.timeoutSeconds = number(held, "timeoutSeconds")?.toInt()
+        // The language travels with the code it describes, so restoring one restores the other.
+        tool.language = enumOf(held, "language", CodeLanguage.TYPESCRIPT)
         tool.source = text(held, "source") ?: tool.source
         tool.typescript = text(held, "typescript") ?: tool.typescript
         tool.enabled = held.path("enabled").asBoolean(true)

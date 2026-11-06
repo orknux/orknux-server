@@ -342,6 +342,7 @@ class ComponentExporter(
             put("description", held.description)
             // Both halves, always: what runs and what was written. Either alone
             // would import as a function whose editor and sandbox disagree.
+            put("language", held.language.name)
             put("source", held.source)
             put("typescript", held.typescript)
             put("returnType", held.returnType.name)
@@ -421,6 +422,7 @@ class ComponentExporter(
     private fun describeTool(workspaceId: Long, held: AgentTool): ObjectNode =
         start(ComponentKind.TOOL, held.name).apply {
             put("description", held.description)
+            put("language", held.language.name)
             put("source", held.source)
             put("typescript", held.typescript)
             put("enabled", held.enabled)

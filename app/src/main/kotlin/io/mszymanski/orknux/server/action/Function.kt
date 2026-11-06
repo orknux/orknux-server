@@ -301,7 +301,18 @@ class WorkflowFunction(
     var editedBy: String? = null,
 
     /**
-     * The JavaScript that runs.
+     * What it is written in. TypeScript is compiled in the editor and both
+     * halves are stored; Python is run as written, so [source] and
+     * [typescript] hold the same text. A plugin's function stays TypeScript
+     * here whatever its plugin is written in: it is run by the plugin, and
+     * this column only says how an edited copy is run.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    var language: CodeLanguage = CodeLanguage.TYPESCRIPT,
+
+    /**
+     * The code that runs: the JavaScript compiled from [typescript], or the Python as written.
      *
      * Compiled from [typescript] for anything a workspace wrote — the sandbox runs
      * JavaScript and nothing compiles at run time, so what runs is stored compiled.
@@ -690,6 +701,49 @@ class ImportNotEditableException(val name: String) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("name" to name)
+}
+
+/**
+ * The function asked for is written in Python.
+ *
+ * What an import brings into a script is evaluated as JavaScript beside it, and
+ * Python is not JavaScript: so only a TypeScript function can be imported, and
+ * a Python function's logic is reached from a workflow by an action instead.
+ */
+class ImportPythonException(val name: String) : RuntimeException(
+    "$name is written in Python, so it cannot be imported: only a TypeScript function can be. Point an action at it instead.",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name)
+}
+
+/** A Python function was given functions or libraries to import, which are JavaScript. */
+class FunctionPythonImportsException(val name: String) : RuntimeException(
+    "$name is written in Python, and a Python function cannot import the workspace's JavaScript functions or libraries",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name)
+}
+
+/** A function's language was changed without code written in the new one. */
+class FunctionLanguageNeedsCodeException(val name: String, val language: CodeLanguage) : RuntimeException(
+    "$name can only become ${language.spoken} with code written in ${language.spoken}: a function's language and its code are saved together",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name, "language" to language.spoken)
+}
+
+/**
+ * A function that something imports was moved to Python, which nothing can import.
+ *
+ * Named importers rather than a count, because the way out is to go to each
+ * and take the import off.
+ */
+class FunctionImportedStaysTypeScriptException(val name: String, val importers: List<String>) : RuntimeException(
+    "$name is imported by ${importers.joinToString(", ")}, so it has to stay TypeScript: a Python function cannot be imported",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name, "importers" to importers)
 }
 
 class ImportNameInvalidException(val name: String) :

@@ -395,6 +395,15 @@ every start it is in effect. Never set them in a deployment.
   twice and drifted - the plugin side kept a `orknux.http` with no `post` and no
   parsed `json`, so the same call answered differently in the two places. Two
   copies of an API is two APIs; `PluginCapabilityTest` pins the parity.
+- **Python is a guest beside JavaScript, not a third sandbox.** A Python tool
+  or plugin runs in a context holding both languages, built with the same
+  denials; the `orknux` helpers are the JavaScript ones, reached from Python
+  through one JSON door (`PythonGuest`), and a Python plugin is seen through a
+  JavaScript adapter class, so everything past loading is the JavaScript plugin
+  path. A helper is never written in Python - add it to `HostHelpers` and
+  Python has it. GraalPy does not reliably count statements once JavaScript
+  shares its context, so the clock in `ScriptGuard` is what stops a Python
+  loop.
 - **A capability a function gets without asking has to be bounded by something
   other than judgement.** A plugin has an administrator to accept its grants and a
   function has nobody, so `forScripts` is a decision about what holds it in:

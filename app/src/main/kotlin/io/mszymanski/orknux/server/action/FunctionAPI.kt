@@ -166,34 +166,37 @@ class FunctionAPI(
          * Either both halves are given — a duplicate, or a client that compiled —
          * or neither is, and a new function starts from a stub written in both.
          */
-        val given = input.source?.takeIf { it.isNotBlank() }
-        val written = input.typescript?.takeIf { it.isNotBlank() }
-        val code = when {
-            given != null && written != null -> FunctionCode(javascript = given, typescript = written)
-            given != null -> throw FunctionCodeIncompleteException("TypeScript this JavaScript was compiled from")
-            written != null -> throw FunctionCodeIncompleteException("JavaScript compiled from this TypeScript")
-            else -> starter(name, input.params.orEmpty(), externalTypes(externals, externalNames))
-        }
+        val language = input.language ?: CodeLanguage.TYPESCRIPT
+        val code = codeFrom(input.source, input.typescript, language)
+            ?: if (language == CodeLanguage.PYTHON) {
+                pythonStarter(input.params.orEmpty(), externalNames)
+            } else {
+                starter(name, input.params.orEmpty(), externalTypes(externals, externalNames))
+            }
 
         val source = code.javascript
-        requireParses(source)
-        requireSignature(source, input.params.orEmpty().size, externals.size)
+        requireParses(source, language)
+        requireSignature(source, input.params.orEmpty().size, externals.size, language)
+        // Nothing has an id yet, so nothing can import it back: a function
+        // being created is the one case where a loop is not possible.
+        val imports = input.imports.orEmpty().toImports(input.workspaceId, importer = null)
+        val libraries = input.libraries.orEmpty().toLibraries()
+        requireImportable(name, language, imports, libraries)
 
         val function = functions.save(
             WorkflowFunction(
                 workspaceId = input.workspaceId,
                 name = name,
                 description = input.description?.trim()?.ifEmpty { null }?.also(::requireDescriptionFits),
+                language = language,
                 source = source,
                 typescript = code.typescript,
                 returnType = input.returnType ?: ValueType.MAP,
                 returnObjectId = returnedObject(input.returnType, input.returnObjectId, input.workspaceId),
                 params = input.params.orEmpty().toParams(input.workspaceId),
                 externals = externals,
-                // Nothing has an id yet, so nothing can import it back: a function
-                // being created is the one case where a loop is not possible.
-                imports = input.imports.orEmpty().toImports(input.workspaceId, importer = null),
-                libraries = input.libraries.orEmpty().toLibraries(),
+                imports = imports,
+                libraries = libraries,
                 lastModifiedAt = OffsetDateTime.now(),
                 lastModifiedBy = currentUser(),
             ),
@@ -251,17 +254,26 @@ class FunctionAPI(
          * written in describe the same function, and a write that moved one of them
          * would leave the editor showing code the sandbox is not running.
          */
-        val javascript = input.source
-        val typescript = input.typescript
-        when {
-            javascript != null && typescript != null -> {
-                requireParses(javascript)
-                function.source = javascript
-                function.typescript = typescript
+        val language = input.language ?: function.language
+        val code = codeFrom(input.source, input.typescript, language)
+        /*
+         * The language moves only with code written in it, and never to Python
+         * while something imports this: what an import brings in is evaluated
+         * as JavaScript beside its importer.
+         */
+        if (language != function.language) {
+            if (code == null) throw FunctionLanguageNeedsCodeException(function.name, language)
+            if (language == CodeLanguage.PYTHON) {
+                val importers = functions.findByImportedFunctionId(id).map { it.name } +
+                    tools.findByImportedFunctionId(id).map { "the tool ${it.name}" }
+                if (importers.isNotEmpty()) throw FunctionImportedStaysTypeScriptException(function.name, importers.distinct())
             }
-
-            javascript != null -> throw FunctionCodeIncompleteException("TypeScript this JavaScript was compiled from")
-            typescript != null -> throw FunctionCodeIncompleteException("JavaScript compiled from this TypeScript")
+        }
+        code?.let {
+            requireParses(it.javascript, language)
+            function.language = language
+            function.source = it.javascript
+            function.typescript = it.typescript
         }
         /*
          * The return type and the object it names are one decision. Set apart, a
@@ -306,7 +318,8 @@ class FunctionAPI(
          * field happened to arrive: adding a parameter without touching the code breaks
          * the contract exactly as much as editing the code does.
          */
-        requireSignature(function.source, function.params.size, function.externals.size)
+        requireSignature(function.source, function.params.size, function.externals.size, function.language)
+        requireImportable(function.name, function.language, function.imports, function.libraries)
 
         function.lastModifiedAt = OffsetDateTime.now()
         function.lastModifiedBy = currentUser()
@@ -467,6 +480,7 @@ class FunctionAPI(
         @Argument code: String,
         @Argument modelId: Long,
         @Argument messages: List<FunctionChatTurnInput>,
+        @Argument language: CodeLanguage?,
     ): FunctionAnswerView {
         requireWorkspaceAccess(workspaceId)
         val held = functionId?.let { id ->
@@ -475,7 +489,10 @@ class FunctionAPI(
         val asker = currentUser()
         val turns = files.turns(workspaceId, asker, messages.map { io.mszymanski.orknux.server.attachment.EditorChatTurn(it.role, it.content, it.attachmentIds.orEmpty()) })
         if (turns.none { it.role == "user" }) throw FunctionAnswerFailedException("there is nothing to answer")
-        val answered = chat.answer(workspaceId, held?.id, held?.name ?: name.orEmpty(), code, modelId, turns, asker)
+        val answered = chat.answer(
+            workspaceId, held?.id, held?.name ?: name.orEmpty(), code, modelId, turns, asker,
+            language ?: held?.language ?: CodeLanguage.TYPESCRIPT,
+        )
         return FunctionAnswerView(
             answer = answered.answer,
             suggestion = answered.suggestion?.let { FunctionCodeSuggestionView(it.code, it.note) },
@@ -483,9 +500,13 @@ class FunctionAPI(
     }
 
     @MutationMapping
-    fun validateFunctionSource(@Argument workspaceId: Long, @Argument source: String): FunctionValidationView {
+    fun validateFunctionSource(
+        @Argument workspaceId: Long,
+        @Argument source: String,
+        @Argument language: CodeLanguage?,
+    ): FunctionValidationView {
         requireWorkspaceAccess(workspaceId)
-        val checked = scripts.validate(source)
+        val checked = scripts.validate(source, (language ?: CodeLanguage.TYPESCRIPT).script)
         return FunctionValidationView(checked.valid, checked.message, checked.line, checked.column)
     }
 
@@ -848,6 +869,7 @@ class FunctionAPI(
         },
         name = function.name,
         description = function.description,
+        language = function.language,
         source = function.source,
         typescript = function.typescript,
         returnType = function.returnType,
@@ -875,9 +897,9 @@ class FunctionAPI(
      *
      * Checked when it is saved, which is the last moment somebody is looking at it.
      */
-    private fun requireSignature(source: String, params: Int, externals: Int) {
+    private fun requireSignature(source: String, params: Int, externals: Int, language: CodeLanguage) {
         val expected = params + externals
-        when (val counted = scripts.arity(source)) {
+        when (val counted = scripts.arity(source, language.script)) {
             is ScriptArity.Counted ->
                 if (counted.parameters != expected) {
                     throw FunctionSignatureMismatchException(counted.parameters, params, externals)
@@ -888,8 +910,65 @@ class FunctionAPI(
         }
     }
 
-    private fun requireParses(source: String) {
-        val checked = scripts.validate(source)
+    /** What a function imports is JavaScript, which a Python function has no way to call. */
+    private fun requireImportable(name: String, language: CodeLanguage, imports: List<ScriptImport>, libraries: List<ScriptImport>) {
+        if (language == CodeLanguage.PYTHON && (imports.isNotEmpty() || libraries.isNotEmpty())) {
+            throw FunctionPythonImportsException(name)
+        }
+    }
+
+    /**
+     * The code from what arrived, or null when none did.
+     *
+     * TypeScript comes as a pair, compiled and written, or not at all. Python
+     * is not compiled, so either field carries it and it is stored as both; two
+     * that disagree are refused, since which was meant is a guess.
+     */
+    private fun codeFrom(javascript: String?, typescript: String?, language: CodeLanguage): FunctionCode? {
+        val given = javascript?.takeIf { it.isNotBlank() }
+        val written = typescript?.takeIf { it.isNotBlank() }
+        if (language == CodeLanguage.PYTHON) {
+            if (given != null && written != null && given != written) {
+                throw FunctionSourceInvalidException("a Python function's source and its written code are the same text, and these differ")
+            }
+            return (given ?: written)?.let { FunctionCode(javascript = it, typescript = it) }
+        }
+        return when {
+            given != null && written != null -> FunctionCode(javascript = given, typescript = written)
+            given != null -> throw FunctionCodeIncompleteException("TypeScript this JavaScript was compiled from")
+            written != null -> throw FunctionCodeIncompleteException("JavaScript compiled from this TypeScript")
+            else -> null
+        }
+    }
+
+    /**
+     * A new Python function: `main`, taking its parameters and then the
+     * workspace's variables, and handing back what it was given - the stub the
+     * TypeScript one is, with the same few lines on what the sandbox offers.
+     */
+    private fun pythonStarter(params: List<FunctionParamInput>, externals: List<String>): FunctionCode {
+        val names = params.map { it.name } + externals
+        val returned = if (params.isEmpty()) "{}" else params.joinToString(", ", "{", "}") { "'${it.name}': ${it.name}" }
+        val body = """
+            |def main(${names.joinToString(", ")}):
+            |    # What this server will do for you, and there is nothing else:
+            |    #   orknux.log.info('what is happening')         what you say while this runs
+            |    #   orknux.http.get(url, headers)                a request, made by the server
+            |    #   orknux.http.post(url, {'a': 1})              a dict body goes as JSON
+            |    #   orknux.slack.thread(connection, ch, ts)      the messages in one thread
+            |    #   orknux.slack.post(connection, ch, text)      send a message, or a reply
+            |    #   orknux.connections.query({'type': 'SLACK'})  this workspace's connections
+            |    # Each answers a dict with 'error' in it when it could not; check that first.
+            |    # The standard library is here; files, sockets and processes are not.
+            |
+            |    # What this returns is handed to the next node.
+            |    return $returned
+        """.trimMargin() + "\n"
+        return FunctionCode(javascript = body, typescript = body)
+    }
+
+    private fun requireParses(source: String, language: CodeLanguage) {
+        val checked = scripts.validate(source, language.script)
         if (!checked.valid) throw FunctionSourceInvalidException(checked.message ?: "The script could not be parsed")
     }
 
@@ -1152,6 +1231,8 @@ data class CreateFunctionInput(
     val workspaceId: Long,
     val name: String,
     val description: String? = null,
+    /** Left out means TypeScript. A Python function's code arrives in either field, or both. */
+    val language: CodeLanguage? = null,
     /**
      * The compiled JavaScript. Left out for a new function, which starts from a
      * stub that runs; given only together with the [typescript] it came from.
@@ -1174,6 +1255,8 @@ data class CreateFunctionInput(
 data class UpdateFunctionInput(
     val name: String? = null,
     val description: String? = null,
+    /** Null leaves it alone; a new one comes with code written in it. */
+    val language: CodeLanguage? = null,
     /** The compiled JavaScript; sent with the [typescript] it was compiled from. */
     val source: String? = null,
     /** The TypeScript [source] was compiled from. Neither moves without the other. */
@@ -1230,6 +1313,7 @@ data class FunctionView(
     val plugin: FunctionPluginView?,
     val name: String,
     val description: String?,
+    val language: CodeLanguage,
     val source: String,
     /** What it was written in, or null for a plugin's function. */
     val typescript: String?,

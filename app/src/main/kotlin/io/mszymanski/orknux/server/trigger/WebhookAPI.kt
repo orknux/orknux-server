@@ -233,6 +233,7 @@ class WebhookAPI(
                     imports = resolved.imports,
                     on = trigger.workspaceId,
                     timeoutMillis = timeouts.forFunction(function.timeoutSeconds, trigger.workspaceId),
+                    language = function.language.script,
                 )
             }
         }

@@ -264,6 +264,13 @@ class OrknuxTools(
     /** The Research page's own start and read, for their checks and audit entry. Lazy: it is a controller, and a research runs workflows. */
     @param:Lazy private val researchApi: ResearchAPI,
     transactionManager: org.springframework.transaction.PlatformTransactionManager,
+    /**
+     * The sandbox's parser, for one question: whether code offered for a
+     * Python tool is Python. A model shown TypeScript tools all day writes
+     * TypeScript, and an offer that could never be saved is refused here, in
+     * words it can act on, rather than drawn as a diff somebody accepts.
+     */
+    private val scripts: io.mszymanski.orknux.workflow.script.ScriptRunner,
 ) {
 
     /**
@@ -727,11 +734,10 @@ class OrknuxTools(
                         ToolParameterSpec("function", "The function's name, or its id.", required = true),
                         ToolParameterSpec(
                             "code",
-                            "The complete new source, in the language the function is in. What its declaration " +
-                                "takes is what the function takes, so annotate every parameter with its type - " +
-                                "`string`, `number`, `boolean`, `Record<string, unknown>`, `unknown[]`, or the " +
-                                "name of one of this workspace's objects - and keep any workspace variables it " +
-                                "is handed last, in the same order and under the same names.",
+                            "The complete new source, written in the function's own language - the `language` " +
+                                "`orknux_function` answers - and in nothing else. What its declaration takes is what " +
+                                "the function takes; keep any workspace variables it is handed last, in the same " +
+                                "order and under the same names.",
                             required = true,
                         ),
                         ToolParameterSpec("note", "One line on what this changes and why.", required = false),
@@ -783,8 +789,8 @@ class OrknuxTools(
                         ToolParameterSpec("tool", "The tool's name, or its id.", required = true),
                         ToolParameterSpec(
                             "code",
-                            "The complete new TypeScript. A tool is a default export taking one argument — " +
-                                "whatever the agent composed — so keep that shape.",
+                            "The complete new source, written in the tool's own language - the `language` " +
+                                "`orknux_tool` answers - and in nothing else.",
                             required = true,
                         ),
                         ToolParameterSpec("note", "One line on what this changes and why.", required = false),
@@ -796,7 +802,7 @@ class OrknuxTools(
         add(
             ToolSpec(
                 name = "orknux_tool",
-                description = "One tool in full, including the TypeScript it is written in.",
+                description = "One tool in full, including its code and the language it is written in.",
                 parameters = listOf(
                     ToolParameterSpec("tool", "The tool's name, or its id.", required = true),
                 ),
@@ -1775,7 +1781,11 @@ class OrknuxTools(
                 "signature" to chosen.signature,
                 "returns" to chosen.returnType.name,
                 "editable" to chosen.editable,
-                "language" to if (chosen.typescript != null) "typescript" else "javascript",
+                "language" to when {
+                    chosen.language == io.mszymanski.orknux.server.action.CodeLanguage.PYTHON -> "python"
+                    chosen.typescript != null -> "typescript"
+                    else -> "javascript"
+                },
                 "code" to (chosen.typescript ?: chosen.source),
                 "parameters" to chosen.params.map { parameter ->
                     buildMap<String, Any?> {
@@ -1868,6 +1878,12 @@ class OrknuxTools(
      * instead of showing somebody a change they cannot accept.
      */
     private fun suggest(scope: OrknuxScope, arguments: String): String {
+        val asked = text(arguments, "function")
+        val code = text(arguments, "code")
+        val chosen = asked?.let { named ->
+            functions.findByWorkspaceId(scope.workspaceId).singleOrNull { it.name.equals(named, ignoreCase = true) || it.id?.toString() == named }
+        }
+        if (chosen != null && code != null) notPython(chosen.name, chosen.language, code)?.let { return refuse(it) }
         val offered = suggestionIn(scope, arguments) ?: return refuse(
             "Which function, and what code? Both are needed.",
         )
@@ -1897,6 +1913,8 @@ class OrknuxTools(
             ?: return null
         // A plugin's function changes where it was declared, not here.
         if (!chosen.editable) return null
+        // Never shown: an offer for a Python function that is not Python could not be saved.
+        if (notPython(chosen.name, chosen.language, code) != null) return null
 
         return FunctionSuggestion(
             functionId = requireNotNull(chosen.id),
@@ -1943,7 +1961,7 @@ class OrknuxTools(
                 "name" to chosen.name,
                 "description" to chosen.description,
                 "enabled" to chosen.enabled,
-                "language" to "typescript",
+                "language" to chosen.language.name.lowercase(),
                 "code" to chosen.typescript,
                 /*
                  * Said rather than left to be inferred from the code, because
@@ -1971,6 +1989,26 @@ class OrknuxTools(
         return held.content.singleOrNull { it.name.equals(asked, ignoreCase = true) || it.id?.toString() == asked }
     }
 
+    /**
+     * Why [code] cannot be offered for [tool] when the tool is Python, or null
+     * when it can - which is always, for a TypeScript tool.
+     *
+     * Parsed by the sandbox's own Python parser, the one a save goes through,
+     * so what is refused here is exactly what would be refused there.
+     */
+    private fun notPython(tool: AgentTool, code: String): String? = notPython(tool.name, tool.language, code)
+
+    /** The same for anything with a name and a language: a tool, or a function. */
+    private fun notPython(name: String, language: io.mszymanski.orknux.server.action.CodeLanguage, code: String): String? {
+        if (language != io.mszymanski.orknux.server.action.CodeLanguage.PYTHON) return null
+        val parsed = scripts.validate(code, io.mszymanski.orknux.workflow.script.ScriptLanguage.PYTHON)
+        if (parsed.valid) return null
+        val where = parsed.line?.let { " (line $it: ${parsed.message})" } ?: " (${parsed.message})"
+        return "$name is written in Python, and that code does not parse as Python$where. " +
+            "Offer it again as Python - `def main(...)` taking the parameters in order, no type annotations, " +
+            "no `export`, no braces. Nothing was shown."
+    }
+
     private fun toolMissing(asked: String?): String =
         if (asked == null) "Which tool? Give its name or id." else "There is no tool called $asked here"
 
@@ -1981,6 +2019,9 @@ class OrknuxTools(
      * the next thing the model hears is which of the two buttons they pressed.
      */
     private fun suggestTool(scope: OrknuxScope, arguments: String): String {
+        val chosen = toolCalled(scope, text(arguments, "tool"))
+        val code = text(arguments, "code")
+        if (chosen != null && code != null) notPython(chosen, code)?.let { return refuse(it) }
         val offered = toolSuggestionIn(scope, arguments) ?: return refuse(
             "Which tool, and what code? Both are needed, and the tool must be one of this workspace's.",
         )
@@ -2004,6 +2045,8 @@ class OrknuxTools(
     fun toolSuggestionIn(scope: OrknuxScope, arguments: String): ToolSuggestion? {
         val code = text(arguments, "code")?.takeIf { it.isNotBlank() } ?: return null
         val chosen = toolCalled(scope, text(arguments, "tool")) ?: return null
+        // Never shown: an offer for a Python tool that is not Python could not be saved.
+        if (notPython(chosen, code) != null) return null
 
         return ToolSuggestion(
             toolId = requireNotNull(chosen.id),

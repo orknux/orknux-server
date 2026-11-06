@@ -80,6 +80,7 @@ class ScriptImports(
     fun requireImportable(candidate: WorkflowFunction, workspaceId: Long, importer: Long?) {
         val id = requireNotNull(candidate.id)
         if (candidate.scope != FunctionScope.WORKSPACE) throw ImportNotEditableException(candidate.name)
+        if (candidate.language == CodeLanguage.PYTHON) throw ImportPythonException(candidate.name)
         if (candidate.workspaceId != workspaceId) throw ImportNotFoundException(id)
         if (importer != null) reaching(candidate, importer, ArrayDeque())?.let { throw ImportCycleException(it) }
     }
@@ -126,6 +127,10 @@ class ScriptImports(
             ?: throw ImportUnresolvableException("imports a function that has been deleted")
         if (function.scope != FunctionScope.WORKSPACE) {
             throw ImportUnresolvableException("imports ${function.name}, which is now provided by a plugin")
+        }
+        // Refused on every save that could cause it; said here too, since what is stored outlives the rule.
+        if (function.language == CodeLanguage.PYTHON) {
+            throw ImportUnresolvableException("imports ${function.name}, which is written in Python and cannot be imported")
         }
 
         path.addLast(id)

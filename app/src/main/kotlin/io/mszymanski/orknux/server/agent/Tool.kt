@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.agent
 
+import io.mszymanski.orknux.server.action.CodeLanguage
 import io.mszymanski.orknux.server.action.FunctionExternal
 import io.mszymanski.orknux.server.action.ScriptImport
 import io.mszymanski.orknux.server.action.ValueType
@@ -109,7 +110,16 @@ class AgentTool(
     @Column(length = 50)
     var summary: String? = null,
 
-    /** What runs: the JavaScript the editor compiled from [typescript]. */
+    /**
+     * What it is written in. TypeScript is compiled to JavaScript in the
+     * editor; Python runs as it was written, so a Python tool holds the same
+     * text in [source] and [typescript].
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    var language: CodeLanguage = CodeLanguage.TYPESCRIPT,
+
+    /** What runs: the JavaScript the editor compiled from [typescript], or the Python as written. */
     @Column(nullable = false, columnDefinition = "text")
     var source: String,
 
@@ -369,6 +379,32 @@ class ToolObjectRequiredException(val name: String) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("name" to name)
+}
+
+/**
+ * A Python tool was given functions or libraries to import.
+ *
+ * What a tool imports is the workspace's JavaScript, and Python cannot call it:
+ * refused at the save rather than discovered by the first agent to call it.
+ */
+class ToolPythonImportsException(val name: String) : RuntimeException(
+    "$name is written in Python, and a Python tool cannot import the workspace's JavaScript functions or libraries",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name)
+}
+
+/**
+ * A tool's language was changed without code written in the new one.
+ *
+ * The language says how the code is run, so moving it alone would hand
+ * TypeScript to Python or the other way about.
+ */
+class ToolLanguageNeedsCodeException(val name: String, val language: CodeLanguage) : RuntimeException(
+    "$name can only become ${language.spoken} with code written in ${language.spoken}: a tool's language and its code are saved together",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name, "language" to language.spoken)
 }
 
 /**

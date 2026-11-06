@@ -22,6 +22,7 @@ import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentSkill
 import io.mszymanski.orknux.server.agent.AgentSkillRepository
 import io.mszymanski.orknux.server.agent.AgentTool
+import io.mszymanski.orknux.server.action.CodeLanguage
 import io.mszymanski.orknux.server.agent.AgentToolParam
 import io.mszymanski.orknux.server.agent.AgentToolRepository
 import io.mszymanski.orknux.server.agent.AgentType
@@ -1076,6 +1077,9 @@ class ComponentImporter(
                     scope = FunctionScope.WORKSPACE,
                     name = name,
                     description = node.text("description"),
+                    // An envelope written before functions had a language holds TypeScript.
+                    language = node.text("language")?.let { named -> CodeLanguage.entries.firstOrNull { it.name == named } }
+                        ?: CodeLanguage.TYPESCRIPT,
                     source = node.required("source", component),
                     typescript = node.required("typescript", component),
                     returnType = node.enumOf("returnType", ValueType.MAP, component),
@@ -1124,6 +1128,9 @@ class ComponentImporter(
                     workspaceId = workspaceId,
                     name = name,
                     description = node.text("description"),
+                    // An envelope written before tools had a language holds TypeScript.
+                    language = node.text("language")?.let { named -> CodeLanguage.entries.firstOrNull { it.name == named } }
+                        ?: CodeLanguage.TYPESCRIPT,
                     source = node.required("source", component),
                     typescript = node.required("typescript", component),
                     enabled = node.path("enabled").asBoolean(true),

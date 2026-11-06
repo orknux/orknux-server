@@ -173,6 +173,7 @@ class FunctionCaller(
                 origin = origin.copy(functionId = function.id),
                 timeoutMillis = timeouts.forFunction(function.timeoutSeconds, workspaceId),
                 sessionId = sessionId,
+                language = function.language.script,
             )
         }
     }

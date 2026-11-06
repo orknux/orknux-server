@@ -164,7 +164,7 @@ class PluginRunner(
              * Intl at the top level cannot be loaded here. That is the safe
              * direction to be wrong in, and the template says so.
              */
-            guard.bounded(stopped, { newContext(emptySet(), sizeOf(source, libraries)) }, timeoutMillis) { read(it, source, libraries) }
+            guard.bounded(stopped, { newContext(emptySet(), sizeOf(source, libraries), PythonGuest.isPython(source)) }, timeoutMillis) { read(it, source, libraries) }
         } catch (failure: PolyglotException) {
             PluginInspection.Unreadable(describe(failure, stopped = stopped.get(), timeoutMillis = timeoutMillis))
         } catch (failure: ScriptBusyException) {
@@ -242,7 +242,7 @@ class PluginRunner(
         val started = System.nanoTime()
         val stopped = AtomicReference<Overrun?>(null)
         return try {
-            guard.bounded(stopped, { newContext(permissions, sizeOf(source, libraries)) }, timeoutMillis) {
+            guard.bounded(stopped, { newContext(permissions, sizeOf(source, libraries), PythonGuest.isPython(source)) }, timeoutMillis) {
                 ScriptResult.Returned(
                     invoke(it, source, functionName, arguments, settings, capabilities, on, surface, sessionId, libraries),
                     millis(started),
@@ -1156,10 +1156,11 @@ class PluginRunner(
      * [PluginProperties.sharedEngineMaxKb] - on an engine of its own that is
      * closed with the context, so the scripts it parsed go with it.
      */
-    private fun newContext(permissions: Set<PluginPermission>, size: Long): Context = Context.newBuilder("js")
+    private fun newContext(permissions: Set<PluginPermission>, size: Long, python: Boolean = false): Context =
+        (if (python) Context.newBuilder("js", "python") else Context.newBuilder("js"))
         .let { builder ->
             if (size <= properties.sharedEngineMaxKb * 1024) {
-                builder.engine(engine)
+                builder.engine(if (python) pythonEngine else engine)
             } else {
                 // No engine named: GraalJS makes one bound to this context and
                 // closes it when the context is closed.
@@ -1192,8 +1193,24 @@ class PluginRunner(
         // Denied unless accepted, though GraalJS gives both away by default.
         .option("js.console", "false")
         .option("js.intl-402", "false")
+        .speaking(python)
         .granting(permissions)
         .build()
+
+    /**
+     * What a Python plugin's context adds, which only takes away: `os` through
+     * Truffle's filesystem, which [IOAccess.NONE] denies, rather than native
+     * calls, and standard streams that go nowhere - `print` is `orknux.log`
+     * inside the guest. See [PythonGuest].
+     */
+    private fun Context.Builder.speaking(python: Boolean): Context.Builder = if (!python) {
+        this
+    } else {
+        option("python.PosixModuleBackend", "java")
+            .out(java.io.OutputStream.nullOutputStream())
+            .err(java.io.OutputStream.nullOutputStream())
+            .`in`(java.io.InputStream.nullInputStream())
+    }
 
     /**
      * Turns on exactly what was accepted, and can turn on nothing else.
@@ -1220,6 +1237,7 @@ class PluginRunner(
      * was settled outside it.
      */
     private fun evaluated(polyglot: Context, source: String, libraries: List<PluginLibraryFile>): Value {
+        if (PythonGuest.isPython(source)) return evaluatedPython(polyglot, source, libraries)
         if (libraries.isEmpty()) return polyglot.eval(module(source))
 
         val ordered = when (val bundle = PluginBundle.of(source, libraries)) {
@@ -1233,6 +1251,34 @@ class PluginRunner(
             registry.putMember(library.path, exports)
         }
         return polyglot.eval(module(PluginBundle.rewritten(source)))
+    }
+
+    /**
+     * A Python plugin, seen through the JavaScript class [PythonGuest.ADAPTER]
+     * builds, as the namespace a JavaScript module would have answered.
+     *
+     * The contract has already been evaluated, so `globalThis.orknux` and the
+     * declaration classes are there; the Python `orknux` is installed over
+     * them, the plugin's file is run, and its one `OrknuxPlugin` subclass is
+     * constructed with the workspace's settings. One file: a Python plugin's
+     * libraries would need an importer, and none is offered yet.
+     */
+    private fun evaluatedPython(polyglot: Context, source: String, libraries: List<PluginLibraryFile>): Value {
+        if (libraries.isNotEmpty()) throw ScriptContractException("a Python plugin is one file, and this one ships libraries")
+        PythonGuest.install(polyglot)
+        polyglot.eval(PythonGuest.source(source, "plugin.py"))
+        polyglot.eval(PythonGuest.source(PythonGuest.PLUGIN_SIDE, "orknux-plugin.py"))
+        val settings = polyglot.getBindings("js").getMember(SETTINGS)?.takeIf { it.isString }?.asString() ?: "{}"
+        val plugin = polyglot.getBindings("python").getMember("__orknux_plugin").execute(settings)
+        if (plugin.isString) throw ScriptContractException(plugin.asString())
+        return polyglot.eval("js", PythonGuest.ADAPTER).execute(plugin)
+    }
+
+    /** An engine holding both languages, made the first time a Python plugin is loaded or run. */
+    private val pythonEngine: Engine by lazy {
+        Engine.newBuilder("js", "python")
+            .option("engine.WarnInterpreterOnly", "false")
+            .build()
     }
 
     companion object {

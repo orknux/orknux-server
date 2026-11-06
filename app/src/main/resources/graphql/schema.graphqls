@@ -2022,8 +2022,8 @@ type Mutation {
     back on the workspace's number; between 1 and 600 seconds otherwise.
     """
     setToolTimeout(id: ID!, seconds: Int): Tool!
-    "Parses the source and says where it broke; the editor's Validate."
-    validateToolSource(workspaceId: ID!, source: String!): SourceValidation!
+    "Parses the source and says where it broke; the editor's Validate. Left out, the language is TypeScript, and the compiled JavaScript is what is sent."
+    validateToolSource(workspaceId: ID!, source: String!, language: CodeLanguage): SourceValidation!
     deleteTool(id: ID!): Boolean!
     "Chooses the model for the workspace's own small jobs. Null clears it."
     setWorkspaceCompanionModel(workspaceId: ID!, modelId: ID): Workspace!
@@ -2392,15 +2392,17 @@ type Mutation {
     createFunction(input: CreateFunctionInput!): Function!
     "Saves the function editor: the code, the details and the parameters."
     updateFunction(id: ID!, input: UpdateFunctionInput!): Function!
-    "Parses the source and says where it broke; the editor's Validate."
-    validateFunctionSource(workspaceId: ID!, source: String!): FunctionValidation!
+    "Parses the source and says where it broke; the editor's Validate. Left out, the language is TypeScript, and the compiled JavaScript is what is sent."
+    validateFunctionSource(workspaceId: ID!, source: String!, language: CodeLanguage): FunctionValidation!
     """
     Asks a chat model about the function in the editor - `code` as it stands
     there, saved or not, and `functionId` where it has been saved - with the
     conversation so far, oldest first. Nothing is saved: a rewrite it offers
     comes back as `suggestion`, for the editor to show beside the code.
+    `language` is what the editor holds it in; left out, the saved function's,
+    or TypeScript for one not saved yet.
     """
-    askFunction(workspaceId: ID!, functionId: ID, name: String, code: String!, modelId: ID!, messages: [FunctionChatTurnInput!]!): FunctionAnswer!
+    askFunction(workspaceId: ID!, functionId: ID, name: String, code: String!, modelId: ID!, messages: [FunctionChatTurnInput!]!, language: CodeLanguage): FunctionAnswer!
     """
     Runs the stored function with the arguments given, and says what came back.
 
@@ -4522,9 +4524,11 @@ type Tool {
     one, and the description's first words stand in.
     """
     summary: String
-    "The JavaScript that runs."
+    "What it is written in."
+    language: CodeLanguage!
+    "What runs: the JavaScript compiled from `typescript`, or the Python as written."
     source: String!
-    "The TypeScript it was compiled from, which is what the editor opens."
+    "What the editor opens: the TypeScript it was compiled from, or for Python the same text as `source`."
     typescript: String!
     """
     What it takes, in the order the sandbox passes it.
@@ -4849,12 +4853,26 @@ input ToolParamInput {
     objectId: ID
 }
 
+"""
+What a workspace's function or tool is written in. TypeScript is compiled to
+JavaScript in the editor; Python is run as written, by GraalPy, in the same
+sandbox and with the same `orknux` helpers. Python code defines `main`, takes its
+parameters in order, and cannot import the workspace's JavaScript functions or
+libraries - nor can a Python function be imported.
+"""
+enum CodeLanguage {
+    TYPESCRIPT
+    PYTHON
+}
+
 input CreateToolInput {
     "The phrase it is listed by in an agent's briefing, 50 characters at most."
     summary: String
     workspaceId: ID!
     name: String!
     description: String
+    "Left out means TypeScript. For Python, `source` or `typescript` carries the code, or both carry the same text."
+    language: CodeLanguage
     """
     The compiled JavaScript. Given together with `typescript` or not at all: a
     tool whose halves were written separately is one whose editor and sandbox
@@ -4878,6 +4896,8 @@ input UpdateToolInput {
     summary: String
     name: String
     description: String
+    "Null leaves it alone. A new language has to arrive with code written in it."
+    language: CodeLanguage
     "The compiled JavaScript. Given together with `typescript` or not at all."
     source: String
     "The TypeScript it was compiled from."
@@ -8348,9 +8368,11 @@ type Function {
     plugin: FunctionPlugin
     name: String!
     description: String
-    "The JavaScript that runs, compiled from the TypeScript below."
+    "What it is written in. A plugin's function says TYPESCRIPT here whatever its plugin is written in."
+    language: CodeLanguage!
+    "What runs: the JavaScript compiled from the TypeScript below, or the Python as written."
     source: String!
-    "What it was written in. Null for a plugin's function, which was not written here."
+    "What it was written in, or for Python the same text as `source`. Null for a plugin's function, which was not written here."
     typescript: String
     returnType: ValueType!
     "Which object it returns, when the return type is OBJECT."
@@ -8519,6 +8541,8 @@ input CreateFunctionInput {
     workspaceId: ID!
     name: String!
     description: String
+    "Left out means TypeScript. For Python, `source` or `typescript` carries the code, or both carry the same text."
+    language: CodeLanguage
     "The compiled JavaScript. Left out for a new function, which starts from a stub that runs."
     source: String
     "The TypeScript the source was compiled from. The two are sent together or not at all."
@@ -8538,6 +8562,8 @@ input UpdateFunctionInput {
     externalVariableIds: [ID!]
     name: String
     description: String
+    "Null leaves it alone. A new language has to arrive with code written in it, and a function something imports stays TypeScript."
+    language: CodeLanguage
     "The compiled JavaScript. Sent together with the TypeScript it came from."
     source: String
     "The TypeScript the source was compiled from. Neither moves without the other."

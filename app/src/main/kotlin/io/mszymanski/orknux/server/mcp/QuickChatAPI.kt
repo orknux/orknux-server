@@ -58,6 +58,9 @@ class QuickChat(
     /** Where a model that could not answer is written down, for Admin > Reports > Errors. */
     private val errors: io.mszymanski.orknux.server.errors.ErrorRecorder,
     private val llmModels: io.mszymanski.orknux.connector.model.LlmModelRepository,
+    /** The tool or function on the page, if the page is one, for the language its code is to be offered in. */
+    private val agentTools: io.mszymanski.orknux.server.agent.AgentToolRepository,
+    private val functions: io.mszymanski.orknux.server.action.WorkflowFunctionRepository,
 ) {
 
     /**
@@ -106,7 +109,9 @@ class QuickChat(
         var offering: FunctionSuggestion? = null
         var offeringTool: ToolSuggestion? = null
         val offered = orknux.specs(scope)
-        val conversation = mutableListOf(ChatTurn(role = "system", content = briefing(page, mayWrite)))
+        val conversation = mutableListOf(
+            ChatTurn(role = "system", content = briefing(page, mayWrite, pythonOn(page, workspaceId))),
+        )
         conversation += said
 
         /*
@@ -227,7 +232,40 @@ class QuickChat(
      * standing on a failed run means *that* run, and a panel that has to ask
      * "which run?" is slower than the page they are already looking at.
      */
-    private fun briefing(page: PageContext?, mayWrite: Boolean): String = buildString {
+    /** A Python tool or function on the page somebody is looking at. */
+    data class PythonOnPage(val tool: Boolean, val name: String)
+
+    /**
+     * The Python tool or function the person is looking at, or null when the
+     * page is neither.
+     *
+     * Read off the path because that is all a page says about itself, and only
+     * one of this workspace's counts - the path is the browser's word.
+     */
+    private fun pythonOn(page: PageContext?, workspaceId: Long): PythonOnPage? {
+        val path = page?.path ?: return null
+        val python = io.mszymanski.orknux.server.action.CodeLanguage.PYTHON
+        TOOL_PAGE.find(path)?.let { found ->
+            val tool = agentTools.findById(found.groupValues[1].toLong()).orElse(null) ?: return null
+            if (tool.workspaceId != workspaceId || tool.language != python) return null
+            return PythonOnPage(tool = true, name = tool.name)
+        }
+        FUNCTION_PAGE.find(path)?.let { found ->
+            val function = functions.findById(found.groupValues[1].toLong()).orElse(null) ?: return null
+            if (function.workspaceId != workspaceId || function.language != python) return null
+            return PythonOnPage(tool = false, name = function.name)
+        }
+        return null
+    }
+
+    /**
+     * @param python the Python tool or function on the page, when it is one.
+     *   Then the instructions for writing it are Python's and say nothing of any
+     *   other language: a model told how TypeScript is written here writes
+     *   TypeScript, whatever the code in front of it is, and an offer in the
+     *   wrong language cannot be saved.
+     */
+    private fun briefing(page: PageContext?, mayWrite: Boolean, python: PythonOnPage? = null): String = buildString {
         append(
             "You are the quick assistant inside orknux, a workflow and agent platform. " +
                 "Answer in one or two sentences unless asked for more. " +
@@ -271,7 +309,7 @@ class QuickChat(
          * on its own.
          */
         append(
-            "A tool is a different thing from a function: a tool is TypeScript an agent calls while it runs, " +
+            "A tool is a different thing from a function: a tool is code an agent calls while it runs, " +
                 "it lives at `/workspace/<workspace>/tools/<tool>`, and it is read with `orknux_tool` — never " +
                 "with `orknux_function`. Ids are not shared between them, so on a tools page use the tool tools. ",
         )
@@ -285,7 +323,23 @@ class QuickChat(
          * is which of those they chose, and it is a fact rather than a guess.
          */
         append(
-            if (mayWrite) {
+            if (mayWrite && python != null && !python.tool) {
+                "The function on this page, ${python.name}, is written in Python. To change it, call " +
+                    "`orknux_suggest_function_code` with the complete new Python source: they are shown it against " +
+                    "what is there now and either accept it or reject it, and nothing is saved unless they " +
+                    "accept. Do not paste it into your reply and ask them to copy it. Write Python and only " +
+                    "Python - no `export`, no braces, no type annotations. It defines `def main(...)`; its " +
+                    "positional parameters are, in order, the function's own and then any workspace variables it " +
+                    "is handed, which stay last under the same names. Their types are set in the editor's panel, " +
+                    "so write the names alone. Whatever `main` returns goes to the next node as JSON, so return a " +
+                    "dict, a list, a string, a number, a bool or None. " + PYTHON_SANDBOX +
+                    "A Python function cannot import the workspace's other functions or libraries, and nothing can " +
+                    "import it. Offer one change at a time and wait for the outcome before offering another. "
+            } else if (mayWrite && python != null) {
+                // Not what is being worked on here, so said without the language it is usually written in.
+                "To change a function, call `orknux_suggest_function_code` with the complete new source, in the " +
+                    "function's own language; nothing is saved unless they accept. "
+            } else if (mayWrite) {
                 "To change one, call `orknux_suggest_function_code` with the complete new source: they are shown " +
                     "it against what is there now and either accept it or reject it. Do not paste a whole " +
                     "function into your reply and ask them to copy it - offer it with the tool and say in one " +
@@ -351,7 +405,23 @@ class QuickChat(
          * three refusals it saves for functions.
          */
         append(
-            if (mayWrite) {
+            if (mayWrite && python != null && !python.tool) {
+                "To change a tool, call `orknux_suggest_tool_code` with the complete new source, in the tool's own " +
+                    "language; nothing is saved unless they accept. "
+            } else if (mayWrite && python != null) {
+                "The tool on this page, ${python.name}, is written in Python. To change it, call " +
+                    "`orknux_suggest_tool_code` with the complete new Python source: they are shown it against " +
+                    "what is there now and either accept it or reject it, and nothing is saved unless they " +
+                    "accept. Do not paste it into your reply and ask them to copy it. Write Python and only " +
+                    "Python - no `export`, no braces, no type annotations. It defines `def main(...)`; its " +
+                    "positional parameters are, in order, " +
+                    "what the agent calling it fills in, then any workspace variables it is handed, which stay " +
+                    "last under the same names. Their types are set in the editor's panel, so write the names " +
+                    "alone. Whatever `main` returns goes back to the agent as JSON, so return a dict, a list, a " +
+                    "string, a number, a bool or None. " + PYTHON_SANDBOX + "A Python tool " +
+                    "cannot import the workspace's functions or libraries. Its description is what an agent " +
+                    "reads to decide whether to call it, so say when a change makes that description wrong. "
+            } else if (mayWrite) {
                 "To change a tool, call `orknux_suggest_tool_code` with the complete new TypeScript: they are " +
                     "shown it against what is there now and either accept it or reject it, and nothing is " +
                     "saved unless they accept. Do not paste a tool into your reply and ask them to copy it. " +
@@ -379,7 +449,7 @@ class QuickChat(
          * is the answer: `messages` and `replies` are both there and picking
          * between them is the whole question.
          */
-        append(HOST_CALLS)
+        append(if (python != null) HOST_CALLS_PYTHON else HOST_CALLS)
         /*
          * Said as well as enforced. The scope already withholds the tool, so a
          * model told nothing would offer to start a workflow and then fail —
@@ -405,6 +475,21 @@ class QuickChat(
     }
 
     internal companion object {
+        /** A function's own page; group 1 is the function's id. */
+        val FUNCTION_PAGE = Regex("""/workspace/\d+/functions/(\d+)(?:[/?#]|$)""")
+
+        /** The sandbox, as a Python tool or function meets it. */
+        const val PYTHON_SANDBOX =
+            "It runs in a locked-down sandbox: the Python standard library is there (`json`, `re`, `datetime`, " +
+                "`math`, `statistics`, `hashlib`, `base64`) but no files, no `socket`, `subprocess` or threads, no " +
+                "pip packages and no network of its own. The server's helpers are the global `orknux`, with no " +
+                "import: `orknux.http.get(url)`, `orknux.http.post(url, body)`, `orknux.log.info(...)` and the Slack " +
+                "helpers below, called with positional arguments and answering dicts; a call to a helper that does " +
+                "not exist raises `orknux.OrknuxError`. `print` writes to the log. "
+
+        /** A tool's own page; group 1 is the tool's id. */
+        val TOOL_PAGE = Regex("""/workspace/\d+/tools/(\d+)(?:[/?#]|$)""")
+
         /**
          * What the panel's sessions are filed under, so they sort together and
          * are obviously not somebody's workflow conversation.
@@ -554,6 +639,50 @@ class QuickChat(
                 "`orknux.log` is how a function says anything: there is no `console`, the level is the " +
                 "installation's, and anything that is not a string is logged as JSON. " +
                 "There is nothing else on `orknux`. "
+
+        /**
+         * [HOST_CALLS] for a Python tool: the same surface, said in Python.
+         *
+         * The TypeScript declarations are the shape a JavaScript guest sees, and
+         * shown to a model writing Python they are the thing it copies. The
+         * helpers are the same objects - Python reaches them through a door onto
+         * the JavaScript - so what each takes and answers is the same; only the
+         * spelling differs, and a dict stands where an object did.
+         */
+        val HOST_CALLS_PYTHON =
+            "\n\nThe sandbox provides exactly one thing beyond Python and its standard library, the global " +
+                "`orknux`, and this is its whole surface:\n" +
+                """
+                # connection: a connection dict from orknux.connections.query, or its id or name.
+                orknux.slack.thread(connection, channel, thread_ts[, limit])
+                    # -> {'messages': [{'ts', 'user', 'text', 'parent'}], 'replies': int}  or  {'error': str}
+                orknux.slack.post(connection, channel, text[, thread_ts])
+                    # -> {'channel': str, 'ts': str | None}  or  {'error': str}
+                orknux.slack.react(connection, channel, ts, emoji)   # -> {'ok': True}  or  {'error': str}
+                orknux.slack.message(connection, link)
+                    # -> {'channel', 'ts', 'user', 'text', 'threadTs'}  or  {'error': str}
+                orknux.slack.user(connection, user_id)
+                    # -> {'id', 'name', 'realName', 'displayName', 'bot'}  or  {'error': str}
+                orknux.slack.mention(connection, name)   # -> {'mention', 'id', 'label'}  or  {'error': str}
+                orknux.log.debug(*said); orknux.log.info(*said); orknux.log.warn(*said); orknux.log.error(*said)
+                orknux.http.request({'url': url, 'method': 'GET', 'headers': {...}, 'body': ...})
+                orknux.http.get(url[, headers])
+                orknux.http.post(url[, body[, headers]])
+                    # each -> {'status': int, 'headers': dict, 'body': str, 'json': parsed or absent}  or  {'error': str}
+                orknux.connections.query({'type': 'SLACK', 'name': ...})
+                    # -> {'connections': [{'id', 'name', 'type', 'pluginType', 'url', 'authType', 'status', 'headers'}]}
+                    #    or {'error': str}
+                """.trimIndent() +
+                "\nArguments are positional, in that order; brackets mark the optional ones. Keyword arguments " +
+                "become one dict passed last, which suits `http.request` and nothing else. " +
+                "Check `'error' in answer` first: a refusal is data, not an exception. A call to a helper that " +
+                "does not exist raises `orknux.OrknuxError`. In a thread `messages` is the page that was fetched " +
+                "and includes the parent; `replies` is Slack's own count of the whole thread. `slack.mention` " +
+                "turns a name into the notation to put in `slack.post`'s text; never write `<@U...>` from a " +
+                "guessed id. `orknux.http` is the only way to a network: the server makes the request, so there " +
+                "is no `urllib`, `requests` or socket. A dict body is sent as JSON. A credential belongs in a " +
+                "workspace variable, which arrives as a parameter after the tool's own - never in the source. " +
+                "`print` and `orknux.log` are how the tool says anything. There is nothing else on `orknux`. "
 
         val log = LoggerFactory.getLogger(QuickChat::class.java)
     }

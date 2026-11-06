@@ -6,6 +6,7 @@ import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
+import io.mszymanski.orknux.workflow.script.PythonGuest
 import io.mszymanski.orknux.workflow.script.PluginBundle
 import io.mszymanski.orknux.workflow.script.PluginCapability
 import io.mszymanski.orknux.workflow.script.PluginInspection
@@ -238,7 +239,11 @@ class PluginUploadAPI(
         }
 
         val written = code.codeOf(id) ?: throw PluginNotFoundException(id)
-        val extension = if (written.typescript == null) "js" else "ts"
+        val extension = when {
+            PythonGuest.isPython(written.source) -> "py"
+            written.typescript == null -> "js"
+            else -> "ts"
+        }
         return ResponseEntity.ok()
             .contentType(MediaType.valueOf("text/plain"))
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"${plugin.key}.$extension\"")
@@ -284,13 +289,15 @@ class PluginUploadAPI(
          */
         val sent = file.originalFilename?.trim()?.ifEmpty { null } ?: "plugin.js"
         val zipped = sent.endsWith(".zip")
-        if (!zipped && !sent.endsWith(".js") && !sent.endsWith(".mjs")) throw PluginNotJavaScriptException(sent)
+        val python = sent.endsWith(".py")
+        if (!zipped && !python && !sent.endsWith(".js") && !sent.endsWith(".mjs")) throw PluginNotJavaScriptException(sent)
 
         val opened = if (zipped) {
             unzipped(file.bytes)
         } else {
             Unzipped(sent, text(file.bytes), emptyList(), manifest = null, icon = null)
         }
+        requireLanguageAgrees(opened.filename, opened.source)
 
         return loaded(
             opened.filename,
@@ -380,11 +387,14 @@ class PluginUploadAPI(
 
     fun fetchedBundle(address: String): Triple<String, String, List<PluginLibraryFile>> {
         val base = runCatching { java.net.URI.create(address) }.getOrNull()
-            ?.takeIf { it.scheme?.lowercase() in setOf("http", "https") && it.path.endsWith(".js") }
+            ?.takeIf { it.scheme?.lowercase() in setOf("http", "https") && (it.path.endsWith(".js") || it.path.endsWith(".py")) }
             ?: throw PluginUrlInvalidException(address)
 
         val source = fetched(base)
         val filename = base.path.substringAfterLast('/')
+        // A Python plugin is one file, and its imports are not paths to fetch.
+        requireLanguageAgrees(filename, source)
+        if (PythonGuest.isPython(source)) return Triple(filename, source, emptyList())
 
         val files = linkedMapOf<String, PluginLibraryFile>()
         val frontier = ArrayDeque<Pair<String, String>>()
@@ -804,7 +814,7 @@ class PluginUploadAPI(
          * about the plugin: "slack", "slack.min" and "slack (2)" are one
          * plugin, and only the first of those reads like its name.
          */
-        val name = manifest?.name ?: filename.removeSuffix(".mjs").removeSuffix(".js").takeLast(MAX_NAME)
+        val name = manifest?.name ?: filename.removeSuffix(".mjs").removeSuffix(".js").removeSuffix(".py").takeLast(MAX_NAME)
 
         // The bundle as one measure and one fingerprint: what is stored is the
         // plugin and its files, so what is sized and hashed is too.
@@ -1082,7 +1092,7 @@ class PluginUploadAPI(
                      * not declare is refused by name, and a declared one that
                      * did not arrive is too.
                      */
-                    if (!path.endsWith(".js") && path != MANIFEST && !path.endsWith(".svg")) {
+                    if (!path.endsWith(".js") && !path.endsWith(".py") && path != MANIFEST && !path.endsWith(".svg")) {
                         zip.closeEntry()
                         entry = zip.nextEntry
                         continue
@@ -1122,21 +1132,48 @@ class PluginUploadAPI(
         val faceDark = drawn(said?.iconDark ?: besideIt(said?.icon))
 
         // The plugin itself: the one root-level .js, or plugin.js where
-        // several sit there. A rule somebody can hold in their head.
-        val code = held.filterKeys { it.endsWith(".js") }
-        if (code.isEmpty()) throw PluginZipInvalidException("the zip holds no JavaScript, and the plugin is JavaScript")
-        val roots = code.keys.filter { '/' !in it }
-        val main = when {
-            roots.size == 1 -> roots.single()
-            "plugin.js" in roots -> "plugin.js"
-            roots.isEmpty() -> throw PluginZipInvalidException("the zip has no file at its root, and the plugin itself sits there")
-            else -> throw PluginZipInvalidException(
-                "the zip has several files at its root (${roots.sorted().joinToString(", ")}) - name the plugin plugin.js",
-            )
-        }
+        // several sit there. A rule somebody can hold in their head. A zip
+        // with no JavaScript in it is a Python plugin, by the same rule with
+        // .py - and a Python plugin is one file, which the sandbox says if
+        // it ships more.
+        val javascript = held.filterKeys { it.endsWith(".js") }
+        val code = javascript.ifEmpty { held.filterKeys { it.endsWith(".py") } }
+        if (code.isEmpty()) throw PluginZipInvalidException("the zip holds no JavaScript or Python, and the plugin is one of those")
+        val main = rootOf(code.keys, if (javascript.isEmpty()) "plugin.py" else "plugin.js")
+        requireLanguageAgrees(main, text(code.getValue(main)))
         val libraries = code.filterKeys { it != main }
             .map { (path, content) -> PluginLibraryFile(path, text(content)) }
         return Unzipped(main, text(code.getValue(main)), libraries, said, face, faceDark)
+    }
+
+    /** The one file at a zip's root, or [preferred] where several sit there. */
+    private fun rootOf(paths: Set<String>, preferred: String): String {
+        val roots = paths.filter { '/' !in it }
+        return when {
+            roots.size == 1 -> roots.single()
+            preferred in roots -> preferred
+            roots.isEmpty() -> throw PluginZipInvalidException("the zip has no file at its root, and the plugin itself sits there")
+            else -> throw PluginZipInvalidException(
+                "the zip has several files at its root (${roots.sorted().joinToString(", ")}) - name the plugin $preferred",
+            )
+        }
+    }
+
+    /**
+     * A .py file has to be a Python plugin as the sandbox recognises one.
+     *
+     * The sandbox tells the two languages apart by the import of the base
+     * class, not by a filename that does not travel with the source. Without
+     * this a .py that forgot the import would be read as JavaScript and
+     * refused with a JavaScript syntax error about a file that is not
+     * JavaScript - the right refusal in the wrong words.
+     */
+    private fun requireLanguageAgrees(filename: String, source: String) {
+        if (filename.endsWith(".py") && !PythonGuest.isPython(source)) {
+            throw PluginContractException(
+                "$filename is Python, and a Python plugin imports its base class: from orknux import OrknuxPlugin",
+            )
+        }
     }
 
 
@@ -2480,7 +2517,7 @@ class PluginEmptyException : RuntimeException("That file is empty")
 class PluginTooLargeException(maxKb: Long) : RuntimeException("A plugin may be at most $maxKb KB")
 
 class PluginNotJavaScriptException(filename: String) :
-    RuntimeException("$filename is not JavaScript; a plugin is a .js or .mjs file")
+    RuntimeException("$filename is not a plugin file; a plugin is a .js, .mjs or .py file, or a .zip of one")
 
 class PluginNotTextException : RuntimeException("That file is not UTF-8 text")
 

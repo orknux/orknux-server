@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.agent
 
+import io.mszymanski.orknux.server.action.CodeLanguage
 import io.mszymanski.orknux.server.action.FunctionExternal
 import io.mszymanski.orknux.server.action.FunctionExternalView
 import io.mszymanski.orknux.server.action.ImportNameInvalidException
@@ -126,9 +127,13 @@ class ToolAPI(
          */
         val params = (input.params ?: listOf(DEFAULT_PARAM)).toParams(input.workspaceId)
         val externals = input.externalVariableIds.orEmpty().toExternals(input.workspaceId)
-        val code = codeFrom(input.source, input.typescript) ?: starter(name, params)
-        requireParses(code.javascript)
-        requireSignature(code.javascript, params.size, externals.size)
+        val language = input.language ?: CodeLanguage.TYPESCRIPT
+        val code = codeFrom(input.source, input.typescript, language) ?: starter(name, params, language)
+        requireParses(code.javascript, language)
+        requireSignature(code.javascript, params.size, externals.size, language)
+        val imports = input.imports.orEmpty().toImports(input.workspaceId)
+        val libraries = input.libraries.orEmpty().toLibraries()
+        requireImportable(name, language, imports, libraries)
 
         val tool = tools.save(
             AgentTool(
@@ -136,12 +141,13 @@ class ToolAPI(
                 name = name,
                 description = input.description?.trim()?.ifEmpty { null }?.also(::requireDescriptionFits),
                 summary = input.summary?.trim()?.ifEmpty { null }?.also(::requireSummaryFits),
+                language = language,
                 source = code.javascript,
                 typescript = code.typescript,
                 params = params,
                 externals = externals,
-                imports = input.imports.orEmpty().toImports(input.workspaceId),
-                libraries = input.libraries.orEmpty().toLibraries(),
+                imports = imports,
+                libraries = libraries,
                 lastModifiedAt = OffsetDateTime.now(),
                 lastModifiedBy = currentUser(),
             ),
@@ -175,10 +181,19 @@ class ToolAPI(
          * showing code the sandbox is not running, which is the one failure this
          * pair exists to prevent.
          */
-        codeFrom(input.source, input.typescript)?.let { code ->
-            requireParses(code.javascript)
-            tool.source = code.javascript
-            tool.typescript = code.typescript
+        val language = input.language ?: tool.language
+        val code = codeFrom(input.source, input.typescript, language)
+        /*
+         * A tool's code is in its language, so the language moves only with
+         * code written in the new one. Moving it alone would leave TypeScript
+         * to be run as Python.
+         */
+        if (language != tool.language && code == null) throw ToolLanguageNeedsCodeException(tool.name, language)
+        code?.let {
+            requireParses(it.javascript, language)
+            tool.language = language
+            tool.source = it.javascript
+            tool.typescript = it.typescript
         }
         /*
          * Null leaves them alone, an empty list takes them all off - the same
@@ -195,7 +210,8 @@ class ToolAPI(
          * field happened to arrive: adding a parameter without touching the code
          * breaks the contract exactly as much as editing the code does.
          */
-        requireSignature(tool.source, tool.params.size, tool.externals.size)
+        requireSignature(tool.source, tool.params.size, tool.externals.size, tool.language)
+        requireImportable(tool.name, tool.language, tool.imports, tool.libraries)
 
         tool.lastModifiedAt = OffsetDateTime.now()
         tool.lastModifiedBy = currentUser()
@@ -265,9 +281,13 @@ class ToolAPI(
      * is for, not a failed request.
      */
     @MutationMapping
-    fun validateToolSource(@Argument workspaceId: Long, @Argument source: String): SourceValidationView {
+    fun validateToolSource(
+        @Argument workspaceId: Long,
+        @Argument source: String,
+        @Argument language: CodeLanguage?,
+    ): SourceValidationView {
         requireWorkspaceAccess(workspaceId)
-        val checked = scripts.validate(source)
+        val checked = scripts.validate(source, (language ?: CodeLanguage.TYPESCRIPT).script)
         return SourceValidationView(checked.valid, checked.message, checked.line, checked.column)
     }
 
@@ -317,6 +337,7 @@ class ToolAPI(
         name = tool.name,
         description = tool.description,
         summary = tool.summary,
+        language = tool.language,
         source = tool.source,
         typescript = tool.typescript,
         params = params,
@@ -374,8 +395,8 @@ class ToolAPI(
         }
         .toMutableList()
 
-    private fun requireParses(source: String) {
-        val checked = scripts.validate(source)
+    private fun requireParses(source: String, language: CodeLanguage) {
+        val checked = scripts.validate(source, language.script)
         if (!checked.valid) throw ToolSourceInvalidException(checked.message ?: "The script could not be parsed")
     }
 
@@ -388,9 +409,9 @@ class ToolAPI(
      * reads it as its first argument, whatever that argument was meant to be.
      * The same check a function is saved under.
      */
-    private fun requireSignature(source: String, params: Int, externals: Int) {
+    private fun requireSignature(source: String, params: Int, externals: Int, language: CodeLanguage) {
         val expected = params + externals
-        when (val counted = scripts.arity(source)) {
+        when (val counted = scripts.arity(source, language.script)) {
             is ScriptArity.Counted ->
                 if (counted.parameters != expected) {
                     throw ToolSignatureMismatchException(counted.parameters, params, externals)
@@ -398,6 +419,13 @@ class ToolAPI(
 
             // No default export, or not a function: it could never have run.
             is ScriptArity.Unreadable -> throw ToolSourceInvalidException(counted.reason)
+        }
+    }
+
+    /** What a tool imports is JavaScript, which a Python tool has no way to call. */
+    private fun requireImportable(name: String, language: CodeLanguage, imports: List<ScriptImport>, libraries: List<ScriptImport>) {
+        if (language == CodeLanguage.PYTHON && (imports.isNotEmpty() || libraries.isNotEmpty())) {
+            throw ToolPythonImportsException(name)
         }
     }
 
@@ -414,7 +442,15 @@ class ToolAPI(
      * difference between them is the annotations. They are not two versions that
      * could drift.
      */
-    private fun starter(name: String, params: List<AgentToolParam>): ToolCode {
+    private fun starter(name: String, params: List<AgentToolParam>, language: CodeLanguage): ToolCode {
+        if (language == CodeLanguage.PYTHON) {
+            val python = """
+                |def main(${params.joinToString(", ") { it.name }}):
+                |    # What this returns is handed back to the agent that called it.
+                |    return {"ok": True}
+            """.trimMargin() + "\n"
+            return ToolCode(javascript = python, typescript = python)
+        }
         fun body(arguments: String) = """
             export default async function $name($arguments) {
               // What this returns is handed back to the agent that called it.
@@ -517,9 +553,20 @@ class ToolAPI(
      * means "leave the code alone" on an update and "start from a stub" on a
      * create.
      */
-    private fun codeFrom(javascript: String?, typescript: String?): ToolCode? {
+    private fun codeFrom(javascript: String?, typescript: String?, language: CodeLanguage): ToolCode? {
         val compiled = javascript?.takeIf { it.isNotBlank() }
         val written = typescript?.takeIf { it.isNotBlank() }
+        /*
+         * Python is not compiled, so there is one half and it is both: either
+         * field carries it. Two that disagree are refused, since which one
+         * was meant is a guess.
+         */
+        if (language == CodeLanguage.PYTHON) {
+            if (compiled != null && written != null && compiled != written) {
+                throw ToolSourceInvalidException("a Python tool's source and its written code are the same text, and these differ")
+            }
+            return (compiled ?: written)?.let { ToolCode(javascript = it, typescript = it) }
+        }
         return when {
             compiled != null && written != null -> ToolCode(javascript = compiled, typescript = written)
             compiled != null -> throw ToolCodeIncompleteException("TypeScript this JavaScript was compiled from")
@@ -585,6 +632,8 @@ data class CreateToolInput(
     val description: String? = null,
     /** The line it gets in an agent's briefing, 50 characters at most. Issue #481. */
     val summary: String? = null,
+    /** Left out means TypeScript, which every tool was until Python. */
+    val language: CodeLanguage? = null,
     /** Both left out for a new tool, which starts from a stub that parses. */
     val source: String? = null,
     val typescript: String? = null,
@@ -603,6 +652,8 @@ data class UpdateToolInput(
     val description: String? = null,
     /** Null leaves it alone; an empty string clears it. Issue #481. */
     val summary: String? = null,
+    /** Null leaves it alone. A new language comes with code written in it. */
+    val language: CodeLanguage? = null,
     val source: String? = null,
     val typescript: String? = null,
     /** Null leaves them alone; an empty list takes them all off. */
@@ -634,6 +685,7 @@ data class ToolView(
     val description: String?,
     /** The line it gets in an agent's briefing, or null where nobody wrote one. Issue #481. */
     val summary: String?,
+    val language: CodeLanguage,
     val source: String,
     val typescript: String,
     val params: List<ToolParamView>,
