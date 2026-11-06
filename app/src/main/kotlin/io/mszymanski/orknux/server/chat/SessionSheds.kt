@@ -50,7 +50,8 @@ class SessionSheds(
         // What it found, kept past the transcript being trimmed. #371.
         notes.shed(session, agent.name),
         // Working files across the job, longer than a note. #411.
-        scratchpads.shed(session),
+        // And the program it may run over them, which may call this agent's own tools.
+        scratchpads.shed(session, agent),
         // The plan it works down across turns. #405.
         todos.shed(session),
         // The time now, which it has no other way to know. Needs no session. #407.

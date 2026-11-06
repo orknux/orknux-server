@@ -300,6 +300,17 @@ enum class Tunable(
         "Each check keeps the beginning of what the tool returned, and the message that wakes the agent carries the same; the rest is cut, and the message says how much. The condition is still held against all of it.",
     ),
 
+    CODE_RUN_SECONDS(
+        "code.run.seconds", 300, 5, null, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "How long a program an agent runs with code_run may take",
+        "Longer than a function's limit, because such a program may call the agent's own tools in a loop - a status per hundred orders - and every call is waited for. Past this it is stopped, and the agent is told so.",
+    ),
+    CODE_RUN_TOOL_CALLS(
+        "code.run.tool.calls", 500, 0, null, TuningSection.AGENTS, TuningUnit.TIMES,
+        "How many of its tools one code_run program may call",
+        "Each call past this is refused in words rather than run, so a loop that never ends stops spending somebody's API. 0 lets a program call none.",
+    ),
+
     /* ---- Functions and HTTP ---- */
 
     HTTP_TIMEOUT_SECONDS(

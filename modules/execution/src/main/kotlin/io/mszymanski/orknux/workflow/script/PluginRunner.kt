@@ -98,6 +98,7 @@ class PluginRunner(
             .replace("%LOG%", HostHelpers.log(HostHelpers.threshold(properties.logLevel)).prependIndent("  "))
             .replace("%STORE%", HostHelpers.sessionStore().prependIndent("  "))
             .replace("%SCRATCHPAD%", HostHelpers.scratchpads().prependIndent("  "))
+            .replace("%TOOLS%", HostHelpers.agentTools().prependIndent("  "))
             .replace("%CRYPTO%", HostHelpers.crypto().prependIndent("  "))
             .replace("%ENCODING%", HostHelpers.encoding().prependIndent("  "))
             .replace(
@@ -1746,6 +1747,7 @@ class PluginRunner(
 %LOG%
 %STORE%
 %SCRATCHPAD%
+%TOOLS%
 %CRYPTO%
 %ENCODING%
 %RENDER%

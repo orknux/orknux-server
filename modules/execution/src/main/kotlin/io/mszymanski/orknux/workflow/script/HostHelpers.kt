@@ -733,7 +733,16 @@ internal object HostHelpers {
               const door = globalThis.__orknuxStoreGet;
               if (door === undefined) return null;
               const held = door(String(key));
-              return held === null ? null : JSON.parse(held);
+              if (held === null) return null;
+              const value = JSON.parse(held);
+              /*
+               * Without the byte-order mark a spreadsheet export starts with.
+               * Kept, a CSV read with csv.DictReader names its first column
+               * '\ufeffid', and the program's first lookup of 'id' fails -
+               * which is what the first program an agent wrote over an
+               * attached CSV did. The mark says nothing about the text.
+               */
+              return typeof value === 'string' && value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
             },
 
             /**
@@ -803,6 +812,34 @@ internal object HostHelpers {
         },
     """.trimIndent()
 
+    /**
+     * `orknux.tools`, the asking agent's own tools, for a program an agent wrote
+     * and runs with `code_run`: a hundred calls in a loop rather than a hundred
+     * turns. Absent everywhere else, and said so - a function, a tool or a
+     * plugin has no agent behind it.
+     */
+    fun agentTools(): String = """
+        tools: {
+          /**
+           * Calls one of the agent's tools by name, as the agent would, and
+           * answers what it answered - parsed where it is JSON, its text where
+           * it is not. A refusal comes back as { error }, not thrown.
+           */
+          call(name, args) {
+            const door = globalThis.__orknuxTool;
+            if (door === undefined) {
+              throw new Error('there are no agent tools here: only a program an agent runs with code_run can call them');
+            }
+            const answer = door(String(name), JSON.stringify(args === undefined || args === null ? {} : args));
+            try {
+              return JSON.parse(answer);
+            } catch (error) {
+              return answer;
+            }
+          },
+        },
+    """.trimIndent()
+
     fun scratchpads(): String = """
         scratchpad: {
           /** The one door, request and answer both JSON. */
@@ -827,6 +864,15 @@ internal object HostHelpers {
           /** A scratchpad's content, or a fragment when from and length are given. */
           read(name, from, length) {
             return this.__call({ op: 'read', name: String(name), from: from, length: length });
+          },
+
+          /** A scratchpad's whole text, or a thrown error where there is none to read. */
+          text(name) {
+            const answer = this.read(name);
+            if (answer.error !== undefined) throw new Error(answer.error);
+            // Without a leading byte-order mark, for the reason the store's get gives.
+            const content = answer.ok.content;
+            return typeof content === 'string' && content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
           },
 
           /** Creates a scratchpad or replaces the whole of one; description is optional. */

@@ -310,6 +310,9 @@ class BuiltInTools(
              */
             AgentRunTools.STOP,
             SessionUsageTools.USAGE,
+            // A program over the session's files, lent with them like zip_extract. Last, as
+            // the newest: V671 marks it on the agents before it, and that order is the test's.
+            CodeRunTools.RUN,
         )
 
         private val GRANTED_SET = GRANTED.toSet()

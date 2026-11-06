@@ -189,12 +189,14 @@ class BasicToolsAlwaysTest(
             "db/migration/postgresql/V636__session_flag.sql",
             "db/migration/postgresql/V648__agent_stop.sql",
             "db/migration/postgresql/V649__session_usage.sql",
+            "db/migration/postgresql/V671__code_run.sql",
         )
         val SQLITE_ALL = listOf(
             SQLITE,
             "db/migration/sqlite/V316__session_flag.sql",
             "db/migration/sqlite/V328__agent_stop.sql",
             "db/migration/sqlite/V329__session_usage.sql",
+            "db/migration/sqlite/V351__code_run.sql",
         )
 
         /** Where the marking statement starts in a migration written in V600's shape. */

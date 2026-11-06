@@ -55,6 +55,8 @@ class ScratchpadTools(
      * nothing to zip.
      */
     private val zips: ZipTools,
+    /** A program run over these files, for work a call per row would never finish. */
+    private val code: CodeRunTools,
     /** Whether an HTML page names pictures by key, which is said when it is kept. Issue #545. */
     private val pictures: io.mszymanski.orknux.server.embedded.SessionPictures,
     private val blocks: io.mszymanski.orknux.server.embedded.PageBlocks,
@@ -62,9 +64,15 @@ class ScratchpadTools(
 ) {
 
     /** The shed for one turn, or null where there is no session to keep files in. */
-    fun shed(session: Long?): ToolShed? = if (session == null) null else Shed(session)
+    fun shed(session: Long?, agent: io.mszymanski.orknux.server.agent.Agent? = null): ToolShed? =
+        if (session == null) null else Shed(session, agent)
 
-    private inner class Shed(private val session: Long) : ToolShed {
+    /**
+     * @param agent whose turn this is, where there is one: a program run with
+     *   `code_run` may call this agent's own tools, and without an agent it
+     *   calls none.
+     */
+    private inner class Shed(private val session: Long, private val agent: io.mszymanski.orknux.server.agent.Agent?) : ToolShed {
 
         /**
          * That the agent has working files, and when to use them.
@@ -101,7 +109,10 @@ class ScratchpadTools(
             append("files, and what it makes is here for you when it answers. Nothing has to be shared. ")
             append("To hand a pad to a tool that takes a key - an upload, a message, a mail - call ")
             append(KEEP).append(" and pass the key it answers with, rather than reading the pad and typing ")
-            append("its content into the call.")
+            append("its content into the call. ")
+            append("To work over a file's data - filter, join, count or rewrite rows of a CSV - write a short ")
+            append("program and run it with ").append(CodeRunTools.RUN)
+            append(" rather than reading and editing it a row at a time.")
         }
 
         override fun specs(): List<ToolSpec> = listOf(
@@ -225,6 +236,7 @@ class ScratchpadTools(
                     ToolParameterSpec(NAME, "Which scratchpad to remove.", required = true),
                 ),
             ),
+            code.spec(),
         ) + zips.descriptors().map { one ->
             // The archive tool, drawn from its own descriptor so its words live
             // with its code. Issue #467.
@@ -236,7 +248,7 @@ class ScratchpadTools(
             )
         }
 
-        override fun handles(name: String): Boolean = name in NAMES || zips.handles(name)
+        override fun handles(name: String): Boolean = name in NAMES || code.handles(name) || zips.handles(name)
 
         override fun run(call: ToolCall): String {
             val args = runCatching { mapper.readTree(call.arguments) }.getOrNull() ?: mapper.createObjectNode()
@@ -249,6 +261,7 @@ class ScratchpadTools(
                 SEARCH -> searched(args)
                 KEEP -> kept(args)
                 DELETE -> deleted(args)
+                CodeRunTools.RUN -> code.run(call.arguments, session, agent)
                 else -> if (zips.handles(call.name)) {
                     zips.run(call.name, call.arguments, session)
                 } else {

@@ -166,6 +166,23 @@ class ScriptRunner(
          * JavaScript, and a Python script given any is refused in words.
          */
         language: ScriptLanguage = ScriptLanguage.JAVASCRIPT,
+        /**
+         * The calling agent's own tools, where a program an agent wrote is
+         * being run for it, and null everywhere else. Bound like the store's
+         * doors: a function, a tool or a plugin has no agent behind it, and
+         * `orknux.tools.call` says so instead of reaching one.
+         */
+        tools: ScriptToolDoor? = null,
+        /**
+         * Whether this run is held to its session and its [tools], with none of
+         * what a function gets without asking. A program an agent writes is the
+         * agent's own decision rather than a workspace author's, so the web and
+         * the workspace's Slack connections - granted to every function because
+         * a person wrote it - would be an agent reaching what its grants never
+         * gave it. Confined, each of those answers with a refusal saying so; what
+         * the agent may reach, it reaches through [tools] and its own grants.
+         */
+        confined: Boolean = false,
     ): ScriptResult {
         val started = System.nanoTime()
         val stopped = AtomicReference<Overrun?>(null)
@@ -183,9 +200,9 @@ class ScriptRunner(
             guard.bounded(stopped, contextFor(language), timeoutMillis) {
                 val answer = when (language) {
                     ScriptLanguage.JAVASCRIPT ->
-                        evaluate(it, source, functionName, arguments, context, modules, imports, on, said, functionName, origin, sessionId)
+                        evaluate(it, source, functionName, arguments, context, modules, imports, on, said, functionName, origin, sessionId, tools, confined)
                     ScriptLanguage.PYTHON ->
-                        evaluatePython(it, source, functionName, arguments, context, on, said, origin, sessionId)
+                        evaluatePython(it, source, functionName, arguments, context, on, said, origin, sessionId, tools, confined)
                 }
                 ScriptResult.Returned(answer, millisSince(started), said.toList())
             }
@@ -198,6 +215,18 @@ class ScriptRunner(
                 stopped.get() != null -> "${guard.overrunReason(stopped.get(), timeoutMillis)} and was stopped"
                 failure.isCancelled -> "took longer than ${timeoutMillis ?: properties.timeoutMillis} ms and was stopped"
                 failure.isResourceExhausted -> exhausted(failure)
+                /*
+                 * The sandbox's own fault, not the script's: a chat's program
+                 * came back as nothing but `java.lang.IllegalMonitorStateException`,
+                 * and the agent rewrote code that had nothing wrong with it. Said
+                 * as what it is, and logged whole, since the stack is the only
+                 * thing that says where it came from.
+                 */
+                failure.isInternalError -> {
+                    log.warn("{} {} failed inside the sandbox", origin.said(on), functionName, failure)
+                    "the sandbox failed inside itself (${failure.message ?: "no reason given"}) - this is not something " +
+                        "the code did; running it again may work"
+                }
                 failure.isGuestException -> failure.message ?: "threw"
                 else -> failure.message ?: "could not be run"
             }
@@ -521,8 +550,10 @@ class ScriptRunner(
         said: MutableList<String>,
         origin: ScriptOrigin,
         sessionId: Long?,
+        tools: ScriptToolDoor? = null,
+        confined: Boolean = false,
     ): String? {
-        serve(polyglot, on, said, functionName, origin, sessionId)
+        serve(polyglot, on, said, functionName, origin, sessionId, tools, confined)
         val orknux = PythonGuest.install(polyglot)
         val python = polyglot.getBindings("python")
         python.putMember(CONTEXT, context)
@@ -616,9 +647,11 @@ class ScriptRunner(
         called: String,
         origin: ScriptOrigin,
         sessionId: Long?,
+        tools: ScriptToolDoor? = null,
+        confined: Boolean = false,
     ): String? {
         load(polyglot, modules)
-        serve(polyglot, on, said, called, origin, sessionId)
+        serve(polyglot, on, said, called, origin, sessionId, tools, confined)
 
         val module = polyglot.eval(module(prelude(imports) + source))
         val function = module.getMember("default")
@@ -754,6 +787,7 @@ class ScriptRunner(
             .replace("%LOG%", HostHelpers.log(kept).prependIndent("  "))
             .replace("%STORE%", HostHelpers.sessionStore().prependIndent("  "))
             .replace("%SCRATCHPAD%", HostHelpers.scratchpads().prependIndent("  "))
+            .replace("%TOOLS%", HostHelpers.agentTools().prependIndent("  "))
             .replace("%VALIDATE%", HostHelpers.validation().prependIndent("  "))
     }
 
@@ -764,6 +798,8 @@ class ScriptRunner(
         called: String,
         origin: ScriptOrigin,
         sessionId: Long?,
+        tools: ScriptToolDoor? = null,
+        confined: Boolean = false,
     ) {
         val server = host
         val bindings = polyglot.getBindings("js")
@@ -801,7 +837,18 @@ class ScriptRunner(
                 null
             },
         )
-        if (server != null) {
+        if (confined) {
+            /*
+             * Every member present and refusing, rather than the door left
+             * unbound: unbound, each helper says the installation cannot do it,
+             * which is untrue and sends the agent to an administrator.
+             */
+            val refused = LinkedHashMap<String, Any>()
+            PluginCapability.entries.filter { it.forScripts }.forEach { capability ->
+                refused[capability.name.lowercase()] = ProxyExecutable { CONFINED_REFUSAL }
+            }
+            bindings.putMember(HOST, ProxyObject.fromMap(refused))
+        } else if (server != null) {
             val granted = LinkedHashMap<String, Any>()
             /*
              * Only what a function may have without anybody accepting it. A
@@ -885,6 +932,22 @@ class ScriptRunner(
                 },
             )
         }
+        /*
+         * The agent's tools, where an agent's program is being run. Name and
+         * arguments in, its answer out, all text: what runs the call is the
+         * agent's own dispatch, grants and all, outside this sandbox.
+         */
+        if (tools != null) {
+            bindings.putMember(
+                TOOL,
+                ProxyExecutable { given ->
+                    val name = given.getOrNull(0)?.takeIf { it.isString }?.asString()
+                        ?: return@ProxyExecutable """{"error":"a tool's name has to be a string"}"""
+                    val arguments = given.getOrNull(1)?.takeIf { it.isString }?.asString() ?: "{}"
+                    tools.call(name, arguments)
+                },
+            )
+        }
         if (scratchpads != null && sessionId != null) {
             bindings.putMember(
                 SCRATCHPAD,
@@ -928,6 +991,7 @@ class ScriptRunner(
         const val STORE_UNSET = "__orknuxStoreUnset"
         const val STORE_KIND = "__orknuxStoreKind"
         const val SCRATCHPAD = "__orknuxScratchpad"
+        const val TOOL = "__orknuxTool"
 
 
         /**
@@ -940,6 +1004,9 @@ class ScriptRunner(
 
         /** What a call gets when it was made with something that is not a string. */
         const val REFUSED = """{"error":"that call takes one JSON argument"}"""
+
+        /** What a confined run is told when it reaches past its session; see `call`. */
+        const val CONFINED_REFUSAL = """{"error":"a program run with code_run reaches only this conversation's scratchpads and keys and your own tools: no web requests and no Slack of its own. Call one of your tools for that, with orknux.tools.call or yourself."}"""
 
         /**
          * `orknux`, as a function sees it.
@@ -958,6 +1025,7 @@ class ScriptRunner(
 %LOG%
 %STORE%
 %SCRATCHPAD%
+%TOOLS%
 %VALIDATE%
             };
         """.trimIndent()
