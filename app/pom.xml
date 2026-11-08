@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.mszymanski</groupId>
         <artifactId>orknux-server</artifactId>
-        <version>1.3.6</version>
+        <version>1.4.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -885,6 +885,15 @@
                         <orknux.slack.enabled>false</orknux.slack.enabled>
                         <!-- One JVM full of cached contexts reads high for nothing a turn did; BulkheadsTest feeds its own readings. -->
                         <orknux.bulkheads.read-heap>false</orknux.bulkheads.read-heap>
+                        <!--
+                            The same reading, taken by the script guard: it stops a run that has
+                            allocated a lot while the tenured heap sits over 85% after a collection,
+                            and in this JVM the cached contexts hold it there by the end of the suite -
+                            so GraalPy importing `decimal` in CodeRunTest was stopped as the culprit, on
+                            both engines, and passes alone. Never a pressure in the suite; the guard's
+                            own tests (ScriptGuardTest) set their bounds directly and are unaffected.
+                        -->
+                        <orknux.script.heap-pressure-percent>100</orknux.script.heap-pressure-percent>
                         <!-- No cluster lease. One JVM here holds several contexts
                              on one database, and they are not replicas of each
                              other: on the inline engine the second would wait a
