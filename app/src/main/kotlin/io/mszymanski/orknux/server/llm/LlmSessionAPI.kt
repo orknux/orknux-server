@@ -90,6 +90,9 @@ class LlmSessionAPI(
     private val pads: SessionScratchpadService,
     /** The runs that wrote into a session, read back from execution_step.session_id. Issue #420. */
     private val executions: io.mszymanski.orknux.workflow.execution.ExecutionService,
+    private val inbox: SessionInbox,
+    /** Lazily: it is the bigger bean, and this API is one of the things it reaches through. */
+    private val asks: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.chat.AgentRunTools>,
     /** The tasks whose log a session is, for whether one is still writing into it. Issue #448. */
     private val tasks: io.mszymanski.orknux.server.task.TaskRepository,
     /** What a session's model is writing this second; see [LlmSessionRecorder.writingNow]. */
@@ -294,6 +297,24 @@ class LlmSessionAPI(
      * making sure, not an error worth a red box. A session in a workspace this
      * caller cannot see is one that, to them, is not there.
      */
+    /**
+     * Writes into an asked agent's turn while it is going, for it to read at
+     * its next round as the person speaking - what a chat's
+     * `postChatMessageDuringTurn` does for the chat's own agent, for a
+     * subagent somebody is watching work. Answers false where nothing is
+     * running in that session, or it is not one an ask opened: the message is
+     * not left, since nothing there would read it.
+     */
+    @MutationMapping
+    fun postSessionMessageDuringTurn(@Argument id: Long, @Argument text: String): Boolean {
+        visibility.requireReadable(id)
+        if (text.isBlank()) return false
+        if (!asks.getObject().working(id)) return false
+        val person = org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.name ?: return false
+        inbox.postFromPerson(id, person, text)
+        return true
+    }
+
     @MutationMapping
     @Transactional
     fun removeLlmSession(@Argument id: Long): Boolean {
@@ -394,6 +415,7 @@ class LlmSessionAPI(
         title = session.title,
         parentId = session.parentSessionId,
         active = active,
+        working = asks.getObject().working(requireNotNull(session.id)),
         subagentCount = subagentCount,
         agentDetails = session.agentDetails,
         spent = SessionSpendView(
@@ -468,6 +490,7 @@ class LlmSessionAPI(
             main = main,
             depth = depth,
             active = active(session, unfinished, writtenInto, window),
+            working = asks.getObject().working(id),
             lastEventAt = session.lastEventAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         )
     }
@@ -672,6 +695,8 @@ data class LlmSessionMemberView(
     val depth: Int,
     /** Green or orange: whether an agent is at work in it right now. */
     val active: Boolean,
+    /** Exactly, for an asked agent's session: whether the ask's turn is going this moment. See the schema. */
+    val working: Boolean,
     val lastEventAt: String?,
 )
 
@@ -693,6 +718,8 @@ data class LlmSessionView(
     val parentId: Long?,
     /** Whether an agent is at work in it right now: a line still going while its run or task is, or a line within the active window. The list's status dot. Issues #404, #448. */
     val active: Boolean,
+    /** Exactly, for an asked agent's session: whether the ask's turn is going this moment. See the schema. */
+    val working: Boolean,
     /** How many sessions were started under this one - what the list shows to say which conversations fanned out. Issue #403. */
     val subagentCount: Int,
     /** The setup of the agent that last started answering, as JSON; resolved into a shape by the field. Null on a session no agent wrote into. Issues #391, #441. */

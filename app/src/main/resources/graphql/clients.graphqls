@@ -1,0 +1,33 @@
+# Connecting the Orknux clients - the Chrome extension, Orknux for Windows, the
+# Claude Code plugin - with a one-time pairing code rather than an access
+# token, which any account may do, a directory's included. The client trades the
+# code at POST /api/clients/pair for a credential that opens only the client doors.
+
+extend type Query {
+    "The clients the caller has connected with a pairing code, newest first."
+    myClients: [ClientCredential!]!
+}
+
+extend type Mutation {
+    "A one-time code for the caller to type into a client, valid for a few minutes."
+    startClientPairing: ClientPairingCode!
+    "Disconnects one of the caller's clients; its credential stops working at once."
+    disconnectClient(id: ID!): Boolean!
+}
+
+type ClientPairingCode {
+    "Like K7P-4QX. Shown once."
+    code: String!
+    "ISO-8601; the code is refused after this."
+    expiresAt: String!
+}
+
+type ClientCredential {
+    id: ID!
+    "What the client called itself."
+    name: String!
+    "Chrome, Windows, ClaudeCode."
+    client: String!
+    createdAt: String!
+    lastUsedAt: String
+}

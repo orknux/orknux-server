@@ -125,6 +125,9 @@ interface McpClientSessionRepository : JpaRepository<McpClientSession, Long>, Jp
 
     fun findBySessionKey(sessionKey: String): McpClientSession?
 
+    /** Whether [username] has an MCP client open and heard from since [since], in any workspace. */
+    fun existsByUsernameIgnoreCaseAndEndedAtIsNullAndLastSeenAtAfter(username: String, since: java.time.OffsetDateTime): Boolean
+
     /** The newest open session that looks like this client, for one that never sends its Mcp-Session-Id. */
     fun findFirstByWorkspaceIdAndUsernameAndTokenIdAndIpAddressAndUserAgentAndEndedAtIsNullAndLastSeenAtAfterOrderByLastSeenAtDesc(
         workspaceId: Long,

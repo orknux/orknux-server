@@ -1,0 +1,109 @@
+# Integrations orknux.ai recommends for a workspace: Blender, KiCad, GitHub, ...
+#
+# Read through from the marketplace on every ask, as the plugin catalog is; the
+# contract with orknux.ai is docs/orknux-ai/integrations.graphql. What is sent
+# there about the workspace is coarse on purpose - the server's version and the
+# connection types in use, never a name, an address or a person.
+
+extend type Query {
+    """
+    One page of the integrations orknux.ai recommends for this workspace, in its
+    order. Anybody who can see the workspace. An unreachable marketplace is a
+    refusal in words; one that does not offer recommendations answers with
+    offered false.
+    """
+    integrationRecommendations(
+        workspaceId: ID!, search: String, tag: String, after: String,
+        "RECOMMENDED - orknux.ai's own order - when left out."
+        order: IntegrationSort,
+        "Which way: true runs the order from the bottom - least likely, fewest stars, A to Z, oldest first - false from the top. Each order's own way when left out."
+        ascending: Boolean
+    ): IntegrationRecommendations!
+    "The tags the recommendations are filed under, for a filter. Empty where none are offered."
+    integrationTags: [IntegrationTag!]!
+}
+
+type IntegrationRecommendations {
+    "False where the marketplace has no recommendations to offer at all: an older one, or one that lists only plugins."
+    offered: Boolean!
+    items: [IntegrationRecommendation!]!
+    "Pass back as after for the next page; null on the last."
+    next: String
+    total: Int!
+}
+
+type IntegrationRecommendation {
+    "Where this server serves the integration's icon, fetched from orknux.ai; null where it has none and the card draws its initial."
+    icon: String
+    "The same for a dark ground; null where the one icon serves both."
+    iconDark: String
+    "orknux.ai's stable slug: blender, kicad."
+    key: String!
+    name: String!
+    vendor: String
+    summary: String!
+    "Markdown."
+    description: String!
+    tags: [String!]!
+    homepage: String
+    repository: String
+    license: String
+    "OFFICIAL or COMMUNITY."
+    maintainer: String
+    popularity: Int
+    "Its repository as GitHub reports it, read by orknux.ai every 6 hours; null where it is not on GitHub or not read yet."
+    github: GitHubRepository
+    "MCP_SERVER, CONNECTION, PLUGIN or EXTENSION."
+    kind: String!
+    "STREAMABLE_HTTP, SSE or STDIO, for an MCP server."
+    transport: String
+    "ANYWHERE, USER_MACHINE or SERVER."
+    runsOn: String!
+    sampleTools: [String!]!
+    "MINUTES, QUARTER_HOUR, HOUR or AFTERNOON."
+    effort: String!
+    "A typical person's time to set it up, in minutes."
+    minutes: Int!
+    requirements: [String!]!
+    needsAdmin: Boolean!
+    "The steps for doing it by hand, markdown."
+    steps: String!
+    """
+    What Ask Claude hands to Claude, with this installation's address, the
+    workspace's name and its Integrations page filled in. Plain text; never
+    holds a secret.
+    """
+    claudePrompt: String!
+    "One line on why it is suggested here, or null."
+    reason: String
+    "Whether the workspace already has it: orknux.ai's answer, or an MCP server here by the same name."
+    installed: Boolean!
+    "Why its setup does not fit this server, where the card names a newer one; null where it fits."
+    tooOld: String
+}
+
+type IntegrationTag {
+    tag: String!
+    label: String!
+    count: Int!
+}
+
+"An integration's repository as GitHub reports it, read by orknux.ai."
+type GitHubRepository {
+    "owner/name as GitHub writes it now."
+    fullName: String!
+    url: String!
+    stars: Int!
+    "Archived by its owners: no longer maintained."
+    archived: Boolean!
+    "When orknux.ai last read it, ISO-8601."
+    checkedAt: String
+}
+
+"How the cards are ordered."
+enum IntegrationSort {
+    RECOMMENDED
+    POPULAR
+    NAME
+    NEWEST
+}

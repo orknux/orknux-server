@@ -101,7 +101,10 @@ class InternalAuthentication(
      * that has to be kept in step.
      */
     private fun tokenFor(user: AppUser): UsernamePasswordAuthenticationToken =
-        UsernamePasswordAuthenticationToken(user.username, null, user.roles.map(::authorityOf))
+        UsernamePasswordAuthenticationToken(user.username, null, authoritiesOf(user))
+
+    /** What a person signed in by something other than a session holds: their roles, as Spring names them. One place, for tokens and client credentials alike. */
+    fun authoritiesOf(user: AppUser): List<GrantedAuthority> = user.roles.map(::authorityOf)
 
     private fun authorityOf(role: Role): GrantedAuthority =
         SimpleGrantedAuthority("ROLE_" + role.name.trim().replace(Regex("[^A-Za-z0-9]+"), "_").uppercase())
@@ -134,7 +137,11 @@ class InternalAuthentication(
  * somebody arriving at the door.
  */
 @Component
-class TokenAuthenticationFilter(private val internal: InternalAuthentication) : OncePerRequestFilter() {
+class TokenAuthenticationFilter(
+    private val internal: InternalAuthentication,
+    /** Client credentials, which open the client doors and nothing else; see ClientPairings. */
+    private val clients: io.mszymanski.orknux.server.client.ClientPairings,
+) : OncePerRequestFilter() {
 
     override fun doFilterInternal(
         request: HttpServletRequest,
@@ -143,6 +150,37 @@ class TokenAuthenticationFilter(private val internal: InternalAuthentication) : 
     ) {
         val header = request.getHeader("Authorization")
         val secret = header?.takeIf { it.startsWith(BEARER, ignoreCase = true) }?.substring(BEARER.length)?.trim()
+
+        /*
+         * A client's credential - the Chrome extension's, Orknux for Windows',
+         * the Claude Code plugin's - opens the clients' own doors and is
+         * refused everywhere else, in words: it is a person by a narrow door,
+         * not their whole API.
+         */
+        if (secret != null && secret.startsWith(io.mszymanski.orknux.server.client.ClientPairings.PREFIX)) {
+            val path = request.requestURI.removePrefix(request.contextPath)
+            if (!io.mszymanski.orknux.server.client.ClientPairings.clientPath(path)) {
+                response.status = HttpServletResponse.SC_FORBIDDEN
+                response.contentType = "application/json"
+                response.writer.write("""{"error":"${io.mszymanski.orknux.server.client.ClientPairings.REFUSAL}","code":"ClientCredentialElsewhere"}""")
+                return
+            }
+            /*
+             * The credential decides who this is, whatever session came with it.
+             * A browser extension allowed to reach the server is handed the
+             * browser's Orknux cookie too, and a session winning here made a
+             * Chrome paired by alice act as whoever was signed in to Orknux in
+             * that Chrome. A fresh context rather than the session's, so nothing
+             * of this is written back into the session; and none at all for a
+             * credential that is not valid, so the request is refused rather
+             * than carried by the cookie.
+             */
+            SecurityContextHolder.setContext(
+                SecurityContextHolder.createEmptyContext().apply { authentication = clients.authenticate(secret) },
+            )
+            chain.doFilter(request, response)
+            return
+        }
 
         if (secret != null && SecurityContextHolder.getContext().authentication == null) {
             /*

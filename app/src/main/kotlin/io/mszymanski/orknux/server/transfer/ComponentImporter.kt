@@ -1343,6 +1343,18 @@ class ComponentImporter(
                     secretCatalogs = node.names("secretCatalogs")
                         .onEach { variableCatalogFor(workspaceId, it, who) }
                         .toMutableList(),
+                    // What it held only to hand on; a file from before Delegate holds none.
+                    delegatedTools = node.names("delegatedTools").filter { it !in dropped }.toMutableList(),
+                    /*
+                     * Optional, unlike its own model: a list it may choose from
+                     * loses an entry rather than asking for a binding. One the
+                     * person bound for the agent's own model binds here too.
+                     */
+                    creatableModelIds = node.path("creatableModelRefs").values()
+                        .mapNotNull { externalIn(it, ExternalKind.MODEL) }
+                        .mapNotNull { boundId(it) ?: externals.find(workspaceId, it) }
+                        .distinct()
+                        .toMutableList(),
                     variableCatalogs = node.names("variableCatalogs")
                         .onEach { variableCatalogFor(workspaceId, it, who) }
                         .toMutableList(),

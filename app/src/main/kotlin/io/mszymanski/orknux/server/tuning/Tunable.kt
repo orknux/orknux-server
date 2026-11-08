@@ -171,6 +171,31 @@ enum class Tunable(
         "The most rows one admin workspace read answers",
         "An agent asking for more is given this many; the two defaults above are held to it too.",
     ),
+    TEMPORARY_AGENTS_PER_CONVERSATION(
+        "agent.temporary.per.conversation", 5, 0, null, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many agents one conversation may create",
+        "An agent allowed to create agents makes temporary ones with agent_create, for the conversation it is in. Past this many, another is refused until one is dismissed. Zero lets none be created.",
+    ),
+    TEMPORARY_AGENTS_IDLE_HOURS(
+        "agent.temporary.idle.hours", 24, 1, null, TuningSection.AGENTS, TuningUnit.HOURS,
+        "How long a temporary agent outlives a quiet conversation",
+        "A temporary agent belongs to the conversation that created it. Once that conversation has had nothing happen in it for this long, the agent is removed.",
+    ),
+    GOAL_ITERATIONS_DEFAULT(
+        "goal.iterations.default", 5, 1, null, TuningSection.AGENTS, TuningUnit.TIMES,
+        "How many turns a goal gets when not told",
+        "A goal - /goal in a chat, or goal_start - has the agent work until a reviewer judges its condition met. This is how many of its turns are judged before it stops, when nobody says.",
+    ),
+    GOAL_ITERATIONS_MOST(
+        "goal.iterations.most", 20, 1, null, TuningSection.AGENTS, TuningUnit.TIMES,
+        "The most turns one goal may take",
+        "Every turn of a goal is a full turn of the agent and a call to its reviewer, paid for like any other. A goal asking for more is refused.",
+    ),
+    GOAL_REVIEW_CHARS(
+        "goal.review.chars", 20000, 1000, null, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much of a goal's work its reviewer reads",
+        "The reviewer of a goal is handed the agent's answer and the conversation's scratchpads, each cut to this many characters.",
+    ),
     SESSION_FLAGS_MOST(
         "session.flags.most", 10, 1, null, TuningSection.AGENTS, TuningUnit.ITEMS,
         "The most flags one conversation may hold open",
@@ -1032,6 +1057,41 @@ enum class Tunable(
         "task.model.retry.longest.seconds", 300, 10, null, TuningSection.AGENTS, TuningUnit.SECONDS,
         "The longest a task waits before trying its model again",
         "The wait starts at half a minute and doubles each time, up to this.",
+    ),
+    DEVICE_CALL_SECONDS(
+        "device.call.seconds", 60, 5, null, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "How long an agent waits for the person's browser or computer to answer one tool",
+        "Their own Chrome or Windows desktop, reached through an Orknux client they run. A call it has not answered by then is told to the agent as unanswered; what it shows may still have changed.",
+    ),
+    SHELL_COMMAND_SECONDS(
+        "shell.command.seconds", 900, 30, null, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "How long an agent waits for a command it ran in Orknux Shell",
+        "The command running on the person's computer and, where their rules ask for it, the person approving it first. Past this the agent is told it was not answered; the command may still be running.",
+    ),
+    DEVICE_SNAPSHOT_CHARACTERS(
+        "device.snapshot.characters", 20_000, 1_000, null, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much of a page or a window a snapshot hands a model",
+        "browser_snapshot and desktop_snapshot read what is shown as a list of its controls and text; the rest is cut, and the agent is told to look for a part instead. A model pays for every character.",
+    ),
+    DEVICE_CONNECTED_SECONDS(
+        "device.connected.seconds", 45, 10, null, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "How long since it last asked for work a browser or computer still counts as connected",
+        "A client asks again the moment an answer ends, and an ask waits up to 25 seconds, so one silent for longer than this has been closed or lost its network.",
+    ),
+    CLAUDE_CODE_TURN_SECONDS(
+        "claude.code.turn.seconds", 300, 10, null, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "How long a chat with My Claude Code waits for its reply",
+        "Claude Code may work for longer; then the turn ends saying so, and the reply arrives in the chat as a message of its own when it comes.",
+    ),
+    CLIENT_PAIRING_CODE_MINUTES(
+        "client.pairing.code.minutes", 5, 1, null, TuningSection.AGENTS, TuningUnit.MINUTES,
+        "How long a pairing code for an Orknux client stays valid",
+        "The code a person types into the Chrome extension, Orknux for Windows or the Claude Code plugin to connect it. It works once.",
+    ),
+    CLIENT_CREDENTIAL_IDLE_DAYS(
+        "client.credential.idle.days", 30, 1, null, TuningSection.AGENTS, TuningUnit.DAYS,
+        "How long a directory account's connected client may go unused",
+        "A client connected with a pairing code by somebody from the directory stops working once unused this long, so a person the directory removed does not keep it. Accounts made here are not affected.",
     ),
     PLUGIN_RATE_LIMIT_WAIT_SECONDS(
         "plugin.rate.limit.wait.seconds", 90, 0, null, TuningSection.PLUGINS, TuningUnit.SECONDS,

@@ -5,3 +5,14 @@
 [submodule "orkbox"]
 	path = orkbox
 	url = https://github.com/orknux/orkbox.git
+[submodule "orknux-chrome"]
+	path = orknux-chrome
+	url = https://github.com/orknux/orknux-chrome.git
+	branch = main
+[submodule "orknux-claude"]
+	path = orknux-claude
+	url = https://github.com/orknux/orknux-claude.git
+	branch = main
+[submodule "orknux-windows"]
+	path = orknux-windows
+	url = https://github.com/orknux/orknux-windows.git

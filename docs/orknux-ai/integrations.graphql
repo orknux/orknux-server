@@ -1,0 +1,304 @@
+# Integration recommendations: the contract between orknux.ai and an Orknux server.
+#
+# Served from the same endpoint as the plugin marketplace (ORKNUX_MARKETPLACE_URL,
+# https://orknux.ai/graphql by default) and keyed the same way: every request
+# carries the installation's daily install key header, and one without it is
+# answered 401 before the query is read.
+#
+# The server asks; the browser never talks to orknux.ai directly. That keeps the
+# install key off the page and lets an air-gapped installation leave the URL blank
+# and show "no recommendations" in words.
+#
+# Versioning follows the marketplace's rule: within a major, this schema only
+# grows. A field is added, never renamed, removed or given a new meaning, and the
+# server asks for the newest shape first and falls back a rung at a time when a
+# query is refused (Marketplace.LADDER). A new field is a new rung.
+
+"An integration's repository as GitHub reports it, read by orknux.ai every 6 hours."
+type GitHubRepository {
+  "owner/name as GitHub writes it now, so a renamed repository shows its new name."
+  fullName: String!
+  "https://github.com/owner/name"
+  url: String!
+  "Stargazers when it was last read."
+  stars: Int!
+  "Whether its owners have archived it: no longer maintained. An Orknux server says so on the card."
+  archived: Boolean!
+  "When orknux.ai last read it from GitHub, ISO-8601 UTC."
+  checkedAt: String!
+}
+
+"""A tool from outside that an Orknux workspace can be connected to, as orknux.ai describes it."""
+type Integration {
+  """Stable slug, never reused: "blender", "kicad", "intellij". Orknux stores it to remember what was set up."""
+  key: String!
+  """The tool's own name, as its makers write it: "Blender", "KiCad", "IntelliJ IDEA"."""
+  name: String!
+  """Who makes the tool."""
+  vendor: String
+  """One line for the card, at most 140 characters."""
+  summary: String!
+  """Longer markdown for the details pane: what an agent can do with it once connected."""
+  description: String!
+  """Lowercase tags for filtering: "3d", "electronics", "ide", "design", "office", "data"."""
+  tags: [String!]!
+  """
+  The integration's logo for a light ground: an absolute https URL on this site,
+  to an SVG or a square PNG (the response's Content-Type says which). The address
+  carries the file's digest, so it never changes what it serves and may be cached
+  for ever; a new logo comes with a new address. Null where there is none: draw
+  the name's initial instead.
+
+  Example: https://orknux.ai/integrations/grafana/logo-3f9ac1e0b2d4.svg - public,
+  cached for a year, SVGs sandboxed. An Orknux server fetches it itself and serves
+  it to the page from its own address; the browser never asks orknux.ai.
+  """
+  icon: String
+  "The same logo drawn for a dark ground, or null where `icon` serves both."
+  iconDark: String
+
+  """The tool's own page."""
+  homepage: String!
+  """Where the integration itself lives: the MCP server's repository, or the plugin's page."""
+  repository: String
+  """The integration's licence, as an SPDX id where it has one: "MIT", "Apache-2.0"."""
+  license: String
+  """Whether the tool's makers publish the integration themselves, or somebody else does."""
+  maintainer: IntegrationMaintainer!
+  """
+  How widely used it is: `github.stars` when there is one, otherwise the
+  count written on the card. Null when there is neither. POPULAR and
+  RECOMMENDED sort by this.
+  """
+  popularity: Int
+
+  """
+  The integration's repository on GitHub, when `repository` is a github.com
+  repository. Null when it is somewhere else, or when orknux.ai has not yet
+  managed to read it from GitHub. Read through GitHub's REST API when a catalog
+  is published and every 6 hours after; stored, so a restart loses nothing, and a
+  read that fails keeps the last one.
+  """
+  github: GitHubRepository
+
+  """How an Orknux workspace reaches it."""
+  kind: IntegrationKind!
+  """For kind MCP_SERVER: what the server speaks out of the box."""
+  transport: McpTransport
+  """Where it has to run, which decides whether the Orknux server can reach it at all."""
+  runsOn: IntegrationHost!
+
+  """What setting it up takes."""
+  setup: IntegrationSetup!
+
+  """Some of the tools an agent gets, by the names it will see: "get_scene_info", "run_drc"."""
+  sampleTools: [String!]!
+
+  """The oldest Orknux server this card's setup is right for, as X.Y.Z. Null for any."""
+  minimumServer: String
+  """When orknux.ai last changed this card, ISO-8601."""
+  updated: String!
+}
+
+"""What setting an integration up takes, said for a person deciding whether to start."""
+type IntegrationSetup {
+  """The bracket the card shows. Set from minutes by orknux.ai, so the two never disagree."""
+  effort: SetupEffort!
+  """A typical person's time from start to an agent using it, in minutes, for somebody who has the tool installed."""
+  minutes: Int!
+  """What has to be on the machine first, in words: "Blender 4.2 or newer", "Python 3.10+", "uv"."""
+  requirements: [String!]!
+  """Whether it needs an administrator of the Orknux server, or a workspace owner is enough."""
+  needsAdmin: Boolean!
+  """The steps for doing it by hand, markdown, numbered. Shown under the card's "Do it yourself"."""
+  steps: String!
+
+  """
+  What "Ask Claude" hands to Claude, which takes over from there and works with the
+  person interactively. Plain text, at most 4,000 characters after the placeholders
+  are filled - a claude-cli:// link carries at most 5,000, and the server adds a
+  line of its own.
+
+  The server fills these placeholders and leaves any other {{...}} as it is:
+    {{orknuxUrl}}       this installation's address, from WebProperties.baseUrl
+    {{workspace}}       the workspace's name
+    {{mcpServersUrl}}   the workspace's Integrations page, where an MCP server is added
+    {{serverVersion}}   the server's version, X.Y.Z
+
+  Never a token, a password or anything secret: the link is a URL, and URLs are
+  logged. The prompt tells Claude to ask the person for what it needs.
+  """
+  claudePrompt: String!
+}
+
+enum IntegrationKind {
+  """An MCP server, added on the workspace's Integrations page by its URL."""
+  MCP_SERVER
+  """A connection type Orknux already has (Prometheus, Slack, AnkiConnect, ...)."""
+  CONNECTION
+  """A plugin from the marketplace; the card links to its listing by key."""
+  PLUGIN
+  """The Orknux browser extension, or another that lends the person's own software."""
+  EXTENSION
+}
+
+enum McpTransport {
+  """Streamable HTTP: Orknux reaches it directly by URL."""
+  STREAMABLE_HTTP
+  """The older HTTP + server-sent events transport."""
+  SSE
+  """Standard input and output only: needs a bridge to HTTP before Orknux can reach it, which the setup says how to run."""
+  STDIO
+}
+
+enum IntegrationHost {
+  """A service on the internet, or one any server can run: nothing on the person's machine."""
+  ANYWHERE
+  """Next to a desktop application - Blender, KiCad, an IDE - so on the person's own machine, which the Orknux server must be able to reach."""
+  USER_MACHINE
+  """On the same machine or network as the Orknux server."""
+  SERVER
+}
+
+enum IntegrationMaintainer {
+  """Published by the tool's makers."""
+  OFFICIAL
+  """Published by somebody else."""
+  COMMUNITY
+}
+
+enum SetupEffort {
+  """Under 10 minutes."""
+  MINUTES
+  """10 to 30 minutes."""
+  QUARTER_HOUR
+  """30 to 90 minutes."""
+  HOUR
+  """More than 90 minutes."""
+  AFTERNOON
+}
+
+"""What the server tells orknux.ai about itself so the order can be relevant. Coarse on purpose: no names, hosts or people."""
+input RecommendationContext {
+  """The server's version, X.Y.Z. Cards whose minimumServer is newer are left out."""
+  server: String!
+  """Keys of integrations this workspace already has set up; they come back marked, not hidden."""
+  have: [String!]
+  """Connection types the workspace uses, as Orknux names them: "PROMETHEUS", "SLACK"."""
+  connectionTypes: [String!]
+  """The interface's language, "en" or "pl", for the reason line. Cards stay English where nothing else is written."""
+  language: String
+}
+
+type Recommendation {
+  integration: Integration!
+  """One short line on why it is suggested here, or null: "You use Prometheus; this adds Grafana dashboards"."""
+  reason: String
+  """Whether the workspace already has it, from context.have."""
+  installed: Boolean!
+}
+
+type IntegrationPage {
+  items: [Recommendation!]!
+  """Pass back as after for the next page; null on the last."""
+  next: String
+  total: Int!
+}
+
+input IntegrationFilter {
+  """Words matched against name, vendor, summary and tags."""
+  search: String
+  tag: String
+  kind: IntegrationKind
+}
+
+enum IntegrationOrder {
+  "orknux.ai's judgement for this workspace, using the context: what it is most likely to want first."
+  RECOMMENDED
+  "Most used first: popularity (GitHub stars where there are any), descending; a card without a count last; ties by name."
+  POPULAR
+  "By name, A to Z, ignoring case."
+  NAME
+  "Most recently updated card first; ties by name."
+  NEWEST
+}
+
+type IntegrationTag {
+  tag: String!
+  """How it is written on a filter chip: "3D", "Electronics"."""
+  label: String!
+  count: Int!
+}
+
+type Query {
+  """The catalog, ordered for this workspace. first is capped at 100."""
+  integrations(
+    context: RecommendationContext!
+    filter: IntegrationFilter
+    order: IntegrationOrder = RECOMMENDED
+    """
+    Which way the order runs. Left out, each order runs its own way: best
+    first, most stars first, A to Z, newest first. true runs it from the bottom
+    - least likely, fewest stars, A to Z, oldest first - and false from the top.
+    Ties fall back to the name, A to Z. Cards with no popularity stay last when
+    POPULAR is reversed; under RECOMMENDED reversed they come first, since that
+    reverses the whole judgement. A cursor is a position in one ordering: keep
+    order and ascending the same while paging.
+
+    Added later: an Orknux server that is refused it asks without it and turns
+    the page round itself, which is only right while the catalog fits on one page.
+    """
+    ascending: Boolean
+    first: Int = 50
+    after: String
+  ): IntegrationPage!
+
+  """One card, for a details pane or a link; null where the key is unknown."""
+  integration(key: String!, context: RecommendationContext!): Recommendation
+
+  """The tags in use, for the filter."""
+  integrationTags: [IntegrationTag!]!
+}
+
+# The first query the server sends:
+#
+# query Integrations($context: RecommendationContext!, $filter: IntegrationFilter, $after: String) {
+#   integrations(context: $context, filter: $filter, after: $after) {
+#     total next
+#     items {
+#       reason installed
+#       integration {
+#         key name vendor summary description tags icon iconDark
+#         homepage repository license maintainer popularity
+#         kind transport runsOn sampleTools minimumServer updated
+#         setup { effort minutes requirements needsAdmin steps claudePrompt }
+#       }
+#     }
+#   }
+# }
+#
+# An example card, as orknux.ai would answer it:
+#
+# {
+#   "key": "blender",
+#   "name": "Blender",
+#   "vendor": "Blender Foundation",
+#   "summary": "Let an agent inspect and build 3D scenes in a running Blender.",
+#   "tags": ["3d", "design"],
+#   "homepage": "https://www.blender.org",
+#   "repository": "https://github.com/ahujasid/blender-mcp",
+#   "license": "MIT",
+#   "maintainer": "COMMUNITY",
+#   "kind": "MCP_SERVER",
+#   "transport": "STDIO",
+#   "runsOn": "USER_MACHINE",
+#   "sampleTools": ["get_scene_info", "create_object", "execute_blender_code"],
+#   "setup": {
+#     "effort": "QUARTER_HOUR",
+#     "minutes": 20,
+#     "requirements": ["Blender 3.6 or newer", "Python 3.10+", "uv"],
+#     "needsAdmin": false,
+#     "steps": "1. Install the Blender add-on ...\n2. ...",
+#     "claudePrompt": "Set up the Blender MCP server so my Orknux workspace \"{{workspace}}\" at {{orknuxUrl}} can use it. ..."
+#   }
+# }

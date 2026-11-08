@@ -87,6 +87,10 @@ class BuiltInToolSummaries(
         }
         take { orknux.getObject().specs(OrknuxScope(workspaceId = 0, mayWrite = true)) }
         take { boxes.getObject().specs() }
+        take { io.mszymanski.orknux.server.browser.BrowserTools.SPECS }
+        take { io.mszymanski.orknux.server.desktop.DesktopTools.SPECS }
+        take { TemporaryAgentTools.SPECS }
+        take { GoalTools.SPECS }
         return specs
             .filter { (_, description) -> description.isNotBlank() }
             .associate { (name, description) -> name to firstSentence(description) }

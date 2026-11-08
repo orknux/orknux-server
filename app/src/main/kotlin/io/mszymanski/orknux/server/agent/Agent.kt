@@ -380,6 +380,61 @@ class Agent(
     var hiddenTools: MutableList<String> = mutableListOf(),
 
     /**
+     * Which tools this agent holds only to hand on, by name: the Delegate
+     * visibility, the fourth beside Hide, Offer and Always.
+     *
+     * A name here is never offered to the agent itself - not carried, not
+     * findable, and refused in words if it is called - and is one it may give
+     * to an agent it creates with `agent_create`. Held apart from [tools]
+     * rather than as a mark on it, because every reader of [tools] offers what
+     * it names, and a mark that had to be remembered by each of them would be
+     * forgotten by one. A name is in at most one of the two.
+     *
+     * For a built-in, Delegate is also hidden ([hiddenTools]), so the inverted
+     * built-in rule says no to it without having to know about this list.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
+    @CollectionTable(name = "agent_delegated_tool", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "name", nullable = false)
+    var delegatedTools: MutableList<String> = mutableListOf(),
+
+    /**
+     * Which of the workspace's models this agent may create temporary agents
+     * with, by id. Empty - every agent before this, and every temporary agent -
+     * is an agent that cannot create agents at all, and is not offered
+     * `agent_create`. That is also what makes nesting impossible: a temporary
+     * agent is given none, so whatever it was handed, it cannot make another.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
+    @CollectionTable(name = "agent_creatable_model", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "model_id", nullable = false)
+    var creatableModelIds: MutableList<Long> = mutableListOf(),
+
+    /**
+     * Made by another agent inside one conversation, for that conversation.
+     *
+     * A real row, so it is asked through `ask_agent` like any other agent and
+     * its sessions read like any other; hidden from every list, picker and
+     * listing, never versioned and never copied with its workspace, and
+     * removed by `agent_dismiss` or when [createdBySessionId] has been idle long
+     * enough (see [TemporaryAgents.sweep]).
+     */
+    @Column(name = "temporary", nullable = false)
+    val temporary: Boolean = false,
+
+    /** The conversation that created it, where [temporary]. */
+    @Column(name = "created_by_session_id")
+    val createdBySessionId: Long? = null,
+
+    /** The agent that created it, where [temporary]. */
+    @Column(name = "created_by_agent_id")
+    val createdByAgentId: Long? = null,
+
+    /**
      * Which of the workspace's connections this agent may name when a tool
      * takes one, by id.
      *

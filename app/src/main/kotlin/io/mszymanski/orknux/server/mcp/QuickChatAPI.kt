@@ -701,6 +701,8 @@ class QuickChatAPI(
     private val quickChat: QuickChat,
     private val access: WorkspaceAccess,
     private val quickChatModels: QuickChatModels,
+    /** "My Claude Code": the person's own Claude Code answering in place of the workspace's model. */
+    private val claudeCode: io.mszymanski.orknux.server.claude.ClaudeCodeChats,
 ) {
 
     @PostMapping("/api/workspaces/{workspaceId}/quick-chat")
@@ -709,6 +711,19 @@ class QuickChatAPI(
         @RequestBody asked: QuickChatRequest,
     ): ResponseEntity<Any> {
         val workspace = access.requireVisible(workspaceId)
+
+        /*
+         * Answered by the person's own Claude Code, where they chose it and it
+         * is offered to them. Only the newest question goes: the session keeps
+         * its own conversation, and the page is said beside it.
+         */
+        if (asked.answeredBy == io.mszymanski.orknux.server.chat.ANSWERED_BY_CLAUDE_CODE) {
+            if (!claudeCode.availability().available) return refuse(HttpStatus.CONFLICT, io.mszymanski.orknux.server.claude.ClaudeCodeChats.UNAVAILABLE)
+            val question = asked.messages.lastOrNull { it.role != "assistant" && it.content.isNotBlank() }?.content
+                ?: return refuse(HttpStatus.BAD_REQUEST, "There is nothing to answer.")
+            val person = SecurityContextHolder.getContext().authentication?.name ?: return refuse(HttpStatus.UNAUTHORIZED, "Nobody is signed in.")
+            return ResponseEntity.ok(mapOf("answer" to claudeCode.askAbout(person, workspaceId, asked.page?.label, asked.page?.path, question)))
+        }
 
         val modelId = quickChatModels.of(workspace)
             ?: return refuse(HttpStatus.CONFLICT, "This workspace has no quick chat model.")
@@ -786,4 +801,6 @@ data class QuickChatMessage @JsonCreator constructor(
 data class QuickChatRequest @JsonCreator constructor(
     @JsonProperty("messages") val messages: List<QuickChatMessage>,
     @JsonProperty("page") val page: PageContext?,
+    /** CLAUDE_CODE to have the person's own Claude Code answer; absent for the workspace's quick chat model. */
+    @JsonProperty("answeredBy") val answeredBy: String? = null,
 )

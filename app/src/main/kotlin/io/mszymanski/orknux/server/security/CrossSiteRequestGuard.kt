@@ -43,7 +43,9 @@ import java.net.URI
  *   GraphQL mutation is refused over GET by the GraphQL handler itself.
  * - A request carrying `Authorization`. A bearer token is not ambient - no
  *   browser attaches one to somebody else's form - so there is nothing to forge.
- * - Webhooks, which are open by design and take no session.
+ * - Webhooks, which are open by design and take no session, and trading a
+ *   pairing code at `/api/clients/pair`, which takes none either: the
+ *   Chrome extension sends it with its own origin.
  * - A request with no `Origin`, no `Sec-Fetch-Site` and no `Referer`: that is
  *   not a browser, or is one old enough to send none, and `SameSite` covers it.
  * - An origin that is this server's own (by the same reckoning CORS uses), one
@@ -73,6 +75,8 @@ class CrossSiteRequestGuard(private val web: WebProperties) : OncePerRequestFilt
         if (request.method.uppercase() in SAFE) return null
         if (!request.getHeader(HttpHeaders.AUTHORIZATION).isNullOrBlank()) return null
         if (request.requestURI.removePrefix(request.contextPath).startsWith("$WEBHOOK_PATH/")) return null
+        // A pairing code traded for a client credential: no session is read, the code is the only proof, so nothing is forgeable.
+        if (request.requestURI.removePrefix(request.contextPath) == io.mszymanski.orknux.server.client.ClientPairRestAPI.PAIR_PATH) return null
 
         val origin = request.getHeader(HttpHeaders.ORIGIN)?.trim()?.takeIf { it.isNotEmpty() }
         if (origin != null) {

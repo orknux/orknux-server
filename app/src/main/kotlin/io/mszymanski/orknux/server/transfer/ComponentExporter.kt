@@ -590,6 +590,22 @@ class ComponentExporter(
             val granted: ArrayNode = putArray("toolRefs")
             (held.tools + io.mszymanski.orknux.server.chat.BuiltInTools.grantedTo(held))
                 .distinct().forEach { granted.add(it) }
+            // And what it holds only to hand on, by name.
+            val delegated: ArrayNode = putArray("delegatedTools")
+            held.delegatedTools.forEach { delegated.add(it) }
+            /*
+             * The models it may create agents with, the way its own model
+             * travels: by provider and name, since an id means a row of this
+             * workspace only. The import keeps those it finds there.
+             */
+            val creatable: ArrayNode = putArray("creatableModelRefs")
+            held.creatableModelIds.mapNotNull { externals.modelReference(workspaceId, it) }.forEach { reference ->
+                creatable.addObject().apply {
+                    put("name", reference.name)
+                    put("provider", reference.provider)
+                    put("type", reference.type)
+                }
+            }
             // Grants by name, and by name is how the agent holds them. A catalog
             // holds nothing but a name, so the import makes one it does not have
             // rather than refusing — the same answer a skill's folder gets.

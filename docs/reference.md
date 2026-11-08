@@ -413,6 +413,11 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_MODEL_SPEED_CALLS` | How many recent calls a model's speed is averaged over, in items. | `50` |
 | `ORKNUX_TUNING_MODEL_SPEED_POINTS` | How many points a model's speed chart draws, in items. | `1000` |
 | `ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS` | How long agent_wait waits when not told, in seconds. | `30` |
+| `ORKNUX_TUNING_AGENT_TEMPORARY_PER_CONVERSATION` | How many agents one conversation may create with agent_create, in items. | `5` |
+| `ORKNUX_TUNING_AGENT_TEMPORARY_IDLE_HOURS` | How long a temporary agent outlives a quiet conversation, in hours. | `24` |
+| `ORKNUX_TUNING_GOAL_ITERATIONS_DEFAULT` | How many turns a goal gets when not told, in times. | `5` |
+| `ORKNUX_TUNING_GOAL_ITERATIONS_MOST` | The most turns one goal may take, in times. | `20` |
+| `ORKNUX_TUNING_GOAL_REVIEW_CHARS` | How much of a goal's work its reviewer reads, in characters. | `20000` |
 | `ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS` | The longest agent_wait may wait, in seconds. | `300` |
 | `ORKNUX_TUNING_AGENT_ANSWER_DATED_AFTER_SECONDS` | How old an asked agent's answer is before it says when it was asked, in seconds. | `120` |
 | `ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE` | How many findable tools one search loads, in items. | `20` |
@@ -555,6 +560,13 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_TEMPORARY_FILE_SECONDS` | How long a temporary file is kept, and the longest a caller may ask for, in seconds. | `300` |
 | `ORKNUX_TUNING_MCP_CONNECTED_MINUTES` | How long since its last request an MCP client still counts as connected, in minutes. | `10` |
 | `ORKNUX_TUNING_MCP_HISTORY_DAYS` | How long MCP clients' sessions and calls are kept, in days. | `30` |
+| `ORKNUX_TUNING_DEVICE_CALL_SECONDS` | How long an agent waits for the person's browser or computer to answer one tool, in seconds. | `60` |
+| `ORKNUX_TUNING_SHELL_COMMAND_SECONDS` | How long an agent waits for a command it ran in Orknux Shell, the person's approval included, in seconds. | `900` |
+| `ORKNUX_TUNING_DEVICE_SNAPSHOT_CHARACTERS` | How much of a page or a window a snapshot hands a model, in characters. | `20000` |
+| `ORKNUX_TUNING_DEVICE_CONNECTED_SECONDS` | How long since it last asked for work a browser or computer still counts as connected, in seconds. | `45` |
+| `ORKNUX_TUNING_CLAUDE_CODE_TURN_SECONDS` | How long a chat with My Claude Code waits for its reply, in seconds. | `300` |
+| `ORKNUX_TUNING_CLIENT_PAIRING_CODE_MINUTES` | How long a pairing code for an Orknux client stays valid, in minutes. | `5` |
+| `ORKNUX_TUNING_CLIENT_CREDENTIAL_IDLE_DAYS` | How long a directory account's connected client may go unused, in days. | `30` |
 | `ORKNUX_TUNING_SHEET_CELLS_MOST` | How many filled cells one sheet may hold, in items. | `50000` |
 | `ORKNUX_TUNING_SHEET_IMPORT_MB` | How large a file a sheet is made from, in MB. | `25` |
 

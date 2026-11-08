@@ -1,0 +1,32 @@
+# The signed-in person's own Orknux clients: the Chrome extension and Orknux for
+# Windows, which lend their browser and their desktop to their agents.
+
+extend type Query {
+    "Whether each of the caller's clients is connected now, and where to get it. Only ever the caller's own."
+    myDevices: MyDevices!
+}
+
+type MyDevices {
+    browser: DeviceStatus!
+    desktop: DeviceStatus!
+    "The caller's Claude Code session, through the Orknux channel plugin."
+    claude: DeviceStatus!
+    "Every desktop connected now - Orknux for Windows and Orknux for Linux at once are two - each by its system in client."
+    desktops: [DeviceStatus!]!
+    "Whether My Claude Code is offered to the caller."
+    claudeAvailable: Boolean!
+    "Whether an MCP client of the caller's is connected to Orknux MCP now, in any workspace."
+    mcp: Boolean!
+}
+
+type DeviceStatus {
+    "Connected now, which is all the server can know: an installed client that is not signed in has never said anything."
+    connected: Boolean!
+    "What the client called itself, such as Chrome or Windows, while connected."
+    client: String
+    version: String
+    "Where to get it."
+    installUrl: String!
+    "The computer's own name, such as Linux on studio, where there may be several of one kind."
+    name: String
+}

@@ -49,6 +49,7 @@ class AskAgentTest(
     @Autowired val providers: io.mszymanski.orknux.connector.model.ModelProviderRepository,
     @Autowired val mapper: ObjectMapper,
     @Autowired val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
+    @Autowired val creating: TemporaryAgentTools,
 ) {
 
     /** Set, the stub holds every call open until released - a model still thinking. */
@@ -385,6 +386,57 @@ class AskAgentTest(
         Thread.sleep(1500)
         assertThat(inbox.pending(main)).describedAs("no answer left to wake the asker").isFalse()
         assertThat(mapper.readTree(asking.stop(asker, main, "{}")).path("stopped").isEmpty).isTrue()
+    }
+
+    @Test
+    fun `a person watching a subagent work can write into its turn, and not once it has finished`() {
+        hanging = true
+        val modelId = model()
+        val specialist = agent("Librarian", model = modelId)
+        val asker = agent("Support", asks = listOf(requireNotNull(specialist.id)), model = modelId)
+        val main = recorder.open(workspaceId, "chat", "steer-${System.nanoTime()}")
+        asking.run(asker, """{"agent":"Librarian","question":"Read every policy there is."}""", parent = main)
+        val child = requireNotNull(sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main).single().id)
+        assertThat(reached.await(15, java.util.concurrent.TimeUnit.SECONDS)).describedAs("the model was asked").isTrue()
+
+        fun post(text: String) = graphQlTester.document("""mutation { postSessionMessageDuringTurn(id: $child, text: "$text") }""")
+            .execute().path("postSessionMessageDuringTurn").entity(Boolean::class.java).get()
+
+        assertThat(post("Skip the appendix.")).describedAs("left for the turn still going").isTrue()
+        assertThat(inbox.pending(child)).describedAs("waiting in the subagent's inbox for its next round").isTrue()
+        assertThat(post(" ")).describedAs("nothing to say is not left").isFalse()
+
+        release.countDown()
+        val until = System.currentTimeMillis() + 10_000
+        while (asking.working(child) && System.currentTimeMillis() < until) Thread.sleep(50)
+        assertThat(asking.working(child)).isFalse()
+        assertThat(post("Too late.")).describedAs("nothing running there any more").isFalse()
+        // Nothing of a session that is not an ask's: this conversation's own.
+        assertThat(graphQlTester.document("""mutation { postSessionMessageDuringTurn(id: $main, text: "hello") }""")
+            .execute().path("postSessionMessageDuringTurn").entity(Boolean::class.java).get()).isFalse()
+    }
+
+    @Test
+    fun `dismissing a temporary agent stops what it was still doing`() {
+        hanging = true
+        val modelId = model()
+        val asker = agent("Support", model = modelId).also { it.creatableModelIds.add(modelId); agents.save(it) }
+        val main = recorder.open(workspaceId, "chat", "dismiss-${System.nanoTime()}")
+        val shed = requireNotNull(creating.shed(asker, main))
+        val made = mapper.readTree(shed.run(io.mszymanski.orknux.connector.model.ToolCall("c", TemporaryAgentTools.CREATE,
+            """{"name":"Reader","instructions":"Read what you are given and answer plainly, in English.","modelId":$modelId,"tools":[],"question":"Read every policy there is."}""")))
+        val child = made.path("asked").path("session").longValue()
+        assertThat(child).describedAs(made.toString()).isPositive()
+        assertThat(reached.await(15, java.util.concurrent.TimeUnit.SECONDS)).describedAs("the model was asked").isTrue()
+        assertThat(asking.working(child)).isTrue()
+
+        val gone = mapper.readTree(shed.run(io.mszymanski.orknux.connector.model.ToolCall("d", TemporaryAgentTools.DISMISS, """{"agent":"Reader"}""")))
+        assertThat(gone.path("dismissed").stringValue()).isEqualTo("Reader")
+        assertThat(gone.path("stopped").intValue()).isEqualTo(1)
+        assertThat(asking.working(child)).describedAs("its ask is no longer working").isFalse()
+        release.countDown()
+        Thread.sleep(500)
+        assertThat(inbox.pending(main)).describedAs("nothing comes back to the asker from it").isFalse()
     }
 
     /** Only its own asks: a session under another conversation is not one it can name. */

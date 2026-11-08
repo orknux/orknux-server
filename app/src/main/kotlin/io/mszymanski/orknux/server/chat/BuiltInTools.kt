@@ -100,6 +100,13 @@ enum class BuiltInGovernance {
      * workspace's agents; see [io.mszymanski.orknux.server.workspace.AdminWorkspaceTools].
      */
     ADMIN_WORKSPACE,
+
+    /**
+     * Offered while the agent may create agents - it holds a model to create
+     * them with: `agent_create`, `agent_dismiss`, and `goal_start` in a chat. See [TemporaryAgentTools]
+     * for why the list of models is the switch rather than a row of its own.
+     */
+    CREATABLE_MODELS,
 }
 
 /** One of the server's own tools, and what switches it. */
@@ -165,6 +172,8 @@ class BuiltInTools(
         boxes.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.BOX_ACCESS)) }
         variables.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.VARIABLE_CATALOGS)) }
         GrantRequestTools.SPECS.forEach { add(BuiltInTool(it.name, BuiltInGovernance.MAY_ASK_FOR_TOOLS)) }
+        TemporaryAgentTools.SPECS.forEach { add(BuiltInTool(it.name, BuiltInGovernance.CREATABLE_MODELS)) }
+        GoalTools.SPECS.forEach { add(BuiltInTool(it.name, BuiltInGovernance.CREATABLE_MODELS)) }
     }
 
     companion object {
@@ -346,7 +355,14 @@ class BuiltInTools(
             HTTP_DOWNLOAD,
             "web_search",
             "web_searchImages",
-        )
+            /*
+             * The person's own Chrome, through the Orknux extension. Reaching in
+             * the plainest sense: it acts signed in as somebody, on any site they
+             * can reach, so it is named to be had like a fetch.
+             */
+        ) + io.mszymanski.orknux.server.browser.BrowserTools.NAMES +
+            // And the person's Windows desktop, through Orknux for Windows: the same, with their files besides.
+            io.mszymanski.orknux.server.desktop.DesktopTools.NAMES
 
         private val REACHING_SET = REACHING.toSet()
 
@@ -467,6 +483,14 @@ class BuiltInTools(
          */
         const val HTTP_ALLOW_LIST = "http_allowList"
 
+        /**
+         * What a call to a tool held at Delegate is answered with: said, rather
+         * than "there is no tool", because the agent may well be told it holds
+         * it - in agent_create's description - and should know why it cannot.
+         */
+        fun delegatedRefusal(name: String): String =
+            "$name is delegated: you may give it to an agent you create, not use it yourself"
+
         /** Whether this name is one of the built-ins switched on the Tools list. */
         fun switchable(name: String): Boolean = name in GRANTED_SET || name in REACHING_SET
 
@@ -490,6 +514,8 @@ class BuiltInTools(
          * built-in ought to be.
          */
         fun granted(agent: Agent, name: String): Boolean = when {
+            // Held only to hand on: never the agent's own to call. See [Agent.delegatedTools].
+            name in agent.delegatedTools -> false
             /*
              * Named to be had, rather than named to be refused. The inverted
              * list below is right for a tool the product wants every agent to

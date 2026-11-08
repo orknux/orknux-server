@@ -560,6 +560,18 @@ class AgentBriefing(
             }
         }
 
+        /*
+         * And the browser it does not have. People paste screenshots of a web
+         * page, ask what to click, click it, and paste the next one - the agent
+         * steering by pictures through the person's hands. The extension lets
+         * it do those steps itself, and nobody learns it exists unless the
+         * agent says so at the moment it would have helped. An agent that holds
+         * the tools is told how to use them by their shed instead.
+         */
+        if (io.mszymanski.orknux.server.browser.BrowserTools.NAMES.none { BuiltInTools.granted(agent, it) }) {
+            parts += SUGGEST_BROWSER
+        }
+
         val reachable = if (connectionTools.recited(agent)) {
             connectionTools.granted(agent)
         } else {
@@ -809,6 +821,14 @@ class AgentBriefing(
                 "couple of tool calls, write one short line beside your first call saying what you are about " +
                 "to do, then one short line beside every third call or so on what you found and what is next " +
                 "- the way a colleague keeps you posted, no more often. The full answer comes at the end."
+
+        /** What an agent without the browser tools says when a person is walking it through a web page by screenshots; see [grants]. */
+        const val SUGGEST_BROWSER =
+            "When a person keeps sending you screenshots of a web page and asking what to do on it - where to " +
+                "click, what to fill in - help them with this step, and tell them once in the conversation that " +
+                "the Orknux browser extension for Chrome would let you do such steps in their browser yourself: " +
+                "they install it, connect it to this server from its side panel, and whoever manages you gives " +
+                "you the browser tools on your Tools list."
 
         /** When the to-do list is worth keeping; said after [HOW_YOU_RUN] where the agent holds it. */
         const val PLAN_WITH_TODOS =

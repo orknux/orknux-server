@@ -85,6 +85,39 @@ cd orknux-ui
 docker compose run --rm dev npm run typecheck   # tsc -b
 ```
 
+**The Chrome extension is a submodule too**, `orknux-chrome`, in its own
+repository. It is the client half of the `browser_*` tools: it long-polls
+`/api/browser/next` and answers through `/api/browser/answers/{id}`, so a
+change to an action's arguments or answer is a change in both repositories.
+Its check runs a real Chromium with it loaded:
+
+```
+orknux-chrome/test/run.sh
+```
+
+**My Claude Code is the same door again, the other way round**, `orknux-claude`:
+a Claude Code channel plugin (Bun, the MCP SDK) that long-polls `/api/claude/next`
+for a person's chat messages, pushes them into their Claude Code session, and
+posts Claude's replies to `/api/claude/replies`. `ClaudeCodeChats` is the
+server's half. Two rules hold it inside Anthropic's terms and are not to be
+relaxed: Orknux never holds or uses a Claude credential - Claude Code makes
+every call - and it is a person's conversation, never a model provider an agent,
+a workflow, a trigger or a schedule can run on. Within those it is offered to
+everybody, on every server: each message reaches only its owner's Claude Code.
+Its check:
+`orknux-claude/test/run.sh`.
+
+**Orknux for Windows is the same idea for the desktop**, `orknux-windows`: a
+.NET tray app that long-polls `/api/desktop/next` and drives Windows through UI
+Automation (FlaUI). Both clients share one door, `DeviceAPI`, one broker,
+`DeviceLinks`, and one shed, `DeviceTools`; a third kind of device is a
+`DeviceKind` and a tool list, not a third copy. Its core builds and is tested on
+any machine; the UI Automation half runs only on Windows:
+
+```
+docker run --rm -v "$PWD/orknux-windows:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet test tests/Orknux.Desktop.Core.Tests
+```
+
 **The interface's checks are Playwright scripts**, one per behaviour, under
 `orknux-ui/scripts/*-check.mjs` and registered in `scripts/suite/suite.mjs`. They
 drive a real browser against a running server and assert what is *drawn* - a

@@ -28,3 +28,7 @@ app/data/
 # worktrees agents are given. Untracked, it showed in every `git status` and was
 # one stray `git add .` away from being committed.
 .claude/
+
+# Sibling repositories checked out beside this one for development; each is its own repository, not a submodule.
+orknux-shell/
+orknux-linux/

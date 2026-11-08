@@ -99,6 +99,23 @@ class ChatSession(
     @Column(name = "llm_session_id")
     var llmSessionId: Long? = null,
 
+    /**
+     * Who answers when it is not a model of this installation's: [ANSWERED_BY_CLAUDE_CODE]
+     * for the person's own Claude Code session, reached through the Orknux
+     * channel plugin. Null for a chat a model or an agent answers.
+     */
+    @Column(name = "answered_by", length = 32)
+    var answeredBy: String? = null,
+
+    /**
+     * Where the chat was opened, when not in the browser: [OPENED_IN_SHELL]
+     * for Orknux Shell. Such a chat offers its agent the person's own computer
+     * through `terminal_run` - opening it there is how they lend it - and no
+     * other chat ever does.
+     */
+    @Column(name = "opened_in", length = 32)
+    var openedIn: String? = null,
+
     @Column(nullable = false)
     var pinned: Boolean = false,
 
@@ -309,6 +326,11 @@ class ChatTitleInvalidException : RuntimeException("A chat needs a title")
 
 class ChatMessageEmptyException : RuntimeException("There is nothing to send")
 
+/** Files are not carried to Claude Code: the channel carries text, and Claude Code reads the files on its own machine. */
+class ChatClaudeCodeFilesException : RuntimeException(
+    "Files cannot be sent to your Claude Code from here. Put the file where Claude Code can read it on your computer, and tell it where.",
+)
+
 class ChatDisabledException : RuntimeException("Chat is turned off for this installation")
 
 /** A video sent to a model whose Takes video switch is off. */
@@ -370,3 +392,8 @@ class ChatModelUnusableException(val reason: String) : RuntimeException(reason),
     override val arguments get() = mapOf("reason" to reason)
 }
 
+/** [ChatSession.openedIn] for a chat opened in Orknux Shell. */
+const val OPENED_IN_SHELL = "SHELL"
+
+/** [ChatSession.answeredBy] for "My Claude Code". */
+const val ANSWERED_BY_CLAUDE_CODE = "CLAUDE_CODE"

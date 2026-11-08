@@ -34,6 +34,8 @@ class ChatStreamExceptionHandler {
         ChatModelUnusableException::class,
         ChatAgentUnusableException::class,
         ChatMessageEmptyException::class,
+        ChatClaudeCodeFilesException::class,
+        io.mszymanski.orknux.server.claude.ClaudeCodeUnavailableException::class,
         ChatTitleInvalidException::class,
         ChatDisabledException::class,
         ChatNothingToRegenerateException::class,

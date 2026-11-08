@@ -935,6 +935,14 @@ orknux:
     agent.wait.longest.seconds: ${ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS:300}
     agent.answer.dated.after.seconds: ${ORKNUX_TUNING_AGENT_ANSWER_DATED_AFTER_SECONDS:120}
     tools.loaded.at.once: ${ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE:20}
+    # Temporary agents an agent creates with agent_create: how many per conversation, and how long one
+    # outlives a conversation that has gone quiet before the sweep removes it.
+    agent.temporary.per.conversation: ${ORKNUX_TUNING_AGENT_TEMPORARY_PER_CONVERSATION:5}
+    agent.temporary.idle.hours: ${ORKNUX_TUNING_AGENT_TEMPORARY_IDLE_HOURS:24}
+    # Goals: how many turns one gets when not told, the most it may ask for, and how much its reviewer reads.
+    goal.iterations.default: ${ORKNUX_TUNING_GOAL_ITERATIONS_DEFAULT:5}
+    goal.iterations.most: ${ORKNUX_TUNING_GOAL_ITERATIONS_MOST:20}
+    goal.review.chars: ${ORKNUX_TUNING_GOAL_REVIEW_CHARS:20000}
     # What an admin workspace's agent is handed per read of another workspace or an admin page.
     admin.workspace.rows.default: ${ORKNUX_TUNING_ADMIN_WORKSPACE_ROWS_DEFAULT:20}
     admin.workspace.page.rows.default: ${ORKNUX_TUNING_ADMIN_WORKSPACE_PAGE_ROWS_DEFAULT:50}
@@ -1090,6 +1098,17 @@ orknux:
     # Who reached a workspace over MCP and what they called, as Admin -> MCP shows it.
     mcp.connected.minutes: ${ORKNUX_TUNING_MCP_CONNECTED_MINUTES:10}
     mcp.history.days: ${ORKNUX_TUNING_MCP_HISTORY_DAYS:30}
+    # The person's own Chrome and Windows desktop, driven through the Orknux clients by the browser_* and desktop_* tools.
+    device.call.seconds: ${ORKNUX_TUNING_DEVICE_CALL_SECONDS:60}
+    device.snapshot.characters: ${ORKNUX_TUNING_DEVICE_SNAPSHOT_CHARACTERS:20000}
+    device.connected.seconds: ${ORKNUX_TUNING_DEVICE_CONNECTED_SECONDS:45}
+    # A command an agent runs on the person's computer through Orknux Shell, the approval it may wait for included.
+    shell.command.seconds: ${ORKNUX_TUNING_SHELL_COMMAND_SECONDS:900}
+    # A chat answered by the person's own Claude Code, through the Orknux channel plugin.
+    claude.code.turn.seconds: ${ORKNUX_TUNING_CLAUDE_CODE_TURN_SECONDS:300}
+    # Connecting the Orknux clients with a one-time code instead of an access token.
+    client.pairing.code.minutes: ${ORKNUX_TUNING_CLIENT_PAIRING_CODE_MINUTES:5}
+    client.credential.idle.days: ${ORKNUX_TUNING_CLIENT_CREDENTIAL_IDLE_DAYS:30}
   model:
     check:
       # Every configured provider is asked whether it still answers, so a status

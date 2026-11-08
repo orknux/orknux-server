@@ -132,8 +132,16 @@ class AgentTools(
      *   cap forces it. See [ToolCeilings].
      */
     fun offeringFor(agent: Agent, ceiling: Int? = agent.maxTools, session: Long? = null): Offering {
-        val core = coreFor(agent, session)
-        val searchable = searchableFor(agent)
+        /*
+         * Less what it holds only to hand on - the Delegate visibility. Taken
+         * out here, the one place every array, briefing, search and record
+         * reads, so a delegated tool is not carried, not findable and not
+         * listed wherever it came from: a built-in, the workspace's, an MCP
+         * server's or a plugin's.
+         */
+        val delegated = agent.delegatedTools.toSet()
+        val core = coreFor(agent, session).filterNot { it.name in delegated }
+        val searchable = searchableFor(agent).filterNot { it.name in delegated }
 
         /*
          * The ones somebody said always travel, moved across. Issue #372.
@@ -447,7 +455,9 @@ class AgentTools(
          * fall-through says of a name nothing answers to, because for this
          * agent that is what it is.
          */
-        if (!BuiltInTools.granted(agent, call.name)) {
+        if (call.name in agent.delegatedTools) {
+            mapper.writeValueAsString(mapOf("error" to BuiltInTools.delegatedRefusal(call.name)))
+        } else if (!BuiltInTools.granted(agent, call.name)) {
             mapper.writeValueAsString(mapOf("error" to "There is no tool called ${call.name}"))
         } else if (adminTools.handles(call.name)) {
             /*

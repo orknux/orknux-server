@@ -180,6 +180,7 @@ class ChatAPI(
         return describe(
             chats.start(
                 workspaceId = input.workspaceId,
+                openedIn = input.openedIn?.let { OPENED_IN_SHELL },
                 userId = currentUser(),
                 title = input.title ?: "New chat",
                 /*
@@ -268,6 +269,19 @@ class ChatAPI(
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
         return describe(chats.chooseAgent(id, agentId))
+    }
+
+    /**
+     * Hands the chat to the person's own Claude Code session ("My Claude
+     * Code"), reached through the Orknux channel plugin. Only where this
+     * installation has one person on it; see [io.mszymanski.orknux.server.claude.ClaudeCodeChats].
+     */
+    @MutationMapping
+    @Transactional
+    fun chooseChatClaudeCode(@Argument id: Long): ChatSessionView {
+        val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
+        requireOwn(session)
+        return describe(chats.chooseClaudeCode(id))
     }
 
     @MutationMapping
@@ -395,6 +409,7 @@ class ChatAPI(
             unreadCount = unread,
             reasoningEffort = session.reasoningEffort,
             mode = session.mode ?: ChatMode.DEFAULT,
+            answeredBy = session.answeredBy,
         )
     }
 
@@ -429,6 +444,8 @@ class ChatAPI(
 data class StartChatInput(
     val workspaceId: Long,
     val title: String? = null,
+    /** Where it is opened from, when not the browser: SHELL from Orknux Shell, which lends the agent the person's computer. */
+    val openedIn: ChatOrigin? = null,
     /**
      * The agent to talk to.
      *
@@ -499,6 +516,8 @@ data class ChatSessionView(
     val reasoningEffort: String? = null,
     /** How the agent works here; see [ChatMode]. Issue #653. */
     val mode: ChatMode = ChatMode.DEFAULT,
+    /** CLAUDE_CODE for "My Claude Code", null for a chat a model or an agent answers. */
+    val answeredBy: String? = null,
 )
 
 data class ChatMessageView(
@@ -562,3 +581,6 @@ data class ChatAnswerView(
      */
     val cost: Double?,
 )
+
+/** Where a chat was opened, when not in the browser. */
+enum class ChatOrigin { SHELL }

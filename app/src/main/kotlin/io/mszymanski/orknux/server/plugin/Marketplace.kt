@@ -214,6 +214,192 @@ class Marketplace(
     }
 
     /**
+     * The integrations orknux.ai recommends for a workspace, one page of them,
+     * ordered by its own judgement of [context]. See
+     * `docs/orknux-ai/integrations.graphql` for the contract.
+     *
+     * Null where the far end has never heard of `integrations` - a marketplace
+     * older than the feature, or one an installation points at that lists only
+     * plugins - which a screen says as "nothing recommended yet". Anything else
+     * that goes wrong is the usual [MarketplaceUnreachableException].
+     */
+    /**
+     * One page of the catalog, in [order] - orknux.ai's own when null - and,
+     * for an order that has one, the direction [ascending] asks for.
+     *
+     * The direction is an argument orknux.ai added later, so it climbs down
+     * like the fields do: asked for first, and where refused the page is asked
+     * without it and turned round here. Turning round a page is exact while the
+     * catalog fits on one, which it does; past that the far end has to know.
+     */
+    fun integrations(
+        context: Map<String, Any?>,
+        search: String?,
+        tag: String?,
+        after: String?,
+        order: String? = null,
+        ascending: Boolean? = null,
+    ): OfferedIntegrationPage? {
+        val filter = linkedMapOf<String, Any?>().apply {
+            search?.takeIf { it.isNotBlank() }?.let { put("search", it) }
+            tag?.takeIf { it.isNotBlank() }?.let { put("tag", it) }
+        }.takeIf { it.isNotEmpty() }
+        val directions = if (order != null && ascending != null) listOf(true, false) else listOf(false)
+        for (sendDirection in directions) {
+            for (fields in INTEGRATION_LADDER) {
+                try {
+                    val declared = buildString {
+                        append("${'$'}context: RecommendationContext!, ${'$'}filter: IntegrationFilter, ${'$'}after: String")
+                        if (order != null) append(", ${'$'}order: IntegrationOrder")
+                        if (sendDirection) append(", ${'$'}ascending: Boolean")
+                    }
+                    val passed = buildString {
+                        append("context: ${'$'}context, filter: ${'$'}filter, after: ${'$'}after")
+                        if (order != null) append(", order: ${'$'}order")
+                        if (sendDirection) append(", ascending: ${'$'}ascending")
+                    }
+                    val answer = asked(
+                        """
+                        query Integrations($declared) {
+                          integrations($passed) {
+                            total next items { reason installed integration { $fields } }
+                          }
+                        }
+                        """.trimIndent(),
+                        linkedMapOf<String, Any?>("context" to context, "filter" to filter, "after" to after).apply {
+                            if (order != null) put("order", order)
+                            if (sendDirection) put("ascending", ascending)
+                        },
+                    )
+                    val page = answer.path("data").path("integrations")
+                    val read = OfferedIntegrationPage(
+                        items = page.path("items").values().mapNotNull { item ->
+                            val integration = item.path("integration")
+                            readIntegration(integration)?.let {
+                                OfferedRecommendation(it, item.path("reason").stringValue(null), item.path("installed").asBoolean(false))
+                            }
+                        }.toList(),
+                        next = page.path("next").stringValue(null),
+                        total = page.path("total").asInt(0),
+                    )
+                    // Asked without the direction: each order's own one, turned round where the other was wanted.
+                    val natural = order == "NAME"
+                    if (sendDirection || ascending == null || ascending == natural) return read
+                    // Cards with no count stay last when POPULAR is turned round, as orknux.ai itself orders them.
+                    val (counted, uncounted) = read.items.partition { order != "POPULAR" || it.integration.popularity != null }
+                    return read.copy(items = counted.reversed() + uncounted)
+                } catch (refused: MarketplaceRefusedQueryException) {
+                    log.info("the marketplace refused the integration query: {}", refused.message)
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Where each integration's icons are, as the last listing said: what [icon]
+     * may fetch. Only an address the marketplace itself named can be fetched,
+     * so the door the page asks through cannot be pointed anywhere else.
+     */
+    private val icons = java.util.concurrent.ConcurrentHashMap<String, Pair<String?, String?>>()
+
+    /** Icons already fetched, by key and shade: one picture per card is asked of orknux.ai once, not on every page. */
+    private val iconCache = java.util.concurrent.ConcurrentHashMap<String, IntegrationIcon>()
+
+    /**
+     * The icon of integration [key], for a dark ground when [dark] and one is
+     * offered, fetched by the server rather than the browser - which never talks
+     * to orknux.ai, so an installation without it shows letters and a browser
+     * sends orknux.ai nothing. Null where there is none, or what came back is
+     * not a small picture.
+     */
+    fun icon(key: String, dark: Boolean): IntegrationIcon? {
+        val (light, shaded) = icons[key] ?: return null
+        val address = (if (dark) shaded ?: light else light ?: shaded) ?: return null
+        iconCache[address]?.let { return it }
+        val request = HttpRequest.newBuilder(URI.create(address)).timeout(Duration.ofSeconds(10)).GET().build()
+        val answered = try {
+            http.send(request, HttpResponse.BodyHandlers.ofByteArray())
+        } catch (failed: Exception) {
+            log.info("the icon of {} could not be fetched from {}: {}", key, address, failed.message)
+            return null
+        }
+        val type = answered.headers().firstValue("Content-Type").orElse("").substringBefore(';').trim().lowercase()
+        val bytes = answered.body()
+        if (answered.statusCode() != 200 || type !in ICON_TYPES || bytes.isEmpty() || bytes.size > ICON_BYTES) {
+            log.info("the icon of {} at {} was not used: {} {} bytes, status {}", key, address, type, bytes.size, answered.statusCode())
+            return null
+        }
+        if (iconCache.size > ICON_CACHE) iconCache.clear()
+        return IntegrationIcon(bytes, type).also { iconCache[address] = it }
+    }
+
+    /** An icon address worth fetching: https anywhere, or whatever scheme the marketplace's own host is reached by. */
+    private fun iconAddress(address: String): Boolean {
+        val asked = runCatching { URI.create(address) }.getOrNull() ?: return false
+        if (asked.scheme == "https") return true
+        val home = runCatching { URI.create(endpoint) }.getOrNull() ?: return false
+        return asked.scheme == home.scheme && asked.host == home.host && asked.port == home.port
+    }
+
+    /** The tags orknux.ai files integrations under, or null from a marketplace without them. */
+    fun integrationTags(): List<OfferedIntegrationTag>? = try {
+        asked("query IntegrationTags { integrationTags { tag label count } }", emptyMap())
+            .path("data").path("integrationTags").values().map {
+                OfferedIntegrationTag(it.path("tag").asString(""), it.path("label").asString(""), it.path("count").asInt(0))
+            }.filter { it.tag.isNotBlank() }.toList()
+    } catch (refused: MarketplaceRefusedQueryException) {
+        log.info("the marketplace refused integration tags: {}", refused.message)
+        null
+    }
+
+    private fun readIntegration(node: tools.jackson.databind.JsonNode): OfferedIntegration? {
+        val key = node.path("key").asString("").takeIf { it.isNotBlank() } ?: return null
+        val setup = node.path("setup")
+        fun text(field: String) = node.path(field).stringValue(null)?.takeIf { it.isNotBlank() }
+        val icon = text("icon")?.takeIf(::iconAddress)
+        val iconDark = text("iconDark")?.takeIf(::iconAddress)
+        icons[key] = icon to iconDark
+        return OfferedIntegration(
+            icon = icon,
+            iconDark = iconDark,
+            key = key,
+            name = node.path("name").asString(key),
+            vendor = text("vendor"),
+            summary = node.path("summary").asString(""),
+            description = node.path("description").asString(""),
+            tags = node.path("tags").values().map { it.asString("") }.filter { it.isNotBlank() }.toList(),
+            homepage = text("homepage"),
+            repository = text("repository"),
+            license = text("license"),
+            maintainer = text("maintainer"),
+            popularity = node.path("popularity").takeIf { it.isNumber }?.asInt(),
+            github = node.path("github").takeIf { it.isObject }?.let { repo ->
+                val url = repo.path("url").stringValue(null)?.takeIf { it.startsWith("https://github.com/") }
+                val name = repo.path("fullName").stringValue(null)?.takeIf { it.isNotBlank() }
+                if (url == null || name == null) null else OfferedGitHubRepository(
+                    fullName = name,
+                    url = url,
+                    stars = repo.path("stars").asInt(0),
+                    archived = repo.path("archived").asBoolean(false),
+                    checkedAt = repo.path("checkedAt").stringValue(null),
+                )
+            },
+            kind = text("kind") ?: "MCP_SERVER",
+            transport = text("transport"),
+            runsOn = text("runsOn") ?: "ANYWHERE",
+            sampleTools = node.path("sampleTools").values().map { it.asString("") }.filter { it.isNotBlank() }.toList(),
+            minimumServer = text("minimumServer"),
+            effort = setup.path("effort").asString("HOUR"),
+            minutes = setup.path("minutes").asInt(0),
+            requirements = setup.path("requirements").values().map { it.asString("") }.filter { it.isNotBlank() }.toList(),
+            needsAdmin = setup.path("needsAdmin").asBoolean(false),
+            steps = setup.path("steps").asString(""),
+            claudePrompt = setup.path("claudePrompt").asString(""),
+        )
+    }
+
+    /**
      * What fetching a server jar the catalog listed asks of the download: the
      * install key, sent to the marketplace's own host and to nothing a redirect
      * leads to - the jar used to follow redirects with the key attached - and
@@ -459,6 +645,35 @@ class Marketplace(
          * marketplace that refuses every rung offers no server releases.
          */
         val SERVER_RELEASE_LADDER = listOf("version publishedAt changelog jarUrl sha256 size")
+
+        /**
+         * What an integration is asked for, newest shape first: the contract in
+         * `docs/orknux-ai/integrations.graphql`. One rung today; a field added
+         * there is a new rung above this one. Icons are left out on purpose:
+         * the browser would fetch them from orknux.ai directly, past this
+         * installation's proxy, which is the call [MarketplaceIcons] exists to
+         * keep on the server.
+         */
+        private const val INTEGRATION_FIELDS =
+            "key name vendor summary description tags homepage repository license maintainer popularity " +
+                "kind transport runsOn sampleTools minimumServer " +
+                "setup { effort minutes requirements needsAdmin steps claudePrompt }"
+
+        /** Newest first: the icons, then the shape before them - a marketplace that never had them still answers. */
+        val INTEGRATION_LADDER = listOf(
+            "$INTEGRATION_FIELDS icon iconDark github { fullName url stars archived checkedAt }",
+            "$INTEGRATION_FIELDS icon iconDark",
+            INTEGRATION_FIELDS,
+        )
+
+        /** How many icons are kept fetched; a page of cards is a few dozen, and past this the cache starts again. */
+        const val ICON_CACHE = 400
+
+        /** What an integration's icon may be: the picture formats a card draws, nothing that runs. */
+        val ICON_TYPES = setOf("image/svg+xml", "image/png", "image/webp", "image/jpeg")
+
+        /** The most an icon may weigh; a picture the size of a card's corner has no need of more. */
+        const val ICON_BYTES = 256 * 1024
     }
 }
 
@@ -485,3 +700,60 @@ class MarketplaceRefusedQueryException(said: String) : MarketplaceUnreachableExc
 
 /** The marketplace could not be asked, in the words it or the network used. */
 open class MarketplaceUnreachableException(why: String) : RuntimeException("The marketplace could not be read: $why.")
+
+/** An integration's repository on GitHub, as orknux.ai last read it. */
+data class OfferedGitHubRepository(
+    val fullName: String,
+    val url: String,
+    val stars: Int,
+    val archived: Boolean,
+    /** ISO-8601, when orknux.ai read it; null from one that did not say. */
+    val checkedAt: String?,
+)
+
+/** A picture fetched for an integration's card, and what kind of picture it is. */
+class IntegrationIcon(val bytes: ByteArray, val type: String)
+
+/** One integration orknux.ai recommends, as it answered; see `docs/orknux-ai/integrations.graphql`. */
+data class OfferedIntegration(
+    /** Absolute addresses of its icon for a light ground and a dark one; null where orknux.ai gives none. */
+    val icon: String? = null,
+    val iconDark: String? = null,
+    val key: String,
+    val name: String,
+    val vendor: String?,
+    val summary: String,
+    val description: String,
+    val tags: List<String>,
+    val homepage: String?,
+    val repository: String?,
+    val license: String?,
+    /** OFFICIAL or COMMUNITY, as the contract spells them. */
+    val maintainer: String?,
+    val popularity: Int?,
+    /** Its repository as GitHub reports it, read by orknux.ai; null where it is not on GitHub or not read yet. */
+    val github: OfferedGitHubRepository? = null,
+    /** MCP_SERVER, CONNECTION, PLUGIN or EXTENSION. */
+    val kind: String,
+    /** STREAMABLE_HTTP, SSE or STDIO, for an MCP server. */
+    val transport: String?,
+    /** ANYWHERE, USER_MACHINE or SERVER. */
+    val runsOn: String,
+    val sampleTools: List<String>,
+    val minimumServer: String?,
+    /** MINUTES, QUARTER_HOUR, HOUR or AFTERNOON. */
+    val effort: String,
+    val minutes: Int,
+    val requirements: List<String>,
+    val needsAdmin: Boolean,
+    /** Markdown. */
+    val steps: String,
+    /** With its {{placeholders}} still in; the app fills them. */
+    val claudePrompt: String,
+)
+
+data class OfferedRecommendation(val integration: OfferedIntegration, val reason: String?, val installed: Boolean)
+
+data class OfferedIntegrationPage(val items: List<OfferedRecommendation>, val next: String?, val total: Int)
+
+data class OfferedIntegrationTag(val tag: String, val label: String, val count: Int)

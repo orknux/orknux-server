@@ -249,7 +249,13 @@ class AgentRunTools(
      * asks at all: a tool that refuses every call is a tool the model should
      * not be shown. Issue #380.
      */
-    fun offered(agent: Agent): Boolean = granted(agent).isNotEmpty() && limitFor(agent) > 0
+    /*
+     * Or that may create somebody to ask: the tool array is fixed for the
+     * session, so ask_agent has to be in it from the start for an agent made
+     * halfway through to be askable at all.
+     */
+    fun offered(agent: Agent): Boolean =
+        (granted(agent).isNotEmpty() || (agent.creatableModelIds.isNotEmpty() && !agent.temporary)) && limitFor(agent) > 0
 
     /**
      * How many other agents this one may ask in a conversation: the
@@ -290,11 +296,14 @@ class AgentRunTools(
                     if (n == 1) "Only one of them works at a time: a second ask waits until the first has answered. "
                     else "At most $n of them work at once; an ask past that waits until one has answered. "
                 } + "You may ask: " +
-                named.joinToString(", ") { "${it.name} (${it.description ?: "no description"})" },
+                (if (named.isEmpty()) "none yet" else named.joinToString(", ") { "${it.name} (${it.description ?: "no description"})" }) +
+                // Said rather than listed: the array is fixed, and the agents made later are not in it.
+                (if (agent.creatableModelIds.isNotEmpty() && !agent.temporary) ", and any agent you create with ${TemporaryAgentTools.CREATE}." else ""),
             parameters = listOf(
                 ToolParameterSpec(
                     name = AGENT,
-                    description = "Which of them to ask, by name: " + named.joinToString(", ") { it.name },
+                    description = "Which of them to ask, by name: " + named.joinToString(", ") { it.name } +
+                        (if (agent.creatableModelIds.isNotEmpty() && !agent.temporary) " - or one you created" else ""),
                     required = true,
                 ),
                 ToolParameterSpec(
@@ -349,7 +358,7 @@ class AgentRunTools(
      * which is its instructions and not the asker's business.
      */
     fun listed(agent: Agent, parent: Long? = null): String {
-        val described = granted(agent).map { asked ->
+        val described = granted(agent, parent).map { asked ->
             val sub = without(asked)
             val setup = mapper.readTree(details.getObject().snapshot(sub, null, null))
             val tools = (setup.path("tools").toList().map { it.stringValue() } + setup.path("findable").toList().map { it.stringValue() })
@@ -760,6 +769,9 @@ class AgentRunTools(
         } ?: tuning[Tunable.AGENT_WAIT_DEFAULT_SECONDS]
     }
 
+    /** Whether the ask that opened [session] is still working: its turn is going, and reads its inbox between rounds. */
+    fun working(session: Long): Boolean = running[session]?.isDone == false
+
     fun stillWorking(parent: Long?): Int {
         if (parent == null) return 0
         return held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent)
@@ -797,7 +809,7 @@ class AgentRunTools(
             return refusal("Say which agent to ask and what to ask it: $AGENT and $QUESTION are both needed.")
         }
 
-        val named = granted(agent)
+        val named = granted(agent, parent)
         val wanted = named.firstOrNull { it.name.equals(asked, ignoreCase = true) }
             ?: return refusal(
                 "You have not been given an agent called \"$asked\". " +
@@ -1499,10 +1511,15 @@ class AgentRunTools(
                 "What you write twice is paid for twice and cut off once."
     }
 
-    /** The agents this one may ask: its grant list, in its own workspace, as rows. */
-    private fun granted(agent: Agent): List<Agent> = agent.agents
+    /**
+     * The agents this one may ask: its grant list, in its own workspace, as
+     * rows - and, in a conversation, the temporary agents it created there.
+     */
+    private fun granted(agent: Agent, session: Long? = null): List<Agent> = agent.agents
         .mapNotNull { agents.findByIdOrNull(it) }
-        .filter { it.workspaceId == agent.workspaceId && it.id != agent.id }
+        .filter { it.workspaceId == agent.workspaceId && it.id != agent.id } +
+        (session?.takeIf { !agent.temporary }?.let { agents.findTemporaryBySession(it) }.orEmpty()
+            .filter { it.createdByAgentId == agent.id && it.workspaceId == agent.workspaceId })
 
     /**
      * The same agent with nothing to delegate to.
@@ -1530,6 +1547,14 @@ class AgentRunTools(
         // the copy carries both or the specialist is offered a different set.
         tools = agent.tools.toMutableList(),
         requiredTools = agent.requiredTools.toMutableList(),
+        /*
+         * And what it hides and holds only to hand on, or an asked agent is
+         * offered every built-in it hid and every tool it was to pass on - and
+         * a temporary agent, which hides every built-in it was not given, would
+         * be handed all of them.
+         */
+        hiddenTools = agent.hiddenTools.toMutableList(),
+        delegatedTools = agent.delegatedTools.toMutableList(),
         connections = agent.connections.toMutableList(),
         skillCatalogs = agent.skillCatalogs.toMutableList(),
         memoryCatalogs = agent.memoryCatalogs.toMutableList(),

@@ -249,7 +249,10 @@ class AgentAPI(
                 // May ask the person for more tools unless the caller says not.
                 mayAskForTools = input.mayAskForTools ?: true,
                 lastModifiedBy = currentUser(),
-            ).also { made -> input.boxLabels?.let { made.boxLabels = it } },
+            ).also { made ->
+                input.boxLabels?.let { made.boxLabels = it }
+                input.delegatedTools?.let { delegate(made, it) }
+            },
         )
         auditRecorder.record(input.workspaceId, WorkspaceAuditCategory.AGENT, "Agent $name created")
         if (agent.boxLabels.isNotEmpty()) {
@@ -371,7 +374,8 @@ class AgentAPI(
         val name = input.name.trim()
         if (name.isEmpty()) throw AgentNameInvalidException()
 
-        val agent = agents.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+        // A temporary agent is its conversation's, made and dismissed there; it has no settings page.
+        val agent = agents.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) && !it.temporary }
             ?: throw AgentNotFoundException(id)
         if (name != agent.name && agents.findByWorkspaceIdAndName(agent.workspaceId, name) != null) {
             throw AgentNameTakenException(name)
@@ -399,6 +403,8 @@ class AgentAPI(
         val previousConnections = agent.connections.toList()
         val previousShare = agent.memoryShare
         val previousBoxLabels = agent.boxLabels
+        val previousDelegated = agent.delegatedTools.toList()
+        val previousCreatable = agent.creatableModelIds.toList()
 
         agent.name = name
         agent.description = input.description?.trim()?.ifEmpty { null }
@@ -611,6 +617,19 @@ class AgentAPI(
         input.artifactAccess?.let { on -> AgentTools.ARTIFACT_TOOL_NAMES.forEach { switched(agent, it, on) } }
         input.finishAccess?.let { switched(agent, FinishAnswerTools.FINISH, it) }
         input.pictureLinkAccess?.let { switched(agent, StepPictureTools.LINK, it) }
+        if (input.delegatedTools != null || input.tools != null) {
+            delegate(agent, input.delegatedTools ?: agent.delegatedTools)
+        }
+        if (input.creatableModelIds != null) {
+            // The models it may create agents with: this workspace's, or a lent provider's, and ones that answer.
+            agent.creatableModelIds = input.creatableModelIds.distinct().onEach { id ->
+                val model = models.model(id) ?: throw AgentModelUnusableException("That model no longer exists")
+                if (model.workspaceId != agent.workspaceId && !sharing.providerLentTo(agent.workspaceId, model.providerId)) {
+                    throw AgentModelUnusableException("That model belongs to another workspace")
+                }
+                if (model.kind != ModelKind.CHAT) throw AgentModelUnusableException("${model.name} does not answer questions")
+            }.toMutableList()
+        }
         if (input.maxTools != null) {
             if (input.maxTools !in MIN_AGENT_TOOLS..MAX_AGENT_TOOLS) throw AgentToolLimitUnusableException(input.maxTools)
             agent.maxTools = input.maxTools
@@ -711,6 +730,26 @@ class AgentAPI(
                 } else {
                     "Agent ${agent.name} boxes set to ${agent.boxLabels.joinToString(", ")}"
                 },
+            )
+        }
+        (agent.delegatedTools - previousDelegated.toSet()).forEach { tool ->
+            auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent ${agent.name} may hand on tool $tool to agents it creates")
+        }
+        (previousDelegated - agent.delegatedTools.toSet()).forEach { tool ->
+            auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent ${agent.name} no longer hands on tool $tool")
+        }
+        (agent.creatableModelIds - previousCreatable.toSet()).forEach { id ->
+            auditRecorder.record(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                "Agent ${agent.name} may create agents with model ${models.model(id)?.name ?: id}",
+            )
+        }
+        (previousCreatable - agent.creatableModelIds.toSet()).forEach { id ->
+            auditRecorder.record(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                "Agent ${agent.name} may no longer create agents with model ${models.model(id)?.name ?: id}",
             )
         }
         if (agent.modelId != previousModel) {
@@ -853,7 +892,7 @@ class AgentAPI(
     @MutationMapping
     @Transactional
     fun setAgentEnabled(@Argument id: Long, @Argument enabled: Boolean): AgentView {
-        val agent = agents.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+        val agent = agents.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) && !it.temporary }
             ?: throw AgentNotFoundException(id)
         // The toggle is a save: it changes what the workspace has.
         revisions.saved(agent)
@@ -960,6 +999,35 @@ class AgentAPI(
     }
 
     /**
+     * Delegate, the fourth visibility: held only to hand on to an agent it
+     * creates. Applied after `tools`, so a name sent in both is delegated - the
+     * narrower statement - and taken out of the grant; a name is in at most one
+     * of the two. A built-in at Delegate is hidden as well, so every reader of
+     * the inverted built-in rule already says no to it, and only where this
+     * agent may hide it at all: the unsafe switch guards a built-in from being
+     * taken away from the agent, and delegating it does exactly that.
+     */
+    private fun delegate(agent: Agent, given: List<String>) {
+        val orknuxNames = builtIns.orknuxNames()
+        val allowed = workspaces.findByIdOrNull(agent.workspaceId)?.unsafeBuiltInTools == true
+        val wanted = given.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        agent.delegatedTools = wanted.filter { name ->
+            when {
+                name in orknuxNames -> agent.orknuxAccess
+                BuiltInTools.reaches(name) -> true
+                BuiltInTools.switchable(name) -> allowed || name in BuiltInTools.OPTIONAL
+                // Built-ins that come with a wider grant are switched where that grant is.
+                else -> builtIns.all().none { it.name == name }
+            }
+        }.toMutableList()
+        agent.tools.removeAll(agent.delegatedTools.toSet())
+        agent.delegatedTools
+            .filter { (BuiltInTools.switchable(it) && !BuiltInTools.reaches(it)) || it in orknuxNames }
+            .filter { it !in agent.hiddenTools }
+            .forEach { agent.hiddenTools.add(it) }
+    }
+
+    /**
      * One built-in switched on or off by name, the way the boolean used to be.
      *
      * On is granted and Always, because a switch that was on meant "carried
@@ -1034,6 +1102,8 @@ data class CreateAgentInput(
     val orknuxAccess: Boolean? = null,
     /** Whether it may ask the person for tools it was not granted; null starts it on. */
     val mayAskForTools: Boolean? = null,
+    /** Which tools it holds only to hand on to agents it creates; null or empty is none. */
+    val delegatedTools: List<String>? = null,
 )
 
 data class UpdateAgentInput(
@@ -1083,6 +1153,10 @@ data class UpdateAgentInput(
     val maxTools: Int? = null,
     /** Which granted tools always travel rather than being found; null leaves them alone. */
     val requiredTools: List<String>? = null,
+    /** Which tools it holds only to hand on to agents it creates - Delegate; null leaves them alone. */
+    val delegatedTools: List<String>? = null,
+    /** Which models it may create temporary agents with, by id; null leaves them alone, empty is none. */
+    val creatableModelIds: List<Long>? = null,
     /** Which icon a node drawn from this starts with; null draws the kind's own. */
     val icon: String? = null,
     /**
@@ -1158,6 +1232,10 @@ data class AgentView(
     val maxTools: Int?,
     /** Which granted tools always travel rather than being found. */
     val requiredTools: List<String>,
+    /** Which tools it holds only to hand on to agents it creates - the Delegate visibility. */
+    val delegatedTools: List<String>,
+    /** Which models it may create temporary agents with; empty is none. */
+    val creatableModelIds: List<Long>,
     /** Which icon a node drawn from this starts with; null draws the kind's own. */
     val icon: String?,
     /** Its own share of the model's window; null follows the workspace default. */
@@ -1212,6 +1290,8 @@ data class AgentView(
         agentIds = agent.agents.toList(),
         maxTools = agent.maxTools,
         requiredTools = agent.requiredTools.filterNot { it in withheld },
+        delegatedTools = agent.delegatedTools.toList(),
+        creatableModelIds = agent.creatableModelIds.toList(),
         icon = agent.icon,
         memoryShare = agent.memoryShare,
         maxRounds = agent.maxRounds,
@@ -1290,7 +1370,7 @@ private class AgentLists(private val loaded: List<Pair<KMutableProperty1<Agent, 
             Agent::mcpServers, Agent::memoryCatalogs, Agent::secretCatalogs, Agent::variableCatalogs,
             Agent::skillCatalogs, Agent::hiddenSkills,
             Agent::requiredSkills, Agent::tools, Agent::requiredTools, Agent::hiddenTools,
-            Agent::connections, Agent::agents,
+            Agent::connections, Agent::agents, Agent::delegatedTools, Agent::creatableModelIds,
         ) as List<KMutableProperty1<Agent, MutableList<*>>>
 
         fun of(agent: Agent) = AgentLists(LISTS.map { it to it.get(agent) })

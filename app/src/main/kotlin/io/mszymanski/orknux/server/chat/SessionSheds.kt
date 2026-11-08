@@ -38,6 +38,11 @@ class SessionSheds(
     private val ratings: io.mszymanski.orknux.server.rating.RatingTools,
     private val flags: io.mszymanski.orknux.server.flag.SessionFlagTools,
     private val usage: SessionUsageTools,
+    private val browser: io.mszymanski.orknux.server.browser.BrowserTools,
+    private val desktop: io.mszymanski.orknux.server.desktop.DesktopTools,
+    private val shell: io.mszymanski.orknux.server.shell.ShellTools,
+    private val temporaryAgents: TemporaryAgentTools,
+    private val goals: GoalTools,
 ) {
 
     /**
@@ -70,6 +75,16 @@ class SessionSheds(
         flags.shed(agent, session),
         // What the conversation has cost, as its page shows it. Last, so the tools before it keep their place.
         usage.shed(session),
+        // The person's own Chrome, where the agent was given it; after the rest, so their places hold.
+        browser.shed(agent, session),
+        // And their Windows desktop, through Orknux for Windows.
+        desktop.shed(agent, session),
+        // And their computer's command line, in a chat opened in Orknux Shell.
+        shell.shed(agent, session),
+        // And making agents for this conversation, where it was allowed models to make them with. Last, as the newest.
+        temporaryAgents.shed(agent, session),
+        // And a goal it sets itself in a chat, reviewed by an agent made for it, with the same grant.
+        goals.shed(agent, session),
     )
 
     /**

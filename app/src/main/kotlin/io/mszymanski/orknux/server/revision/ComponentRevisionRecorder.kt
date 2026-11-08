@@ -136,6 +136,8 @@ class ComponentRevisionRecorder(
 
     fun saved(agent: Agent) {
         val id = agent.id ?: return
+        // A temporary agent lives for one conversation and has no history worth keeping.
+        if (agent.temporary) return
         saved(ComponentRevisionKind.AGENT) {
             RevisionSubject(
                 workspaceId = agent.workspaceId,

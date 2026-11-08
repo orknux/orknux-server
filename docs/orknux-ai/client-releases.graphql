@@ -1,0 +1,341 @@
+# Client releases: how orknux.ai hosts the Orknux clients, and the contract
+# between orknux.ai and an Orknux server for offering their updates.
+#
+# The clients are the programs a person installs beside the server:
+#
+#   WINDOWS  Orknux for Windows - one self-contained exe, OrknuxForWindows.exe,
+#            win-x64. Built and released from github.com/orknux/orknux-windows.
+#   CHROME   The Orknux extension for Chrome - until it is in the Chrome Web
+#            Store, a zip of the extension's folder, loaded with "Load
+#            unpacked". From github.com/orknux/orknux-chrome.
+#   CLAUDE   The Orknux channel plugin for Claude Code. Claude Code installs it
+#            from its own marketplace (github.com/orknux/orknux-claude), so
+#            orknux.ai hosts no file for it - only its page and the two
+#            commands that install it.
+#   SHELL    Orknux Shell, the terminal client - one native executable per
+#            platform: orknux-shell-linux-x64 and orknux-shell-windows-x64.exe,
+#            plus orknux-shell.jar for anywhere with Java 25. From
+#            github.com/orknux/orknux-shell. Installed as `orknux` (alias
+#            `orkx`), and the one client that UPDATES ITSELF: see section 4.
+#
+# ---------------------------------------------------------------------------
+# 1. What orknux.ai serves
+# ---------------------------------------------------------------------------
+#
+# Files, public, no key, no sign-in - a first install happens before anybody
+# has a server to ask:
+#
+#   https://orknux.ai/download/windows/1.0.8/OrknuxForWindows.exe
+#   https://orknux.ai/download/chrome/1.0.4/orknux-chrome-1.0.4.zip
+#   https://orknux.ai/download/shell/1.0.3/orknux-shell-linux-x64
+#   https://orknux.ai/download/shell/1.0.3/orknux-shell-windows-x64.exe
+#   https://orknux.ai/download/shell/1.0.3/orknux-shell.jar
+#   https://orknux.ai/download/shell/1.0.3/SHA256SUMS
+#
+#   * One address per version, and it never changes: the bytes at a versioned
+#     address are the bytes that were published, for ever. A broken release is
+#     withdrawn (see `withdrawn` below), never replaced in place - a server
+#     holds the sha256 it was told and refuses anything else.
+#   * Served exactly as published: no recompression, no re-zipping, no
+#     rewriting. Content-Type application/octet-stream for the exe,
+#     application/zip for the zip; Content-Length set; ranges answered (a 117 MB
+#     exe on a slow link is resumed, not restarted).
+#   * https only. Long cache on versioned addresses (immutable).
+#
+#   https://orknux.ai/download/windows/latest   302 to the newest stable exe
+#   https://orknux.ai/download/chrome/latest    302 to the newest stable zip
+#   https://orknux.ai/download/shell/latest/<file>   302 to <file> of the newest
+#                                                    stable Shell, e.g.
+#                                                    .../shell/latest/orknux-shell-linux-x64
+#   https://orknux.ai/install/shell.sh    the Linux installer, text/x-shellscript
+#   https://orknux.ai/install/shell.ps1   the Windows installer, text/plain
+#
+#   * The two installers are the files of the same names attached to the newest
+#     Shell release (install.sh, install.ps1), served as they are, short cache.
+#     They are what the one-liners on /clients/shell run:
+#       curl -fsSL https://orknux.ai/install/shell.sh | sh
+#       irm https://orknux.ai/install/shell.ps1 | iex
+#
+#   * A redirect, never the file itself, so what was downloaded always has a
+#     version in its address. Short cache (five minutes).
+#
+# Pages, public:
+#
+#   https://orknux.ai/clients            the three clients side by side
+#   https://orknux.ai/clients/windows    download button (to /latest), version,
+#   https://orknux.ai/clients/chrome     size, sha256, date, what changed, and
+#   https://orknux.ai/clients/claude     how to install; older versions below
+#   https://orknux.ai/clients/shell      (the Shell lists one file per platform)
+#
+#   These are what the Orknux corner links to for somebody who does not have a
+#   client yet, so each must stand on its own for a stranger. Install steps:
+#
+#   Windows  Download, run. SmartScreen warns while the exe is unsigned: say so,
+#            and that "More info > Run anyway" is the way past it. In Orknux,
+#            Preferences > Connected clients > Connect a client gives a pairing
+#            link; paste it into the app's first field and press Connect.
+#   Chrome   Download the zip, unzip it somewhere it will stay, open
+#            chrome://extensions, switch on Developer mode, Load unpacked, pick
+#            the folder. Open the Orknux side panel, paste the pairing link,
+#            Connect. To update: unzip the new version over the same folder and
+#            press the reload arrow on the extension's card.
+#   Claude   Install Bun (bun.sh). In Claude Code:
+#              /plugin marketplace add orknux/orknux-claude
+#              /plugin install orknux@orknux
+#            Start it with
+#              claude --dangerously-load-development-channels plugin:orknux@orknux
+#            and paste the sentence Orknux's Claude Code guide shows (it holds a
+#            pairing link) into the conversation.
+#
+#   Show the sha256 on every page, with the PowerShell line that checks it:
+#     (Get-FileHash .\OrknuxForWindows.exe -Algorithm SHA256).Hash
+#
+# ---------------------------------------------------------------------------
+# 2. How a release gets there
+# ---------------------------------------------------------------------------
+#
+# The same way a server release does, with the client named. Each client's
+# repository publishes on a tag (vX.Y.Z): its CI builds the file, then hands
+# orknux.ai the file, the version, the client, the release notes (that
+# version's section of the repository's CHANGELOG.md, markdown) and the sha256
+# it computed. orknux.ai computes the sha256 itself on receipt and refuses the
+# upload when the two differ; the stored digest is orknux.ai's, never the
+# uploader's. A version already published for that client is refused, not
+# overwritten. The upload is authenticated with a publishing token held as a
+# CI secret, one per client repository, revocable on its own.
+#
+# The CLAUDE client is registered with no file: a version, notes and date only,
+# so its page and `clientReleases` can say what is current.
+#
+# The SHELL client is registered with several files, one per platform, in one
+# upload: each with its platform (linux-x64, windows-x64, or "any" for the
+# jar), its sha256 and its signature (section 4). The release is published
+# only when every file arrived and verified - a release with the Linux binary
+# and not the Windows one would offer an update to half its users.
+#
+# ---------------------------------------------------------------------------
+# 3. The contract with an Orknux server
+# ---------------------------------------------------------------------------
+#
+# Served from the same endpoint as the plugin marketplace and `serverReleases`
+# (ORKNUX_MARKETPLACE_URL, https://orknux.ai/graphql by default) and keyed the
+# same way: every request carries the installation's daily install key header,
+# and one without it is answered 401 before the query is read.
+#
+# The clients never ask orknux.ai themselves. A client asks the Orknux server it
+# is connected to (it already asks it `GET /api/client/compatibility`), and the
+# server asks orknux.ai - so an air-gapped installation leaves the URL blank and
+# its clients are simply told nothing newer is known, and the server, which
+# knows which client versions it works with, is what decides what to offer.
+#
+# Versioning follows the marketplace's rule: within a major, this schema only
+# grows. A field is added, never renamed, removed or given a new meaning, and the
+# server asks for the newest shape first and falls back a rung at a time when a
+# query is refused (Marketplace.LADDER). A new field is a new rung.
+
+"""Which Orknux client a release is of."""
+enum ClientKind {
+  WINDOWS
+  CHROME
+  CLAUDE
+  """Orknux Shell, the terminal client. Added with self-update; a new value, so older servers simply never ask for it."""
+  SHELL
+}
+
+"""
+One file of a release, for one platform. A client with a single file
+(WINDOWS, CHROME) has one, with platform "any"; SHELL has one per platform.
+"""
+type ClientFile {
+  """linux-x64, windows-x64, or any. More may be added (linux-arm64, macos-arm64); a client ignores what it does not know."""
+  platform: String!
+  """The file's name as published: "orknux-shell-linux-x64"."""
+  fileName: String!
+  """Its versioned address, section 1, absolute https."""
+  downloadUrl: String!
+  """Lowercase hex SHA-256, computed by orknux.ai on receipt."""
+  sha256: String!
+  """Bytes."""
+  size: Float!
+  """
+  Base64 Ed25519 signature over the file's raw bytes, made by the client's
+  release key in its repository's CI and stored as received - orknux.ai cannot
+  make or check a valid one, which is the point (section 4). Null for clients
+  that do not update themselves.
+  """
+  signature: String
+}
+
+"""One published version of one client."""
+type ClientRelease {
+  client: ClientKind!
+  """Semantic version without a v: "1.0.8"."""
+  version: String!
+  """ISO-8601 instant it was published: "2026-11-07T21:33:00Z"."""
+  publishedAt: String!
+  """What changed, in markdown: that version's section of the client's CHANGELOG.md."""
+  changelog: String!
+
+  """
+  The versioned download address of section 1, absolute https. Null for CLAUDE,
+  which Claude Code installs from its own marketplace.
+  """
+  downloadUrl: String
+  """The file's name as a person would save it: "OrknuxForWindows.exe". Null where there is no file."""
+  fileName: String
+  """Lowercase hex SHA-256 of the file, computed by orknux.ai on receipt. Null where there is no file."""
+  sha256: String
+  """Bytes. Null where there is no file."""
+  size: Float
+
+  """The client's page on orknux.ai, section 1: where a person is sent to read about it or install it by hand."""
+  pageUrl: String!
+
+  """Every file of the release, one per platform (section 4). The single-file fields above stay as they were for clients that have one."""
+  files: [ClientFile!]!
+
+  """
+  The oldest Orknux server version this client release works with, "1.4.0",
+  or null for any server of the same major. The server compares it with its
+  own version; orknux.ai only repeats what the release said.
+  """
+  minimumServerVersion: String
+
+  """
+  Withdrawn after publishing: still listed, so a server can tell a person why
+  the version they run is no longer offered, and never offered as an update.
+  """
+  withdrawn: Boolean!
+  """Why, in one sentence, when withdrawn."""
+  withdrawnReason: String
+}
+
+extend type Query {
+  """
+  Releases of [client] newer than [after], newest first, withdrawn ones
+  included and marked. [after] null lists every release. Answers [] for a
+  client orknux.ai has nothing of yet, never an error.
+  """
+  clientReleases(client: ClientKind!, after: String): [ClientRelease!]!
+}
+
+# ---------------------------------------------------------------------------
+# 4. Self-update: Orknux Shell
+# ---------------------------------------------------------------------------
+#
+# The Shell checks for a newer version of itself and, when the person says so
+# (`/update`, or `orknux update` from the command line), replaces its own
+# executable. It may be run where it has no Orknux server yet, or one that is
+# air-gapped, so unlike the other clients it asks orknux.ai directly - over
+# REST, with no key, because a first install and an update are both public
+# downloads - and only then, as a hint, its server's compatibility answer.
+#
+#   GET https://orknux.ai/api/clients/shell/latest?platform=linux-x64&current=1.0.2&channel=stable
+#
+#   No authentication, CORS not needed (not a browser), cacheable for five
+#   minutes. `current` is optional and only lets the answer say "up to date";
+#   orknux.ai must not log it against anything identifying - it is a version,
+#   not a user. `channel` is stable (default) or beta; beta lists pre-releases
+#   (1.1.0-beta.2) too.
+#
+#   200, application/json:
+#     {
+#       "client": "SHELL",
+#       "version": "1.0.3",                  newest non-withdrawn release
+#       "publishedAt": "2026-11-09T10:00:00Z",
+#       "changelog": "- /agent is a list you choose from with the arrows.
+...",
+#       "upToDate": false,                   current >= version; absent without current
+#       "minimumServerVersion": null,
+#       "file": {                            the file for that platform
+#         "platform": "linux-x64",
+#         "fileName": "orknux-shell-linux-x64",
+#         "downloadUrl": "https://orknux.ai/download/shell/1.0.3/orknux-shell-linux-x64",
+#         "sha256": "…64 hex…",
+#         "size": 34671688,
+#         "signature": "…base64 Ed25519…"
+#       },
+#       "withdrawnCurrent": null             or {"reason": "…"} when `current` was withdrawn:
+#                                            the Shell then says so on every start until updated
+#     }
+#
+#   404 {"error": "no-release", "message": "…"}       nothing published for SHELL yet
+#   404 {"error": "no-platform", "message": "…"}      no file for that platform in the newest release
+#   400 {"error": "bad-request", "message": "…"}      a platform or version that does not parse
+#
+#   The same release, every field, is also in `clientReleases(client: SHELL)` for
+#   servers; this endpoint exists so a Shell needs neither GraphQL nor a key.
+#
+# Trust. The Shell replaces the program the person runs, so a hash from the
+# same place as the file proves nothing about who made it. Each SHELL file is
+# signed in the orknux-shell repository's release CI with an Ed25519 key whose
+# private half is a CI secret and whose public half is compiled into the Shell.
+# The Shell installs a download only when: its sha256 matches the answer, its
+# signature verifies against the compiled-in key, and its version is higher
+# than its own (never a downgrade, whatever the answer says). orknux.ai stores
+# and serves the signature it was handed and never needs the key; it cannot
+# produce a release the Shell will install, and neither can anyone who takes
+# over the site. A key rotation ships a Shell that knows both keys first.
+#
+# Upload (section 2, for SHELL): the CI hands over, per file, the bytes, the
+# platform, its sha256 and its signature; orknux.ai checks the sha256 as it
+# does for every client and refuses a SHELL file without a signature. It does
+# not verify the signature (it has no key), but it rejects one that is not 64
+# bytes of base64.
+#
+# What the Shell does with it, so the site can test against it:
+#   * At most once a day, in the background, after start: one GET as above.
+#     A newer version is one line under the banner - "Orknux Shell 1.0.3 is
+#     out: /update" - and nothing else; it never updates on its own.
+#   * /update: downloads to a file beside the executable, checks sha256, size
+#     and signature, then swaps it in (rename on Linux; on Windows the running
+#     .exe is renamed aside and removed on the next start) and asks for a
+#     restart. Any failure leaves the installed version exactly as it was.
+#   * ORKNUX_SHELL_UPDATES=off, or "updates": false in its config, turns the
+#     check off - for packaged installs and air-gapped machines.
+#
+# Acceptance, for the orknux.ai side:
+#   * /api/clients/shell/latest?platform=linux-x64 answers the newest
+#     non-withdrawn SHELL release with that platform's file, including
+#     signature; with current=<newest> it says upToDate: true; with a withdrawn
+#     current it fills withdrawnCurrent.
+#   * A platform not in the newest release is 404 no-platform, not an older
+#     release's file.
+#   * A SHELL upload missing any file's signature is refused whole.
+#   * /download/shell/latest/<file> is a 302 to that file of the newest release.
+#   * /install/shell.sh and /install/shell.ps1 serve the newest release's
+#     installers byte for byte.
+
+# Example, as a server asks it:
+#
+#   query {
+#     clientReleases(client: WINDOWS, after: "1.0.6") {
+#       version publishedAt changelog downloadUrl fileName sha256 size pageUrl
+#       minimumServerVersion withdrawn withdrawnReason
+#     }
+#   }
+#
+#   {"data": {"clientReleases": [
+#     {"version": "1.0.8", "publishedAt": "2026-11-07T21:33:00Z",
+#      "changelog": "- A window's screenshot shows the window even when another covers it.\n...",
+#      "downloadUrl": "https://orknux.ai/download/windows/1.0.8/OrknuxForWindows.exe",
+#      "fileName": "OrknuxForWindows.exe",
+#      "sha256": "…64 lowercase hex…", "size": 117150662,
+#      "pageUrl": "https://orknux.ai/clients/windows",
+#      "minimumServerVersion": null, "withdrawn": false, "withdrawnReason": null},
+#     {"version": "1.0.7", …}
+#   ]}}
+#
+# Acceptance, for whoever builds the orknux.ai side:
+#
+#   * An upload whose sha256 differs from what orknux.ai computes is refused,
+#     and so is a second upload of a published version.
+#   * GET on a versioned download address returns the uploaded bytes exactly
+#     (compare sha256), answers a Range request with 206, and sets
+#     Content-Length.
+#   * /download/<client>/latest is a 302 to the newest release that is not
+#     withdrawn.
+#   * clientReleases without the install key header is a 401; with it, after:
+#     "1.0.6" lists 1.0.7 and 1.0.8 newest first, and after: the newest lists [].
+#   * The three client pages render signed out, each with its install steps,
+#     version, size and sha256.

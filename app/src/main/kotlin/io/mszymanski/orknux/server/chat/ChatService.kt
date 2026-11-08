@@ -49,6 +49,8 @@ import java.util.UUID
  */
 @Service
 class ChatService(
+    /** The person's own Claude Code, for a chat handed to it; lazily, because it writes answers through this. */
+    private val claudeCode: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.claude.ClaudeCodeChats>,
     private val sessions: ChatSessionRepository,
     private val history: ChatMemoryRepository,
     private val takes: ChatAnswerTakeRepository,
@@ -666,6 +668,8 @@ class ChatService(
         title: String,
         agentId: Long?,
         llmSessionId: Long? = null,
+        /** [OPENED_IN_SHELL] for a chat opened in Orknux Shell; null for the browser. */
+        openedIn: String? = null,
     ): ChatSession {
         val trimmed = title.trim().ifEmpty { throw ChatTitleInvalidException() }
         // Checked before anything is written: a chat bound to a session it may
@@ -687,7 +691,9 @@ class ChatService(
          * conversation it had never been part of. Where that agent is gone,
          * switched off or has no model, the usual choice applies.
          */
-        val answering = when {
+        // My Claude Code where it carries on from the last chat, or where nothing else could answer.
+        val claude = agentId == null && llmSessionId == null && claudeCodeNext(workspaceId, userId)
+        val answering = if (claude) null else when {
             agentId != null -> answering(workspaceId, agentId)
             else -> llmSessionId?.let { spokeIn(workspaceId, it) } ?: lastUsed(workspaceId, userId)
         }
@@ -698,8 +704,10 @@ class ChatService(
                 conversationId = UUID.randomUUID().toString(),
                 title = trimmed.take(TITLE_LENGTH),
                 userId = userId,
-                modelId = answering.modelId,
-                agentId = answering.agentId,
+                modelId = answering?.modelId,
+                agentId = answering?.agentId,
+                answeredBy = if (claude) ANSWERED_BY_CLAUDE_CODE else null,
+                openedIn = openedIn,
                 llmSessionId = llmSessionId,
                 createdAt = OffsetDateTime.now(),
                 // A new chat goes ahead without asking. It lifts the asking, not the grants; a chat made before this keeps its mode.
@@ -843,6 +851,20 @@ class ChatService(
      * and the screen answers it by saying to add an agent and offering the way,
      * which is a better answer than a conversation nothing can reply to.
      */
+    /**
+     * Whether a new chat goes to the person's own Claude Code: where their
+     * last chat here was one, or where no agent of the workspace could answer
+     * it and their Claude Code is connected to.
+     */
+    private fun claudeCodeNext(workspaceId: Long, userId: String): Boolean {
+        val bridge = claudeCode.getObject()
+        if (!bridge.availability().available) return false
+        val last = sessions(workspaceId, userId).maxByOrNull { it.lastMessageAt ?: it.createdAt }
+        if (last?.answeredBy == ANSWERED_BY_CLAUDE_CODE) return true
+        // Only where their Claude Code is there to answer: otherwise "add an agent" is the truer thing to say.
+        return bridge.connected(userId) && agents.findByWorkspaceId(workspaceId, Sort.by("name")).none { it.enabled && it.modelId != null }
+    }
+
     private fun lastUsed(workspaceId: Long, userId: String): Answering {
         val recent = sessions(workspaceId, userId).sortedByDescending { it.lastMessageAt ?: it.createdAt }
 
@@ -953,8 +975,38 @@ class ChatService(
 
         session.agentId = answering.agentId
         session.modelId = answering.modelId
+        // An agent answers now, not the person's Claude Code.
+        session.answeredBy = null
         return session
     }
+
+    /** The chat answered by the person's own Claude Code from now on; refused where it is not offered. */
+    @Transactional
+    fun chooseClaudeCode(id: Long): ChatSession {
+        val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
+        if (!claudeCode.getObject().availability().available) throw io.mszymanski.orknux.server.claude.ClaudeCodeUnavailableException()
+        session.answeredBy = ANSWERED_BY_CLAUDE_CODE
+        session.agentId = null
+        return session
+    }
+
+    /**
+     * What the person said to their Claude Code, written into the chat's
+     * history as any message is. No model is asked here and nothing is recorded
+     * in an LLM session: the answer is Claude Code's, which keeps its own.
+     */
+    fun beginClaudeCode(id: Long, text: String): ChatSession = requireNotNull(
+        writing.execute {
+            val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
+            val message = text.trim()
+            if (message.isEmpty()) throw ChatMessageEmptyException()
+            val thread = history.findByConversationId(session.conversationId)
+            history.saveAll(session.conversationId, thread + UserMessage(message))
+            session.lastMessageAt = OffsetDateTime.now()
+            if (thread.isEmpty() && !session.titleGenerated) session.title = message.lineSequence().first().take(TITLE_LENGTH).ifBlank { session.title }
+            sessions.save(session)
+        },
+    )
 
     /**
      * Deletes the chat and the history with it.
@@ -1595,6 +1647,16 @@ class ChatService(
         if ((answersIn(listOf(chat.conversationId))[chat.conversationId] ?: 0) == 0) return null
         return recorder.open(chat.workspaceId, CHAT_PREFIX, chat.conversationId)
             .also { chat.llmSessionId = it; sessions.save(chat) }
+    }
+
+    /**
+     * The session a goal on this chat runs in: the one its turns are recorded
+     * in, opened the way the first turn would open it where none is yet. Null
+     * for a chat with no agent, which has no turns to judge.
+     */
+    fun goalSession(id: Long): Long? = writing.execute {
+        val chat = sessions.findByIdOrNull(id) ?: return@execute null
+        recording(chat)?.also { sessions.save(chat) }
     }
 
     private fun recording(chat: ChatSession): Long? {

@@ -174,6 +174,36 @@ purpose, and agents are on it as much as people.
 
 <img src="https://raw.githubusercontent.com/orknux/orknux-ui/main/public/screens/issue.png" alt="An issue" width="100%">
 
+## On your computer
+
+**Your own browser, your own desktop, your own Claude Code - lent to the agents,
+while you watch.** Each is a small client on your computer that connects with a
+pairing link from Preferences, is yours alone, and shows in the corner of every
+page while it is connected.
+
+- **Orknux Shell** - the conversation in a terminal, drawn as it happens, and a
+  door for the agent into the computer you are at: with your say-so, it runs
+  commands in the directory you started it in. Follows a subagent live, sends a
+  word into a running turn, updates itself. `curl -fsSL https://orknux.ai/install/shell.sh | sh`
+  on Linux, `irm https://orknux.ai/install/shell.ps1 | iex` on Windows.
+- **The extension for Chrome** ([orknux-chrome](https://github.com/orknux/orknux-chrome))
+  - an agent opens pages, reads them, clicks and types in your Chrome, signed in
+  as you, in a window of its own; your tabs are never touched.
+- **Orknux for Windows** ([orknux-windows](https://github.com/orknux/orknux-windows))
+  and **Orknux for Linux** ([orknux-linux](https://github.com/orknux/orknux-linux))
+  - an agent reads your desktop's windows through accessibility, starts programs,
+  clicks, types and takes screenshots. Ctrl+Alt+Q stops it. Both at once are two
+  computers it names.
+- **My Claude Code** ([orknux-claude](https://github.com/orknux/orknux-claude)) -
+  your own Claude Code session answering from a chat, a document or Ask AI,
+  through a channel plugin. Orknux never holds a Claude credential, and no agent
+  or workflow ever runs on it.
+
+<table><tr>
+<td><img src="https://raw.githubusercontent.com/orknux/orknux-ui/main/public/screens/shell-follow.png" alt="Orknux Shell following a subagent"></td>
+<td><img src="https://raw.githubusercontent.com/orknux/orknux-ui/main/public/screens/chrome-panel-connected.png" alt="The extension for Chrome"></td>
+</tr></table>
+
 ## Running it
 
 **One process and a database, on hardware you already have.** Kotlin on Spring

@@ -190,6 +190,32 @@ class ComponentBindingTest(
     }
 
     @Test
+    fun `the models an agent may create agents with travel by name, and one not found here is dropped`() {
+        val own = createModel(from, provider = "Local", model = "Writer", key = "k")
+        val shared = createModel(from, provider = "Shared", model = "Reviewer", key = "k")
+        val gone = createModel(from, provider = "Elsewhere", model = "Nowhere", key = "k")
+        val agentId = createAgent(from, "Orchestrator", modelId = own)
+        agents.findById(agentId).get().let {
+            it.creatableModelIds = mutableListOf(own, shared, gone)
+            agents.save(it)
+        }
+
+        val json = export(from, "AGENT", agentId, "SHALLOW")
+        assertThat(json).contains("creatableModelRefs").contains("Nowhere")
+
+        // Here: the agent's own model bound to another name, Reviewer found by name, Nowhere absent.
+        val theirs = createModel(into, provider = "Azure", model = "GPT-4o", key = "k")
+        val reviewer = createModel(into, provider = "Shared", model = "Reviewer", key = "k")
+        val answers = bindings(bound("MODEL", "Local / Writer", theirs))
+        assertThat(plan(into, json, answers).importable).isTrue()
+        import(into, json, answers)
+
+        val agent = agents.findByWorkspaceIdAndName(into, "Orchestrator")!!
+        assertThat(agent.modelId).isEqualTo(theirs)
+        assertThat(agent.creatableModelIds).containsExactly(theirs, reviewer)
+    }
+
+    @Test
     fun `a shallow agent brings the variable catalogs it was granted, empty`() {
         variableCatalogs.save(VariableCatalog(workspaceId = from, name = "Keys"))
         variableCatalogs.save(VariableCatalog(workspaceId = from, name = "Settings"))

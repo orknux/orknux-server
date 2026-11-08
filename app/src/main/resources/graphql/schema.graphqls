@@ -1863,6 +1863,14 @@ type Mutation {
     removeWorkflow(id: ID!): Boolean!
 
     """
+    Writes into an asked agent's session while its turn is going, for it to
+    read at its next round as the person speaking - what
+    `postChatMessageDuringTurn` is for a chat's own agent, for a subagent
+    somebody is watching work. False where nothing is running there, or the
+    session is not one an ask opened: the message is not left.
+    """
+    postSessionMessageDuringTurn(id: ID!, text: String!): Boolean!
+    """
     Throws a whole conversation away, with everything said in it.
 
     Nothing creates a session - one appears because a run computed its key - so
@@ -3850,6 +3858,14 @@ type Agent {
     maxTools: Int
     "Which granted tools always travel rather than being found; read only where `maxTools` is set."
     requiredTools: [String!]!
+    """
+    Which tools it holds only to hand on to agents it creates - the Delegate
+    visibility. Never offered to the agent itself; a name is in at most one of
+    this and `tools`.
+    """
+    delegatedTools: [String!]!
+    "Which models it may create temporary agents with; empty is an agent that cannot create agents."
+    creatableModelIds: [ID!]!
     "Which icon a node drawn from this starts with; null draws the kind's own."
     icon: String
     """
@@ -4023,6 +4039,11 @@ type LlmSession {
     parentId: ID
     "Whether an agent is at work in it right now: a line still going while the run or task that opened it is running, or a line within the active window Admin sets. The list's status dot."
     active: Boolean!
+    """
+    Whether an asked agent's turn is going in this session this moment - exactly, from the ask itself, not from a
+    window or a line's state. False for every session that is not an ask's: a chat's own, a run's, a task's.
+    """
+    working: Boolean!
     "How many sessions were started under this one, so the list says which conversations fanned out. Zero for a plain conversation."
     subagentCount: Int!
     """
@@ -4179,6 +4200,11 @@ type LlmSessionMember {
     depth: Int!
     "Whether an agent is at work in it right now: a line still going while the run or task that opened it is running, or a line within the active window Admin sets."
     active: Boolean!
+    """
+    Whether an asked agent's turn is going in this session this moment - exactly, from the ask itself, not from a
+    window or a line's state. False for every session that is not an ask's: a chat's own, a run's, a task's.
+    """
+    working: Boolean!
     lastEventAt: String
 }
 
@@ -4816,6 +4842,8 @@ type ChatAnswer {
 input StartChatInput {
     workspaceId: ID!
     title: String
+    "Where it is opened from, when not the browser: SHELL from Orknux Shell, whose chats lend the agent the person's computer."
+    openedIn: ChatOrigin
     """
     The agent to talk to.
 
@@ -5105,6 +5133,8 @@ input CreateAgentInput {
     orknuxAccess: Boolean
     "Whether it may ask the person for tools it was not granted; left out, a new agent may."
     mayAskForTools: Boolean
+    "Which tools it holds only to hand on to agents it creates; null or empty is none."
+    delegatedTools: [String!]
 }
 
 input UpdateAgentInput {
@@ -5150,6 +5180,10 @@ input UpdateAgentInput {
     maxTools: Int
     "Which granted tools always travel; null leaves them alone."
     requiredTools: [String!]
+    "Which tools it holds only to hand on to agents it creates - Delegate; null leaves them alone."
+    delegatedTools: [String!]
+    "Which models it may create temporary agents with, by id; null leaves them alone, empty is none."
+    creatableModelIds: [ID!]
     "Which icon a node drawn from this starts with; null draws the kind's own."
     icon: String
     """
@@ -7171,6 +7205,8 @@ enum BuiltInToolGovernance {
     VARIABLE_CATALOGS
     "The agent's workspace being an admin workspace, with this tool switched on in Admin > Workspaces."
     ADMIN_WORKSPACE
+    "Any model the agent may create agents with: agent_create and agent_dismiss."
+    CREATABLE_MODELS
 }
 
 """
@@ -10741,4 +10777,10 @@ type DesktopNetwork {
     account: String!
     "Whether the server starts again by itself once the setting is saved."
     restarts: Boolean!
+}
+
+"Where a chat was opened, when not in the browser."
+enum ChatOrigin {
+    "Orknux Shell, the terminal client: its chats may run commands on the person's computer, with their approval where their rules ask for it."
+    SHELL
 }

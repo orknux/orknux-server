@@ -19,6 +19,8 @@ class ChatExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ChatTitleInvalidException,
             is ChatMessageEmptyException,
             is ChatModelNotChosenException,
+            is io.mszymanski.orknux.server.claude.ClaudeCodeUnavailableException,
+            is ChatClaudeCodeFilesException,
             is ChatCannotBeToldMidTurnException,
             is ChatModelUnusableException,
             is ChatAgentUnusableException,

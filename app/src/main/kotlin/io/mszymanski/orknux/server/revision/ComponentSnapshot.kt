@@ -185,6 +185,9 @@ object ComponentSnapshot {
             "requiredSkills" to agent.requiredSkills.toList(),
             "requiredTools" to agent.requiredTools.toList(),
             "hiddenTools" to agent.hiddenTools.toList(),
+            // Held only to hand on, and the models it may make agents with.
+            "delegatedTools" to agent.delegatedTools.toList(),
+            "creatableModelIds" to agent.creatableModelIds.toList(),
             "maxTools" to agent.maxTools,
             "maxRounds" to agent.maxRounds,
             "maxSubagentsAtOnce" to agent.maxSubagentsAtOnce,
@@ -455,6 +458,10 @@ object ComponentSnapshot {
         if (held.has("requiredSkills")) agent.requiredSkills = names(held, "requiredSkills")
         if (held.has("requiredTools")) agent.requiredTools = names(held, "requiredTools")
         if (held.has("hiddenTools")) agent.hiddenTools = names(held, "hiddenTools")
+        // A version written before these could hand on nothing and create nothing, which is what it held.
+        agent.delegatedTools = names(held, "delegatedTools")
+        agent.creatableModelIds =
+            held.path("creatableModelIds").values().mapNotNull { if (it.isNumber) it.asLong() else null }.toMutableList()
         if (held.has("maxTools")) agent.maxTools = number(held, "maxTools")?.toInt()
         if (held.has("maxRounds")) agent.maxRounds = number(held, "maxRounds")?.toInt()
         if (held.has("maxSubagentsAtOnce")) agent.maxSubagentsAtOnce = number(held, "maxSubagentsAtOnce")?.toInt()

@@ -1,0 +1,54 @@
+# Goals: a chat's agent keeps working until a stated condition is met, with a
+# reviewer agent judging each of its turns. /goal in the chat's composer is
+# these three; Orknux Shell uses them too.
+
+extend type Query {
+    "The chat's newest goal, whatever became of it; null where it never had one. The chat's owner only."
+    chatGoal(chatId: ID!): ChatGoal
+}
+
+extend type Mutation {
+    """
+    Sets a goal on the chat, stopping one still running, and wakes the chat for
+    its first turn. Refused in words where the chat has no agent, the condition
+    is missing, the turns are out of range, or the reviewer's model is not one
+    the agent may create agents with.
+    """
+    startChatGoal(chatId: ID!, input: StartChatGoalInput!): ChatGoal!
+    "Stops the chat's running goal. Answers the goal as it now stands, or null where there was none."
+    stopChatGoal(chatId: ID!): ChatGoal
+}
+
+input StartChatGoalInput {
+    "What to achieve."
+    goal: String!
+    "When it counts as met, in words; what the reviewer judges."
+    condition: String!
+    "How many turns at most; left out, Admin -> Settings' default."
+    maxIterations: Int
+    "Which model reviews: one the chat's agent may create agents with. Left out, the agent's own model."
+    reviewerModelId: ID
+    "Anything the reviewer should hold the work to."
+    reviewerInstructions: String
+}
+
+enum ChatGoalStatus {
+    RUNNING
+    MET
+    STOPPED
+    EXHAUSTED
+}
+
+type ChatGoal {
+    id: ID!
+    goal: String!
+    condition: String!
+    "The turn being worked on, or the last one judged."
+    iteration: Int!
+    maxIterations: Int!
+    status: ChatGoalStatus!
+    "What the reviewer said last, met or not."
+    lastFeedback: String
+    reviewerModelId: ID!
+    startedBy: String!
+}

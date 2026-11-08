@@ -68,6 +68,8 @@ data class ChatStreamRequest @JsonCreator constructor(
  */
 @RestController
 class ChatStreamAPI(
+    /** "My Claude Code": a chat the person's own Claude Code answers, through the channel plugin. */
+    private val claudeCode: io.mszymanski.orknux.server.claude.ClaudeCodeChats,
     private val chats: ChatService,
     private val client: ModelChatClient,
     /** Only to cost an answer: the prices are the model's. */
@@ -80,6 +82,8 @@ class ChatStreamAPI(
     private val readers: ReaderWatch,
     /** The in-flight answers, so the Stop button can reach one it is not inside. */
     private val generations: ChatGenerations,
+    /** A running goal, which Stop ends as well. */
+    @param:org.springframework.context.annotation.Lazy private val goals: ChatGoals,
     private val mapper: ObjectMapper,
     private val chatTools: ChatTools,
     /** Whether the videos on a message may go to the model answering it. */
@@ -89,6 +93,8 @@ class ChatStreamAPI(
     private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
     /** The page a tool call named, for the `called` frame. Issue #660. */
     private val links: ItemLinks,
+    /** Where a Shell that writes in a chat claims it, so the commands its agent runs go to that computer. */
+    private val deviceLinks: io.mszymanski.orknux.server.device.DeviceLinks,
 ) {
 
     /**
@@ -115,10 +121,19 @@ class ChatStreamAPI(
         @PathVariable id: Long,
         @RequestBody request: ChatStreamRequest,
         response: HttpServletResponse,
+        /** The Orknux Shell writing this message, by its id for its process: the chat is that Shell's from now on. */
+        @org.springframework.web.bind.annotation.RequestHeader(SHELL_HEADER, required = false) shell: String? = null,
     ): StreamingResponseBody {
         if (!settings.chatEnabled()) throw ChatDisabledException()
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
+        shell?.takeIf { it.isNotBlank() }?.let { deviceLinks.claim(session.userId, io.mszymanski.orknux.server.device.DeviceKind.SHELL, id.toString(), it) }
+
+        // Answered by the person's own Claude Code: text in, text out, and no model of ours asked.
+        if (claudeCode.isClaudeCode(session)) {
+            if (request.attachmentIds.isNotEmpty()) throw ChatClaudeCodeFilesException()
+            return claudeCodeAnswering(id, request.text, response, session)
+        }
 
         // A video the model may not be sent is refused before anything is claimed or written.
         // So is a sound, and a model is only sent sound in a format its server decodes.
@@ -166,6 +181,46 @@ class ChatStreamAPI(
      * and letting the second attempt rename a chat somebody has already found
      * in the sidebar would move it out from under them.
      */
+    /**
+     * A turn of "My Claude Code": the message written into the chat, handed to
+     * the person's Claude Code through the channel plugin, and whatever comes
+     * back - a reply, an approval it wants, or word that it is still working -
+     * written in as the answer. On a worker of its own and through a
+     * [ChatGeneration], as a model's turn is, so Stop stops the wait and a page
+     * that comes back while it waits sees it arrive.
+     */
+    private fun claudeCodeAnswering(id: Long, text: String, response: HttpServletResponse, session: ChatSession): StreamingResponseBody {
+        response.setHeader("Cache-Control", "no-cache, no-transform")
+        response.setHeader("X-Accel-Buffering", "no")
+        val asker = SecurityContextHolder.getContext()
+        val started = chats.beginClaudeCode(id, text)
+        return StreamingResponseBody { _ ->
+            val stream = ServerSentEvents(response, mapper)
+            val generation = ChatGeneration()
+            generations.register(id, generation)
+            val worker = Thread.ofPlatform().name("chat-$id-claude-code").daemon().start {
+                SecurityContextHolder.setContext(asker)
+                val begun = System.currentTimeMillis()
+                try {
+                    if (started.title != session.title) generation.post("titled", mapOf("title" to started.title))
+                    val answer = claudeCode.ask(started, text, generation.hangup)
+                    chats.finishSend(id, answer)
+                    generation.post("chunk", mapOf("text" to answer))
+                    generation.post("answered", mapOf<String, Any>())
+                    generation.post("done", mapOf("millis" to System.currentTimeMillis() - begun))
+                } catch (failure: Throwable) {
+                    log.warn("Chat {} could not reach Claude Code", id, failure)
+                    runCatching { generation.post("error", mapOf("reason" to (failure.message ?: failure.javaClass.simpleName))) }
+                } finally {
+                    generations.release(id, generation)
+                    SecurityContextHolder.clearContext()
+                }
+            }
+            relay(stream, generation) {}
+            if (!worker.isAlive) log.debug("Chat {} heard from Claude Code before its reader left", id)
+        }
+    }
+
     @Untimed
     @PostMapping("/api/chats/{id}/regenerate", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     fun regenerate(
@@ -198,6 +253,8 @@ class ChatStreamAPI(
     fun interrupt(@PathVariable id: Long) {
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
+        // Stop ends a goal as well: pressed during one, it is the goal somebody wants to stop.
+        goals.stop(id, SecurityContextHolder.getContext().authentication?.name ?: "somebody")
         generations.interrupt(id)
     }
 
@@ -619,8 +676,11 @@ class ChatStreamAPI(
 
     private fun requireOwn(session: ChatSession) = ownership.requireOwn(session)
 
-    private companion object {
-        val log = LoggerFactory.getLogger(ChatStreamAPI::class.java)
+    companion object {
+        private val log = LoggerFactory.getLogger(ChatStreamAPI::class.java)
+
+        /** The header an Orknux Shell sends with a message, naming the running Shell that writes it. */
+        const val SHELL_HEADER = "X-Orknux-Shell"
     }
 }
 

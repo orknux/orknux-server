@@ -29,11 +29,11 @@ interface AgentRepository : JpaRepository<Agent, Long> {
     fun variableCatalogsOf(@Param("id") id: Long): List<String>
 
     /** The workspace's agents granted the secrets of this catalog, exactly as spelled. */
-    @Query("select a from Agent a join a.secretCatalogs c where a.workspaceId = :workspaceId and c = :name")
+    @Query("select a from Agent a join a.secretCatalogs c where a.workspaceId = :workspaceId and a.temporary = false and c = :name")
     fun findGrantedSecretCatalog(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
 
     /** And the values of this catalog. */
-    @Query("select a from Agent a join a.variableCatalogs c where a.workspaceId = :workspaceId and c = :name")
+    @Query("select a from Agent a join a.variableCatalogs c where a.workspaceId = :workspaceId and a.temporary = false and c = :name")
     fun findGrantedVariableCatalog(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
 
     /**
@@ -45,7 +45,22 @@ interface AgentRepository : JpaRepository<Agent, Long> {
     @Query("SELECT a.workspaceId FROM Agent a WHERE a.id = :id")
     fun workspaceIdOf(@Param("id") id: Long): Long?
 
-    fun findByWorkspaceId(workspaceId: Long, pageable: Pageable): Page<Agent>
+    /**
+     * A workspace's agents, less the temporary ones an agent made inside a
+     * conversation: those belong to that conversation and are in no list, no
+     * picker, no listing and no copy of the workspace. Every list reads one of
+     * these two, so the rule is kept here once rather than at each of them.
+     */
+    @Query("SELECT a FROM Agent a WHERE a.workspaceId = :workspaceId AND a.temporary = false")
+    fun findByWorkspaceId(@Param("workspaceId") workspaceId: Long, pageable: Pageable): Page<Agent>
+
+    /** The temporary agents one conversation created, oldest first. */
+    @Query("SELECT a FROM Agent a WHERE a.temporary = true AND a.createdBySessionId = :session ORDER BY a.id")
+    fun findTemporaryBySession(@Param("session") session: Long): List<Agent>
+
+    /** Every temporary agent, for the sweep that removes the ones whose conversation went quiet. */
+    @Query("SELECT a FROM Agent a WHERE a.temporary = true")
+    fun findTemporary(): List<Agent>
 
     /**
      * The same, narrowed to what a word appears in.
@@ -62,7 +77,7 @@ interface AgentRepository : JpaRepository<Agent, Long> {
     @Query(
         """
         SELECT a FROM Agent a
-        WHERE a.workspaceId = :workspaceId
+        WHERE a.workspaceId = :workspaceId AND a.temporary = false
           AND (LOWER(a.name) LIKE LOWER(CONCAT('%', :looking, '%'))
             OR LOWER(COALESCE(a.description, '')) LIKE LOWER(CONCAT('%', :looking, '%')))
         """,
@@ -82,12 +97,23 @@ interface AgentRepository : JpaRepository<Agent, Long> {
      * from a model is taken. Neither is drawing a page, and asking for one of
      * unbounded size to get a list reads as a page that forgot its size.
      */
-    fun findByWorkspaceId(workspaceId: Long, sort: Sort): List<Agent>
+    @Query("SELECT a FROM Agent a WHERE a.workspaceId = :workspaceId AND a.temporary = false")
+    fun findByWorkspaceId(@Param("workspaceId") workspaceId: Long, sort: Sort): List<Agent>
 
-    fun findByWorkspaceIdAndName(workspaceId: Long, name: String): Agent?
+    /**
+     * The workspace's agent of this name. Not a temporary one: their names are
+     * their conversation's (V678), so one may share a name with an agent of the
+     * workspace, or with another conversation's.
+     */
+    @Query("select a from Agent a where a.workspaceId = :workspaceId and a.temporary = false and a.name = :name")
+    fun findByWorkspaceIdAndName(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): Agent?
+
+    /** A conversation's own temporary agent of this name. */
+    @Query("select a from Agent a where a.createdBySessionId = :session and a.temporary = true and a.name = :name")
+    fun findTemporaryNamed(@Param("session") session: Long, @Param("name") name: String): Agent?
 
     /** However the name was typed: a model asking for an agent has read it, not copied it. */
-    @Query("select a from Agent a where a.workspaceId = :workspaceId and lower(a.name) = lower(:name)")
+    @Query("select a from Agent a where a.workspaceId = :workspaceId and a.temporary = false and lower(a.name) = lower(:name)")
     fun findNamed(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): Agent?
 
     /**
@@ -99,11 +125,11 @@ interface AgentRepository : JpaRepository<Agent, Long> {
      * already a grant that resolves to nothing and there is nothing here to
      * protect.
      */
-    @Query("select a from Agent a join a.tools t where a.workspaceId = :workspaceId and t = :name")
+    @Query("select a from Agent a join a.tools t where a.workspaceId = :workspaceId and a.temporary = false and t = :name")
     fun findGrantedTool(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
 
     /** Which of the workspace's agents were granted this skill catalog, spelled the same way. */
-    @Query("select a from Agent a join a.skillCatalogs c where a.workspaceId = :workspaceId and c = :name")
+    @Query("select a from Agent a join a.skillCatalogs c where a.workspaceId = :workspaceId and a.temporary = false and c = :name")
     fun findGrantedSkillCatalog(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
 
     /**
@@ -114,7 +140,7 @@ interface AgentRepository : JpaRepository<Agent, Long> {
      * the catalogs whose `name` is `in` the granted set, so a grant differing by
      * a letter's case already reads nothing and there is nothing here to protect.
      */
-    @Query("select a from Agent a join a.memoryCatalogs c where a.workspaceId = :workspaceId and c = :name")
+    @Query("select a from Agent a join a.memoryCatalogs c where a.workspaceId = :workspaceId and a.temporary = false and c = :name")
     fun findGrantedMemoryCatalog(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
 
     /**
@@ -129,7 +155,7 @@ interface AgentRepository : JpaRepository<Agent, Long> {
      * the grant — see `McpServerAPI.removeMcpServer` — so the agents are what
      * the caller wants, not a sentence naming them.
      */
-    @Query("select a from Agent a join a.mcpServers s where a.workspaceId = :workspaceId and s = :name")
+    @Query("select a from Agent a join a.mcpServers s where a.workspaceId = :workspaceId and a.temporary = false and s = :name")
     fun findGrantedMcpServer(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
 
     /**
@@ -141,7 +167,7 @@ interface AgentRepository : JpaRepository<Agent, Long> {
      */
     @Query(
         "select new io.mszymanski.orknux.server.agent.AgentNamed(a.id, a.name) from Agent a join a.agents g " +
-            "where a.workspaceId = :workspaceId and g = :id order by a.name",
+            "where a.workspaceId = :workspaceId and a.temporary = false and g = :id order by a.name",
     )
     fun findAsking(@Param("workspaceId") workspaceId: Long, @Param("id") id: Long): List<AgentNamed>
 }

@@ -160,6 +160,12 @@ class SecurityConfig {
                 authorize(HttpMethod.POST, PASSWORD_RESET_PATH, permitAll)
                 authorize(HttpMethod.POST, "$PASSWORD_RESET_PATH/**", permitAll)
                 /*
+                 * A client trading a pairing code for its credential: it has no
+                 * other way in yet. The code is the proof, it is single use and
+                 * short-lived, and the exchange is slowed by the sign-in throttle.
+                 */
+                authorize(HttpMethod.POST, io.mszymanski.orknux.server.client.ClientPairRestAPI.PAIR_PATH, permitAll)
+                /*
                  * A webhook is called by whatever is out there — a build server,
                  * a form, another product — and none of them can sign in here.
                  * What answers is a path nothing else knows and a shape it has
@@ -351,7 +357,26 @@ class SecurityConfig {
             allowedHeaders = listOf("Content-Type")
             allowCredentials = true
         }
+        /*
+         * The doors the Orknux clients come in by - the Chrome extension, Orknux
+         * for Windows, the Claude Code plugin. A browser extension's request
+         * carries its own origin, chrome-extension://<id>, on a POST, and the
+         * rule above refused it as a foreign site: the extension took its work
+         * and its answers never landed. These doors are signed by a bearer
+         * token and never by the session cookie, so a page somewhere cannot
+         * ride on anybody's sign-in through them; extension origins are let in
+         * here and nowhere else, and without credentials. First, because the
+         * first registration that matches a path is the one used.
+         */
+        val devices = CorsConfiguration().apply {
+            allowedOrigins = properties.allowedOrigins
+            allowedOriginPatterns = listOf("chrome-extension://*")
+            allowedMethods = listOf("GET", "POST", "OPTIONS")
+            allowedHeaders = listOf("Content-Type", "Authorization")
+            allowCredentials = false
+        }
         return UrlBasedCorsConfigurationSource().apply {
+            listOf("/api/browser/**", "/api/desktop/**", "/api/claude/**", io.mszymanski.orknux.server.client.ClientPairRestAPI.PAIR_PATH).forEach { registerCorsConfiguration(it, devices) }
             registerCorsConfiguration("/**", configuration)
         }
     }

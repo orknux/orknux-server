@@ -1,0 +1,47 @@
+# "My Claude Code": a chat answered by the person's own Claude Code session,
+# reached through the Orknux channel plugin for Claude Code. Orknux carries the
+# text; every model call is Claude Code's own, under its own sign-in.
+
+extend type Query {
+    "Whether My Claude Code is offered on this installation, and whether the caller's session is connected now."
+    claudeCodeChat: ClaudeCodeChatStatus!
+}
+
+extend type Mutation {
+    """
+    An editor's assistant answered by the caller's own Claude Code: the newest
+    user turn of messages goes, with the page it was asked on (label, path).
+    Claude Code changes the item through the Orknux tools its plugin brings;
+    the page reloads it afterwards.
+    """
+    askClaudeCode(workspaceId: ID!, label: String, path: String, messages: [ClaudeCodeTurnInput!]!): ClaudeCodeAnswer!
+    """
+    Hands the chat to the caller's own Claude Code, reached through the Orknux
+    channel plugin.
+    """
+    chooseChatClaudeCode(id: ID!): ChatSession!
+}
+
+extend type ChatSession {
+    "CLAUDE_CODE for a chat answered by the person's own Claude Code; null for one a model or an agent answers."
+    answeredBy: String
+}
+
+type ClaudeCodeChatStatus {
+    "Offered to everybody signed in; false only where an administrator has switched it off."
+    available: Boolean!
+    "Why not, where it is not."
+    reason: String
+    "Whether the caller's Claude Code is connected through the channel plugin now."
+    connected: Boolean!
+}
+
+input ClaudeCodeTurnInput {
+    "user or assistant."
+    role: String!
+    content: String!
+}
+
+type ClaudeCodeAnswer {
+    answer: String!
+}
