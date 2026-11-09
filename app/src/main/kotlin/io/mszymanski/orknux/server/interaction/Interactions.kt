@@ -45,6 +45,21 @@ interface InteractionHandler {
      */
     fun answered(request: InteractionRequest, options: List<String>, text: String?, by: String): String =
         answered(request, options.single(), by)
+
+    /**
+     * Whether the person may close the question without choosing - see
+     * [dismissed]. Off unless a kind says so: a request whose options are a
+     * yes and a no is answered by its no, and a dismissal there would be a
+     * refusal nobody wrote down as one.
+     */
+    val dismissible: Boolean get() = false
+
+    /**
+     * Acts on [by] closing the question without answering it, and answers the
+     * line that says so. Only asked of a kind that is [dismissible].
+     */
+    fun dismissed(request: InteractionRequest, by: String): String =
+        throw InteractionAnswerInvalidException("This request is answered by one of its options")
 }
 
 /** The items of a request, as the column holds them; see [InteractionRequest.items]. */
@@ -166,6 +181,25 @@ class Interactions(
     }
 
     /**
+     * Closes [request] unanswered, where its kind allows it: the card says who
+     * dismissed it, and the handler says what that means to whoever asked.
+     */
+    @Transactional
+    fun dismiss(request: InteractionRequest, by: String): InteractionRequest {
+        if (request.chosen != null) throw InteractionAlreadyAnsweredException(requireNotNull(request.id))
+        val handler = byKind[request.kind] ?: error("No handler answers requests of kind ${request.kind}")
+        if (!handler.dismissible) throw InteractionAnswerInvalidException("This request is answered by one of its options")
+        request.outcome = handler.dismissed(request, by)
+        request.chosen = DISMISSED
+        request.chosenBy = by
+        request.chosenAt = OffsetDateTime.now()
+        return requests.save(request)
+    }
+
+    /** Whether the person may close [request] without answering it. */
+    fun dismissible(request: InteractionRequest): Boolean = byKind[request.kind]?.dismissible == true
+
+    /**
      * Says what became of [kind]'s requests about [subjectId] after a change
      * made somewhere else, so the question in the conversation reads the same
      * as the place it was changed from.
@@ -191,6 +225,9 @@ class Interactions(
 
         /** What [InteractionRequest.chosen] says when the person answered in words and chose no option. */
         const val IN_OWN_WORDS = "own-words"
+
+        /** What [InteractionRequest.chosen] says when the person closed it without answering. */
+        const val DISMISSED = "dismissed"
     }
 }
 
@@ -213,9 +250,11 @@ data class InteractionRequestView(
     val multiple: Boolean,
     val allowsText: Boolean,
     val text: String?,
+    /** Whether it may be closed without an answer; added in 1.4, so an older interface simply draws no Dismiss. */
+    val dismissible: Boolean = false,
 ) {
     companion object {
-        fun of(request: InteractionRequest) = InteractionRequestView(
+        fun of(request: InteractionRequest, dismissible: Boolean = false) = InteractionRequestView(
             id = requireNotNull(request.id),
             kind = request.kind,
             askedBy = request.askedBy,
@@ -230,6 +269,7 @@ data class InteractionRequestView(
             multiple = request.multiple,
             allowsText = request.allowsText,
             text = request.answerText,
+            dismissible = dismissible,
         )
     }
 }
@@ -248,7 +288,7 @@ class InteractionAPI(
     @QueryMapping
     fun sessionRequests(@Argument sessionId: Long): List<InteractionRequestView> {
         visibility.requireReadable(sessionId)
-        return interactions.of(sessionId).map(InteractionRequestView::of)
+        return interactions.of(sessionId).map { InteractionRequestView.of(it, interactions.dismissible(it)) }
     }
 
     @MutationMapping
@@ -272,6 +312,20 @@ class InteractionAPI(
             "Request ${request.id} from ${request.askedBy ?: "an agent"} answered: $label",
         )
         return InteractionRequestView.of(answered)
+    }
+
+    @MutationMapping
+    fun dismissRequest(@Argument id: Long): InteractionRequestView {
+        val request = requests.findByIdOrNull(id) ?: throw InteractionRequestNotFoundException(id)
+        access.requireVisible(request.workspaceId)
+        val by = SecurityContextHolder.getContext().authentication?.name ?: "system"
+        val dismissed = interactions.dismiss(request, by)
+        auditRecorder.record(
+            request.workspaceId,
+            WorkspaceAuditCategory.AGENT,
+            "Request ${request.id} from ${request.askedBy ?: "an agent"} dismissed",
+        )
+        return InteractionRequestView.of(dismissed)
     }
 }
 

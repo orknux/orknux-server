@@ -29,9 +29,11 @@ import org.springframework.security.test.context.support.WithMockUser
  * Three things are worth holding, and each of them is a way the shortcut could
  * have been a mistake rather than a convenience.
  *
- * It is granted **nothing**. An action that quietly handed out tools because it
- * was being helpful would be the worst place in this product to be generous, and
- * "bare agent" has to mean bare or the word is doing no work.
+ * It is granted **nothing of the workspace's**. An action that quietly handed out
+ * tools because it was being helpful would be the worst place in this product to
+ * be generous, and "bare agent" has to mean bare or the word is doing no work. What
+ * it does start with is what an agent made by hand does: the server's built-ins and
+ * the person's own Chrome.
  *
  * It **does not collide**. `uk_agent_workspace_name` is a unique constraint and
  * pressing a button twice is the most ordinary thing anybody does, so the name
@@ -94,10 +96,12 @@ class AgentFromModelTest(
         // turn is one nobody asked for. Issue #444.
         // Nothing granted and nothing hidden, which since #455 is how "every
         // built-in, and none of the workspace's tools" is stored.
-        assertThat(made.tools).isEmpty()
+        // Bar the person's own Chrome, which every new agent is given (STARTS_GRANTED): the
+        // one reaching built-in, and still nothing of the workspace's.
+        assertThat(made.tools).containsExactlyElementsOf(io.mszymanski.orknux.server.browser.BrowserTools.NAMES)
         assertThat(made.hiddenTools).describedAs("only what starts hidden on every agent").containsExactlyElementsOf(io.mszymanski.orknux.server.mcp.DiagramTools.STARTS_HIDDEN)
         assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.grantedTo(made))
-            .containsExactlyElementsOf(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED)
+            .containsExactlyElementsOf(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED + io.mszymanski.orknux.server.browser.BrowserTools.NAMES)
         // Nothing named: the server's own skill catalog is every agent's
         // without being on the list (see SkillTool.granted), and nothing of the
         // workspace's is granted by default. Issue #471.
@@ -190,6 +194,36 @@ class AgentFromModelTest(
     private fun byHand(name: String): Long = graphQlTester.document(
         """mutation { createAgent(input: { workspaceId: $workspaceId, name: "$name", type: LLM }) { id } }""",
     ).execute().errors().verify().path("createAgent.id").entity(Long::class.java).get()
+
+    /**
+     * The browser is given when an agent is made, by hand as from a model -
+     * written into its own list, so an agent that was there before is not
+     * handed it, and unticking it takes it away.
+     */
+    @Test
+    fun `an agent made by hand starts with the browser, and one already there is not given it`() {
+        val before = requireNotNull(agents.save(Agent(workspaceId = workspaceId, name = "Older", type = AgentType.LLM)).id)
+
+        val agentId = graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Helper", type: LLM }) { id } }""",
+        ).execute().errors().verify().path("createAgent.id").entity(Long::class.java).get()
+
+        val made = requireNotNull(agents.findByIdOrNull(agentId))
+        io.mszymanski.orknux.server.browser.BrowserTools.NAMES.forEach { name ->
+            assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.granted(made, name)).describedAs(name).isTrue()
+        }
+        // Only the browser: the fetches and the desktop stay off until somebody decides.
+        assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.granted(made, "http_get")).isFalse()
+        io.mszymanski.orknux.server.desktop.DesktopTools.NAMES.forEach { name ->
+            assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.granted(made, name)).describedAs(name).isFalse()
+        }
+        // At Offer: a dozen tools carried on every turn is what Offer is for.
+        assertThat(made.requiredTools).doesNotContainAnyElementsOf(io.mszymanski.orknux.server.browser.BrowserTools.NAMES)
+
+        val older = requireNotNull(agents.findByIdOrNull(before))
+        assertThat(io.mszymanski.orknux.server.browser.BrowserTools.NAMES.none { io.mszymanski.orknux.server.chat.BuiltInTools.granted(older, it) })
+            .describedAs("an agent made before is not handed the browser").isTrue()
+    }
 
     private fun model(name: String, kind: String = "CHAT"): Long {
         val providerId = graphQlTester.document(

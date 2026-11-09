@@ -171,6 +171,54 @@ class DeviceToolsTest(
         assertThat(arguments["maxCharacters"]).isEqualTo(tuning[Tunable.DEVICE_SNAPSHOT_CHARACTERS])
     }
 
+    /**
+     * browser_scroll grew an amount, a box to scroll within, and an element to
+     * scroll to. A plain call is still `scroll`, which every extension knows;
+     * one using what grew goes to an action an older extension refuses in
+     * words, rather than to `scroll`, where it would scroll a screen down
+     * whatever it was asked.
+     */
+    @Test
+    fun `a scroll that asks for more than a screen up or down goes to an action an older extension refuses`() {
+        connect { command -> mapOf("result" to mapOf("action" to command["action"])) }
+        val session = chatOf(user)
+
+        fun sent(arguments: String): Map<String, Any?> {
+            seen.clear()
+            run(session, BrowserTools.SCROLL, arguments)
+            return seen.single()
+        }
+        @Suppress("UNCHECKED_CAST")
+        fun argumentsOf(command: Map<String, Any?>) = command["arguments"] as Map<String, Any?>
+
+        assertThat(sent("""{}""")["action"]).isEqualTo("scroll")
+        assertThat(sent("""{"direction":"up"}""")["action"]).isEqualTo("scroll")
+        assertThat(sent("""{"direction":"left"}""")["action"]).isEqualTo("scroll_by")
+        val by = sent("""{"direction":"down","amount":120}""")
+        assertThat(by["action"]).isEqualTo("scroll_by")
+        assertThat(argumentsOf(by)["amount"]).isEqualTo(120)
+        val within = sent("""{"within":"e7"}""")
+        assertThat(within["action"]).isEqualTo("scroll_by")
+        assertThat(argumentsOf(within)["within"]).isEqualTo("e7")
+        // `to` is the extension's `ref`, as every other action that takes an element names it.
+        val to = sent("""{"to":"e42","tab":3}""")
+        assertThat(to["action"]).isEqualTo("scroll_to")
+        assertThat(argumentsOf(to)).containsEntry("ref", "e42").containsEntry("tab", 3).doesNotContainKey("to")
+    }
+
+    /** What an extension older than scroll_by answers, which reaches the model as it was said. */
+    @Test
+    fun `an older extension's refusal of a scroll it does not know reaches the model in words`() {
+        connect { command ->
+            if (command["action"] == "scroll") mapOf("result" to mapOf("scrolledTo" to 800))
+            else mapOf("error" to "This extension does not know the action \"${command["action"]}\". It may be older than the server.")
+        }
+
+        val answered = mapper.readTree(run(chatOf(user), BrowserTools.SCROLL, """{"to":"e42"}"""))
+
+        assertThat(answered.path("error").stringValue()).contains("does not know the action \"scroll_to\"")
+    }
+
     @Test
     fun `a refusal from the browser is the model's to read`() {
         connect { mapOf("error" to "No element e9 on this page; take a fresh snapshot.") }
@@ -237,6 +285,29 @@ class DeviceToolsTest(
     fun `an agent without the browser is told to suggest the extension, and one with it is not`() {
         assertThat(briefing.grants(agent())).contains(AgentBriefing.SUGGEST_BROWSER)
         assertThat(briefing.grants(agent(*BrowserTools.NAMES.toTypedArray()))).doesNotContain(AgentBriefing.SUGGEST_BROWSER)
+    }
+
+    /**
+     * The desktop is suggested as the browser is: only to an agent without its
+     * tools, since one holding them is briefed by their shed - which says both
+     * Windows and Linux. And every agent is told it cannot reach the person's
+     * Claude Code and where the person talks to it, rather than being left to
+     * promise a hand-off no tool makes.
+     */
+    @Test
+    fun `the briefing names every device client, as a suggestion where its tools are not held`() {
+        val bare = requireNotNull(briefing.grants(agent()))
+        assertThat(bare).contains(AgentBriefing.SUGGEST_DESKTOP, AgentBriefing.CLAUDE_CODE_IS_THEIRS)
+        assertThat(AgentBriefing.SUGGEST_DESKTOP).contains("Orknux for Windows", "Orknux for Linux")
+
+        val driving = requireNotNull(briefing.grants(agent(*DesktopTools.NAMES.toTypedArray())))
+        assertThat(driving).doesNotContain(AgentBriefing.SUGGEST_DESKTOP).contains(AgentBriefing.CLAUDE_CODE_IS_THEIRS)
+        assertThat(desktop.shed(agent(DesktopTools.WINDOWS), 1L)?.briefing())
+            .contains("Orknux for Windows", "Orknux for Linux")
+        assertThat(tools.shed(agent(BrowserTools.OPEN), 1L)?.briefing()).contains("Chrome")
+
+        // The same text on every call, so a session's frozen system turn never has a reason to move.
+        assertThat(briefing.grants(agent())).isEqualTo(bare)
     }
 
     @Test

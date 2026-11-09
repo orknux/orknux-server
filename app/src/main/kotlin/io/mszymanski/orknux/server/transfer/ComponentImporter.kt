@@ -26,6 +26,7 @@ import io.mszymanski.orknux.server.action.CodeLanguage
 import io.mszymanski.orknux.server.agent.AgentToolParam
 import io.mszymanski.orknux.server.agent.AgentToolRepository
 import io.mszymanski.orknux.server.agent.AgentType
+import io.mszymanski.orknux.server.agent.Chattiness
 import io.mszymanski.orknux.server.agent.SkillCatalog
 import io.mszymanski.orknux.server.agent.SkillCatalogRepository
 import io.mszymanski.orknux.server.agent.SkillKeys
@@ -304,6 +305,7 @@ class ComponentImporter(
             val here = named.getValue(component.kind to component.name)
             resolved[component.kind to component.name] = create(workspaceId, component, here, resolved, bound, dropped, droppedServers)
         }
+        wireAgents(workspaceId, written.filter { it.kind == ComponentKind.AGENT }, resolved)
         if (publishAs != null) {
             written.filter { it.kind == ComponentKind.WORKFLOW }.forEach { component ->
                 publishCopy(resolved.getValue(component.kind to component.name), publishAs)
@@ -1358,6 +1360,46 @@ class ComponentImporter(
                     variableCatalogs = node.names("variableCatalogs")
                         .onEach { variableCatalogFor(workspaceId, it, who) }
                         .toMutableList(),
+                    /*
+                     * The connections it may name, by name and kept where this
+                     * workspace has one: a grant, like a model it may create
+                     * agents with, so one that is not here is left off rather
+                     * than asked for. A file from before carries none.
+                     */
+                    connections = node.names("connectionRefs")
+                        .mapNotNull { externals.find(workspaceId, ExternalReference(ExternalKind.CONNECTION, it)) }
+                        .distinct()
+                        .toMutableList(),
+                    // The agents it may ask come after every agent is written; see wireAgents.
+                    /*
+                     * The Always marks. One on a tool of this workspace
+                     * follows a rename as the grant does. Every other name is
+                     * kept as it is written, because most of what is marked is
+                     * not a component of the file at all: a built-in, a
+                     * plugin's tool, an `orknux_*` tool, a memory tool, an MCP
+                     * server's. Kept only where a component by that name
+                     * resolved, the copy lost every one of those and arrived
+                     * with its tools at Offer. A name it turns out not to hold
+                     * marks nothing, and the next save of the agent drops it.
+                     */
+                    requiredTools = pluginToolNames().let { pluginTools ->
+                        node.names("requiredTools")
+                            .filter { it !in dropped }
+                            .map { name ->
+                                if (name in pluginTools || BuiltInTools.switchable(name)) name
+                                else runCatching { toolNameFor(workspaceId, name, resolved) }.getOrDefault(name)
+                            }
+                            .distinct()
+                            .toMutableList()
+                    },
+                    hiddenSkills = node.names("hiddenSkills").toMutableList(),
+                    requiredSkills = node.names("requiredSkills").toMutableList(),
+                    maxTools = node.integer("maxTools"),
+                    memoryShare = node.integer("memoryShare"),
+                    maxRounds = node.integer("maxRounds"),
+                    maxSubagentsAtOnce = node.integer("maxSubagentsAtOnce"),
+                    reasoningEffort = node.text("reasoningEffort"),
+                    chattiness = node.enumOf("chattiness", Chattiness.MEDIUM, component),
                     icon = node.text("icon"),
                 ),
             ).id!!
@@ -1583,6 +1625,34 @@ class ComponentImporter(
     }
 
     /** What a granted tool is called here, which a rename on the way in may have changed. */
+    /**
+     * The agents each imported agent may ask, once every agent is written.
+     *
+     * After the loop rather than inside it, the way an object's properties are
+     * wired: two agents in one file may grant each other, and whichever is
+     * written first would find the other missing. A name the file carried
+     * means the agent it became here, renamed or not; any other means this
+     * workspace's agent of that name. One that is neither is left off - a
+     * grant, not a dependency, and the agent is still the agent without it.
+     */
+    private fun wireAgents(
+        workspaceId: Long,
+        imported: List<ParsedComponent>,
+        resolved: Map<Pair<ComponentKind, String>, Long>,
+    ) {
+        imported.forEach { component ->
+            val names = component.node.names("agentRefs")
+            if (names.isEmpty()) return@forEach
+            val id = resolved[component.kind to component.name] ?: return@forEach
+            val agent = agents.findById(id).orElse(null) ?: return@forEach
+            agent.agents = names.mapNotNull { name ->
+                resolved[ComponentKind.AGENT to name]
+                    ?: agents.findByWorkspaceIdAndName(workspaceId, name)?.takeIf { !it.temporary }?.id
+            }.distinct().toMutableList()
+            agents.save(agent)
+        }
+    }
+
     private fun toolNameFor(
         workspaceId: Long,
         name: String,

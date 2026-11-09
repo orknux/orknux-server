@@ -619,6 +619,35 @@ class ComponentExporter(
             held.secretCatalogs.forEach { secretCatalogs.add(it) }
             val variableCatalogs = putArray("variableCatalogs")
             held.variableCatalogs.forEach { variableCatalogs.add(it) }
+            /*
+             * The connections it may name and the agents it may ask, which the
+             * row holds by id - so by name here, as every other reference in a
+             * file is. They were not written at all, and every copy of an agent
+             * arrived unable to name a connection or ask a colleague. One that
+             * is not this workspace's any more is a dangling id and not carried.
+             */
+            val connectionRefs = putArray("connectionRefs")
+            held.connections.distinct()
+                .mapNotNull { externals.connectionReference(workspaceId, it)?.name }
+                .forEach { connectionRefs.add(it) }
+            val agentRefs = putArray("agentRefs")
+            held.agents.distinct()
+                .mapNotNull { id -> agents.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId && !it.temporary }?.name }
+                .forEach { agentRefs.add(it) }
+            // What it must always carry and which skills it keeps out of sight, by name.
+            val requiredTools = putArray("requiredTools")
+            held.requiredTools.forEach { requiredTools.add(it) }
+            val hiddenSkills = putArray("hiddenSkills")
+            held.hiddenSkills.forEach { hiddenSkills.add(it) }
+            val requiredSkills = putArray("requiredSkills")
+            held.requiredSkills.forEach { requiredSkills.add(it) }
+            // And how it works: numbers and words, nothing that names a row.
+            put("maxTools", held.maxTools)
+            put("memoryShare", held.memoryShare)
+            put("maxRounds", held.maxRounds)
+            put("maxSubagentsAtOnce", held.maxSubagentsAtOnce)
+            put("reasoningEffort", held.reasoningEffort)
+            put("chattiness", held.chattiness.name)
         }
 
     /**

@@ -861,9 +861,9 @@ class ModelAPITest(
         assertThat(audit.findAll().map { it.message }).noneMatch { it.contains("moved to provider") }
     }
 
-    /** The Duplicate button on a provider's row: its settings come, its models and its key do not. */
+    /** The Duplicate button on a provider's row: its settings and its key come, its models do not. */
     @Test
-    fun `a provider is duplicated without its models and without its key`() {
+    fun `a provider is duplicated with its key and without its models`() {
         val id = provider("Local", "https://local.example.invalid/v1")
         model(id, "Gemma", "gemma")
         model(id, "Qwen", "qwen")
@@ -872,10 +872,11 @@ class ModelAPITest(
             .execute()
         copy.path("duplicateModelProvider.name").entity(String::class.java).isEqualTo("Local (copy)")
         copy.path("duplicateModelProvider.endpoint").entity(String::class.java).isEqualTo("https://local.example.invalid/v1")
-        copy.path("duplicateModelProvider.secretSet").entity(Boolean::class.java).isEqualTo(false)
-        // Without its key, and still worth checking: an OpenAI-shaped server may need none.
+        copy.path("duplicateModelProvider.secretSet").entity(Boolean::class.java).isEqualTo(true)
+        // The original's check is about the original.
         copy.path("duplicateModelProvider.status").entity(String::class.java).isEqualTo("NOT_CHECKED")
         val copyId = copy.path("duplicateModelProvider.id").entity(Long::class.java).get()
+        assertThat(providers.findById(copyId).get().secret).isEqualTo("sk-test")
 
         assertThat(models.findByProviderId(copyId)).isEmpty()
         // The original is as it was, key and models both.

@@ -579,10 +579,10 @@ class ModelService(
      * twin of every one; asked for: duplicating a provider does not duplicate
      * its models. A model is duplicated from its own row.
      *
-     * Its own key stays behind, as it does in a workspace copy: a credential is
-     * kept in one place and a duplicate is not a reason to make a second. A
-     * workspace secret it reads is kept, because that is a pointer to the one
-     * copy in the same workspace rather than a second copy of anything.
+     * Its credential comes with it, whichever it is: its own key, re-encrypted
+     * by the converter, or the workspace secret it reads. A copy that left its
+     * key behind could not answer until somebody found the key again, and a
+     * second endpoint on the same account is the usual reason to duplicate.
      */
     @Transactional
     fun duplicateProvider(id: Long): ModelProviderView {
@@ -593,6 +593,7 @@ class ModelService(
 
         val copy = provider.copied(workspaceId = provider.workspaceId, name = name)
         copy.secretVariableId = provider.secretVariableId
+        copy.secret = provider.secret
         copy.forgetCheck()
         val saved = providers.save(copy)
         val savedId = requireNotNull(saved.id)

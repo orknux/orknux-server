@@ -62,6 +62,13 @@ data class StepFinished(val executionId: Long, val nodeKey: String, val sessionI
  * doing on somebody's behalf and has a line of its own to keep current - a
  * research's progress - so it can say the same thing rather than go on naming
  * the attempt that failed. Published rather than called, as [StepParked] is.
+ *
+ * It is also how whoever owns the step's session learns it is waiting again:
+ * something that arrived there while the attempt was failing found the step
+ * running and woke nobody. Not said as a [StepParked], which it resembles -
+ * that one means "look whether what I was waiting for has already happened",
+ * and a Workflow step retrying after its called run failed would be told yes
+ * every time, and spend its whole policy at once with no wait between.
  */
 data class StepRetrying(
     val executionId: Long,
@@ -744,6 +751,14 @@ class StepRunner(
         step.finishedAt = OffsetDateTime.now()
         steps.save(step)
         log.write(executionId, step.nodeKey, LogLevel.ERROR, "${step.name} failed: $reason")
+        /*
+         * Finished, however it finished - which is what [StepFinished] says,
+         * and was only ever published for a step that succeeded. A person's
+         * answer that arrived while the last attempt was failing found the
+         * step running and was left for it; the step then failed, told nobody,
+         * and the answer sat unread until the person wrote again.
+         */
+        step.sessionId?.let { published.publishEvent(StepFinished(executionId, step.nodeKey, it)) }
         throw StepFailedException(step.nodeKey, reason, permanent)
     }
 

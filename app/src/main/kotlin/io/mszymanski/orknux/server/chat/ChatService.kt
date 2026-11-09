@@ -1532,7 +1532,16 @@ class ChatService(
     ) {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         val thread = history.findByConversationId(session.conversationId)
-        history.saveAll(session.conversationId, thread + AssistantMessage(answer))
+        /*
+         * A turn that said nothing writes nothing. The one there is asked the
+         * person something and ended as it was told to (see [AwaitingPerson]):
+         * the question's card is the turn, and an assistant message with no
+         * words would be sent back to the provider in the middle of the thread
+         * with every later turn - which some refuse the whole request over.
+         * What it cost is still counted below.
+         */
+        val said = answer.isNotBlank()
+        if (said) history.saveAll(session.conversationId, thread + AssistantMessage(answer))
         /*
          * Added, never assigned.
          *
@@ -1549,12 +1558,13 @@ class ChatService(
         // filed under. Taken before nothing else can move it: the thread is
         // only appended to, so the turn just added sits where the old one
         // ended.
-        keepThinking(session, thread.size, thinking, thinkingMillis)
+        // Filed under a message, so not where there is none to file it under.
+        if (said) keepThinking(session, thread.size, thinking, thinkingMillis)
         session.lastMessageAt = OffsetDateTime.now()
         // Read off the chat rather than opened: [beginSend] has already opened
         // whatever this chat records into, and opening one here would be a
         // session for an answer whose question was never written down.
-        recordAnswer(session, session.llmSessionId, answer)
+        if (said) recordAnswer(session, session.llmSessionId, answer)
     }
 
     /**

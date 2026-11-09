@@ -319,9 +319,18 @@ class BuiltInTools(
              */
             AgentRunTools.STOP,
             SessionUsageTools.USAGE,
-            // A program over the session's files, lent with them like zip_extract. Last, as
-            // the newest: V671 marks it on the agents before it, and that order is the test's.
+            // A program over the session's files, lent with them like zip_extract. The last of
+            // those a migration marks Always: V671 marks it on the agents before it, and that
+            // order is the test's. What follows starts at Offer and no migration names it.
             CodeRunTools.RUN,
+            /*
+             * How the workspace's MCP servers are doing, every one of them and
+             * whatever this agent holds. At Offer (STARTS_OFFERED), so no
+             * migration marks it: a name on this list is on for every agent
+             * already - a list of what is hidden says yes to a name nobody has
+             * an opinion about - and only an Always mark would need writing.
+             */
+            McpStatusTools.STATUS,
         )
 
         private val GRANTED_SET = GRANTED.toSet()
@@ -367,6 +376,24 @@ class BuiltInTools(
         private val REACHING_SET = REACHING.toSet()
 
         /**
+         * The reaching built-ins a new agent is given when it is made: the
+         * person's own Chrome. Asked for - an agent people talk to is expected
+         * to be able to look at a page with them - and safe to start with
+         * because of where it lands: the extension is a client somebody paired
+         * themselves, a call reaches only the Chrome of the person the
+         * conversation belongs to, and nothing at all happens until one is
+         * connected. A fetch has none of that, so the rest of [REACHING] stays
+         * off.
+         *
+         * Written into the new agent's own list, so the rule above still holds:
+         * an agent that predates this has not been asked and holds none, and
+         * unticking the row takes it away like any grant. At Offer, being in no
+         * Always list: a dozen tools on every turn of an agent under a ceiling
+         * is what Offer is for.
+         */
+        val STARTS_GRANTED: List<String> = io.mszymanski.orknux.server.browser.BrowserTools.NAMES
+
+        /**
          * The built-ins in [GRANTED] a new agent starts with at Offer rather
          * than Always: held, and found through the tool search once a tool
          * limit is set, rather than carried on every turn. Asked for: an agent
@@ -404,6 +431,8 @@ class BuiltInTools(
             io.mszymanski.orknux.server.embedded.XmlCapability.QUERY_TOOL,
             io.mszymanski.orknux.server.embedded.PdfCapability.SEARCH_TOOL,
             AgentTools.VALIDATE,
+            // Asked when an MCP tool fails, which is rare: found then rather than carried every turn.
+            McpStatusTools.STATUS,
         )
 
         /** The box tools, which follow Offer and Always like the orknux_* tools while the agent holds a box label. */

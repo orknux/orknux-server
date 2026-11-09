@@ -1538,7 +1538,8 @@ class OrknuxTools(
                     ),
                 )
                 // What the form's first save would set, through that same save.
-                if (asked.settles()) save(scope, created.id, asked.copy(name = null)) else created
+                // Made, it holds what every new agent starts with; a tool list given here adds to that rather than taking it away.
+                if (asked.settles()) save(scope, created.id, asked.copy(name = null), keep = BuiltInTools.STARTS_GRANTED) else created
             }
         }
         return mapper.writeValueAsString(
@@ -1569,7 +1570,7 @@ class OrknuxTools(
      * model or icon means "clear it"; filling them in from the agent is what
      * keeps a call that names one field from clearing the others.
      */
-    private fun save(scope: OrknuxScope, id: Long, asked: AgentAsked): AgentView {
+    private fun save(scope: OrknuxScope, id: Long, asked: AgentAsked, keep: List<String> = emptyList()): AgentView {
         val agent = requireNotNull(agents.findByIdOrNull(id))
         val view = requireNotNull(agentApi.agent(id))
         val tools = asked.tools?.let { given ->
@@ -1577,6 +1578,7 @@ class OrknuxTools(
             // the save reads a name missing from the list as one to hide.
             view.tools.filter { it in BuiltInTools.GRANTED } +
                 orknuxNames().filter { it !in agent.hiddenTools } +
+                view.tools.filter { it in keep } +
                 resolvedTools(scope, given)
         }
         return agentApi.updateAgent(

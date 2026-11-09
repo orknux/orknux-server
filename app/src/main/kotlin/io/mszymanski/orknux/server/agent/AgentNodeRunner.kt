@@ -908,7 +908,28 @@ class AgentNodeRunner(
             // node cannot refer to something that has no name.
             is ChatCompletion.Answered ->
                 if (step.outputObjectId == null) {
-                    StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, allSaid(step, spoken, answer.content)))
+                    val said = allSaid(step, spoken, answer.content)
+                    /*
+                     * Nothing at all, which only a turn that asked the person
+                     * and ended as it was told to comes to (see
+                     * `AwaitingPerson`): the step is done and the run ends
+                     * here, without failing. Handed on, the nothing reached the
+                     * node after this one as its text - and a Slack reply
+                     * handed no text throws, so the run went red for an agent
+                     * that was right. When the person answers, the agent is
+                     * woken in this session and what it says then is carried
+                     * on past this step, in a run of its own; see `StepHandOn`.
+                     */
+                    if (said.isBlank()) {
+                        runLog.write(
+                            step.executionId,
+                            step.nodeKey,
+                            LogLevel.INFO,
+                            "${agent.name} ended its turn without an answer, so nothing was handed on; " +
+                                "what it says once it is answered goes on from here",
+                        )
+                    }
+                    StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, said), halt = said.isBlank())
                 } else {
                     // Held to a shape, the last answer is the object; prose beside it is not JSON.
                     shaped(step, agent.name, answer.content)

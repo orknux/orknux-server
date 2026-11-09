@@ -18,6 +18,13 @@ extend type Mutation {
     InteractionAnswerInvalid for an answer of a shape it does not take.
     """
     answerRequest(id: ID!, option: String, options: [String!], text: String): InteractionRequest!
+    """
+    Closes a question without answering it, where it is `dismissible`; whoever
+    asked is told it was dismissed. Refused with InteractionAlreadyAnswered once
+    it has been answered, and InteractionAnswerInvalid for a request answered
+    only by its options.
+    """
+    dismissRequest(id: ID!): InteractionRequest!
 }
 
 type InteractionRequest {
@@ -43,6 +50,8 @@ type InteractionRequest {
     allowsText: Boolean!
     "What the person wrote, where they wrote anything."
     text: String
+    "Whether it may be closed without an answer, with dismissRequest."
+    dismissible: Boolean!
 }
 
 type InteractionOption {

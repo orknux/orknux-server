@@ -262,7 +262,7 @@ class GrantRequestTools(
         return mapper.writeValueAsString(
             mapOf(
                 "asked" to wanted,
-                "status" to "pending",
+                AwaitingPerson.STATUS to AwaitingPerson.PENDING,
                 "note" to "The person has been asked in the conversation to accept or refuse. You will be told " +
                     "the answer; until then you do not hold these tools" +
                     (if (load) ", and once accepted they are loaded for you" else "") + ". Tell the person what you " +

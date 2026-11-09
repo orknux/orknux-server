@@ -79,9 +79,13 @@ class McpLentTools(
                 ).distinct().toMutableList()
         }
 
-    /** Whether [name] is one of the workspace's own: a memory tool, a connection lookup, one of its servers' or tools'. */
+    /**
+     * Whether [name] is one of the workspace's own: a memory tool, a connection
+     * lookup, how its MCP servers are doing, one of its servers' or tools'.
+     */
     private fun reach(agent: Agent, name: String): Boolean =
-        name.startsWith("memory_") || name == ConnectionTools.FIND || name in agent.tools || mcpTools.resolve(agent, name) != null
+        name.startsWith("memory_") || name == ConnectionTools.FIND || name == io.mszymanski.orknux.server.chat.McpStatusTools.STATUS ||
+            name in agent.tools || mcpTools.resolve(agent, name) != null
 
     /** The workspace's own tools, as the stand-in is offered them, held to reading where the caller may not write. */
     private fun reaching(workspaceId: Long, who: String, mayWrite: Boolean): Pair<Agent, List<ToolSpec>> {

@@ -8,6 +8,7 @@ import io.mszymanski.orknux.server.device.DeviceTools.Companion.number
 import io.mszymanski.orknux.server.device.DeviceTools.Companion.text
 import io.mszymanski.orknux.server.device.DeviceToolsParts
 import org.springframework.stereotype.Service
+import tools.jackson.databind.node.ObjectNode
 
 /**
  * The person's own Chrome, as tools: open a page, read it, click, type, press a
@@ -29,6 +30,26 @@ class BrowserTools(parts: DeviceToolsParts) : DeviceTools(parts, DeviceKind.BROW
     override val snapshotTool: String get() = SNAPSHOT
     override val screenshotTool: String get() = SCREENSHOT
     override val prefix: String get() = "browser_"
+
+    /**
+     * browser_scroll is three actions on the extension's side. The plain call -
+     * a screen up or down - stays `scroll`, which every extension knows. One
+     * that asks for more goes to an action the extension added after 1.0.4: `scroll_to`
+     * for `to`, `scroll_by` for an amount, a direction across or `within`. An
+     * older extension would take those arguments to `scroll` and scroll a
+     * screen down whatever was asked; given an action it does not know, it
+     * says so instead.
+     */
+    override fun actionOf(name: String, arguments: ObjectNode): String {
+        if (name != SCROLL) return super.actionOf(name, arguments)
+        fun given(key: String) = arguments.get(key)?.let { !it.isNull && it.asString("").isNotBlank() } == true
+        if (given("to")) {
+            arguments.put("ref", arguments.remove("to").asString(""))
+            return "scroll_to"
+        }
+        val across = arguments.path("direction").asString("").trim().lowercase().let { it == "left" || it == "right" }
+        return if (given("amount") || given("within") || across) "scroll_by" else "scroll"
+    }
 
     companion object {
         const val TABS = "browser_tabs"
@@ -109,9 +130,19 @@ class BrowserTools(parts: DeviceToolsParts) : DeviceTools(parts, DeviceKind.BROW
             ),
             ToolSpec(
                 name = SCROLL,
-                description = "Scrolls a tab's page by most of a screen, to bring more of a long page into a snapshot.",
-                parameters = listOf(text("direction", "down or up; down where it is left out."), TAB),
-                summary = "scroll the page",
+                description = "Scrolls a tab: the page, or a box inside it that scrolls on its own - a list, a " +
+                    "side pane, a table - by most of a screen or by an amount, or until an element is in view. " +
+                    "Answers where it got to and whether anything moved; take a snapshot after it to read what " +
+                    "came into view.",
+                parameters = listOf(
+                    text("direction", "down, up, left or right; down where it is left out."),
+                    number("amount", "How far, in pixels; most of a screen where it is left out."),
+                    text("within", "A ref inside a box that scrolls on its own, to scroll that box rather than the page."),
+                    text("to", "A ref to bring into the middle of the view, scrolling the page and any box it sits in; " +
+                        "direction and amount are not needed with it."),
+                    TAB,
+                ),
+                summary = "scroll the page or a box in it",
             ),
             ToolSpec(
                 name = BACK,

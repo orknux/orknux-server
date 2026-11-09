@@ -106,7 +106,7 @@ class QuestionTools(
         return mapper.writeValueAsString(
             mapOf(
                 "asked" to asked.id,
-                "status" to "pending",
+                AwaitingPerson.STATUS to AwaitingPerson.PENDING,
                 "note" to "The person has been shown the question with " +
                     (if (multiple) "the options to tick" else "an option to choose") +
                     " and a box to answer in their own words. Their answer reaches you later; end your turn now, " +
@@ -130,6 +130,22 @@ class QuestionTools(
         }
         inbox.post(request.llmSessionId, SessionEventKind.ANSWER, said)
         return (chosen + listOfNotNull(text?.let { "\"$it\"" })).joinToString(", ")
+    }
+
+    /**
+     * What the agent is told when the person closed the question without
+     * answering. Told, rather than left waiting: an agent that believes a
+     * question is still open goes on waiting for it, and the person who
+     * dismissed it wanted the conversation to move on.
+     */
+    fun dismissed(request: InteractionRequest, by: String): String {
+        inbox.post(
+            request.llmSessionId,
+            SessionEventKind.ANSWER,
+            "$by dismissed your question \"${request.question}\" without answering it. Do not ask it again. Carry on " +
+                "without the answer where you can; where you cannot, say in one short line what you would need, and stop.",
+        )
+        return "Dismissed"
     }
 
     companion object {
@@ -195,4 +211,9 @@ class PersonQuestions(private val questions: QuestionTools) : InteractionHandler
 
     override fun answered(request: InteractionRequest, options: List<String>, text: String?, by: String): String =
         questions.answered(request, options, text, by)
+
+    // A question the agent made up the answers to: none of them may fit, and the person may not want to say so in words.
+    override val dismissible: Boolean get() = true
+
+    override fun dismissed(request: InteractionRequest, by: String): String = questions.dismissed(request, by)
 }

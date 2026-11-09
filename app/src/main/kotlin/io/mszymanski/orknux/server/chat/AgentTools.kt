@@ -51,6 +51,8 @@ class AgentTools(
     private val variables: io.mszymanski.orknux.server.variable.VariableTools,
     /** What lets an agent find a connection id it was granted; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
+    /** How the workspace's MCP servers are doing, whatever this agent holds; see [McpStatusTools]. */
+    private val mcpStatus: McpStatusTools,
     /** What lets an agent put a question to another; see [AgentRunTools]. */
     private val agentTools: AgentRunTools,
     private val savedArtifacts: SavedArtifacts,
@@ -228,6 +230,14 @@ class AgentTools(
         if (BuiltInTools.granted(agent, ConnectionTools.FIND)) {
             add(connectionTools.specFor(agent))
         }
+
+        /*
+         * And how the workspace's MCP servers are doing - all of them, not the
+         * ones it holds, so a failing MCP tool can be told apart from a server
+         * it was never given. Switched by its row like the rest; the MCP grants
+         * say nothing about it. See [McpStatusTools].
+         */
+        if (BuiltInTools.granted(agent, McpStatusTools.STATUS)) add(mcpStatus.spec)
 
         /*
          * And the other agents it may ask, where it was granted any.
@@ -520,6 +530,8 @@ class AgentTools(
              * knows what this agent was granted.
              */
             connectionTools.run(agent, call.arguments)
+        } else if (mcpStatus.handles(call.name)) {
+            mcpStatus.run(agent, call.arguments)
         } else when (call.name) {
             SAVE_ARTIFACT -> saveArtifact(agent, call, sessionId)
 

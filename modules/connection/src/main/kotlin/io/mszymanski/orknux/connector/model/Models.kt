@@ -699,6 +699,9 @@ fun ModelProvider.copied(workspaceId: Long, name: String): ModelProvider = Model
         chatApi = chatApi,
         sendsReasoning = sendsReasoning,
         editMask = editMask,
+        offerAllTools = offerAllTools,
+        joinLoadedTools = joinLoadedTools,
+        maxTools = maxTools,
 )
 
 /**

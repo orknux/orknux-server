@@ -168,4 +168,43 @@ class QuestionToolsTest(
         graphQlTester.document("mutation { answerRequest(id: ${asked.id}, option: \"refuse\", text: \"no\") { chosen } }").execute()
             .errors().satisfy { assertThat(it.single().message).isEqualTo("This request takes one of its options, not words") }
     }
+
+    /**
+     * Closed without an answer: none of the options an agent made up may fit,
+     * and the person may not want to say so. The card says who closed it, and
+     * the agent is told, so it stops waiting on a question nobody will answer.
+     */
+    @Test
+    fun `a question can be dismissed, and the agent is told so`() {
+        ask(mapOf("question" to "Which graph?", "options" to options))
+        val id = open()
+        graphQlTester.document("{ sessionRequests(sessionId: $conversation) { dismissible } }").execute()
+            .path("sessionRequests[0].dismissible").entity(Boolean::class.java).isEqualTo(true)
+
+        graphQlTester.document("mutation { dismissRequest(id: $id) { chosen chosenBy outcome } }").execute()
+            .path("dismissRequest.chosen").entity(String::class.java).isEqualTo("dismissed")
+            .path("dismissRequest.chosenBy").entity(String::class.java).isEqualTo("alice")
+            .path("dismissRequest.outcome").entity(String::class.java).isEqualTo("Dismissed")
+        assertThat(told().single()).startsWith("alice dismissed your question \"Which graph?\" without answering it.")
+        assertThat(audit.findAll().map { it.message }).contains("Request $id from Helper dismissed")
+
+        // Once only, and not after an answer.
+        graphQlTester.document("mutation { dismissRequest(id: $id) { chosen } }").execute()
+            .errors().satisfy { assertThat(it.single().message).isEqualTo("Request $id has already been answered") }
+    }
+
+    @Test
+    fun `a request answered by its options cannot be dismissed`() {
+        val asked = requests.save(
+            io.mszymanski.orknux.server.interaction.InteractionRequest(
+                workspaceId = workspaceId, llmSessionId = conversation, kind = GrantRequestTools.KIND,
+                question = "Give tools?", options = """[{"id":"accept","label":"Accept"},{"id":"refuse","label":"Refuse"}]""",
+            ),
+        )
+        graphQlTester.document("{ sessionRequests(sessionId: $conversation) { dismissible } }").execute()
+            .path("sessionRequests[0].dismissible").entity(Boolean::class.java).isEqualTo(false)
+        graphQlTester.document("mutation { dismissRequest(id: ${asked.id}) { chosen } }").execute()
+            .errors().satisfy { assertThat(it.single().message).isEqualTo("This request is answered by one of its options") }
+        assertThat(requests.findByIdOrNull(requireNotNull(asked.id))?.chosen).isNull()
+    }
 }

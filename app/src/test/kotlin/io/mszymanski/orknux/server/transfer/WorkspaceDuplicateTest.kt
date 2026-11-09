@@ -57,6 +57,7 @@ class WorkspaceDuplicateTest(
     @Autowired val plugins: io.mszymanski.orknux.server.plugin.PluginRepository,
     @Autowired val pluginParameters: io.mszymanski.orknux.server.plugin.PluginParameterSettingRepository,
     @Autowired val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository,
+    @Autowired val mcpServers: io.mszymanski.orknux.connector.connection.McpServerRepository,
 ) {
 
     /** A document is written work, like a picture: a copy carries neither it nor its catalog. */
@@ -501,12 +502,11 @@ class WorkspaceDuplicateTest(
      * What components point at comes too. Issue #570: connections, model
      * providers and MCP servers were never copied, so an agent on a model and
      * every workflow built on a connection were left behind. They are copied
-     * under the same names without their credentials, the agent comes with
-     * them, the workspace's own model settings point at the copies, and the
-     * answer says what needs a credential.
+     * under the same names with their credentials, the agent comes with them,
+     * and the workspace's own model settings point at the copies.
      */
     @Test
-    fun `an agent comes with its model, and what needs a credential is named`() {
+    fun `an agent comes with its model, and the provider with its key`() {
         val stamp = System.nanoTime()
         val source = requireNotNull(workspaces.save(Workspace(name = "dup-source-$stamp")).id)
 
@@ -534,15 +534,93 @@ class WorkspaceDuplicateTest(
         val copiedId = copy.path("duplicateWorkspace.workspace.id").entity(Long::class.java).get()
 
         assertThat(copy.path("duplicateWorkspace.problems").entityList(String::class.java).get()).isEmpty()
-        assertThat(copy.path("duplicateWorkspace.credentialsToSet").entityList(String::class.java).get())
-            .containsExactly("model provider Local $stamp")
+        assertThat(copy.path("duplicateWorkspace.credentialsToSet").entityList(String::class.java).get()).isEmpty()
         assertThat(functions.findByWorkspaceIdAndName(copiedId, "greet$stamp")).isNotNull()
 
         val copiedProvider = requireNotNull(providers.findByWorkspaceIdAndName(copiedId, "Local $stamp"))
-        assertThat(copiedProvider.secret).isNull()
+        assertThat(copiedProvider.secret).isEqualTo("sk-test")
         val copiedModel = requireNotNull(models.findByProviderIdAndName(copiedProvider.id!!, "Gemma $stamp"))
         assertThat(agents.findByWorkspaceIdAndName(copiedId, "Tester $stamp")!!.modelId).isEqualTo(copiedModel.id)
         assertThat(workspaces.findByIdOrNull(copiedId)!!.quickChatModelId).isEqualTo(copiedModel.id)
+    }
+
+    /**
+     * An agent keeps the colleagues it may ask, whichever order they are
+     * copied in. Each agent is imported alone, so one made before the agent it
+     * asks found nobody of that name and lost the grant.
+     */
+    @Test
+    fun `an agent keeps the agents it may ask, even one copied after it`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-asks-$stamp")).id)
+        val asker = agents.save(Agent(workspaceId = source, name = "Lead", type = AgentType.LLM))
+        val asked = agents.save(Agent(workspaceId = source, name = "Researcher", type = AgentType.LLM))
+        asker.agents = mutableListOf(requireNotNull(asked.id))
+        agents.save(asker)
+
+        val into = duplicator.duplicate(source, "dup-asks-copy-$stamp", "alice").workspaceId
+
+        val lead = requireNotNull(agents.findByWorkspaceIdAndName(into, "Lead"))
+        val researcher = requireNotNull(agents.findByWorkspaceIdAndName(into, "Researcher"))
+        assertThat(lead.agents).containsExactly(researcher.id)
+    }
+
+    /**
+     * Credentials come with what holds them: a connection's own tokens as its
+     * own, and an MCP server reading a workspace secret reads the copy's secret
+     * of that name rather than the original's. A Slack connection's three
+     * tokens all come, the app-level one included, so the copy can listen.
+     * Without the variables, the reference cannot be pointed anywhere, and is
+     * named instead.
+     */
+    @Test
+    fun `credentials come with the copy, pointed at the copy's own variables`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-creds-$stamp")).id)
+        val keys = requireNotNull(variableCatalogs.save(io.mszymanski.orknux.server.variable.VariableCatalog(workspaceId = source, name = "Keys")).id)
+        val token = variables.save(
+            io.mszymanski.orknux.server.variable.WorkspaceVariable(
+                workspaceId = source, catalogId = keys, name = "search-key",
+                kind = io.mszymanski.orknux.server.variable.VariableKind.SECRET, value = "bs-key",
+            ),
+        )
+        connections.save(
+            io.mszymanski.orknux.connector.connection.WorkspaceConnection(
+                workspaceId = source, name = "Desk",
+                type = io.mszymanski.orknux.connector.connection.ConnectionType.SLACK, url = "https://slack.com/api",
+            ).also {
+                it.secret = "xoxb-own"
+                it.userToken = "xoxp-own"
+                it.appToken = "xapp-own"
+            },
+        )
+        mcpServers.save(
+            io.mszymanski.orknux.connector.connection.McpServer(
+                workspaceId = source, name = "Search", address = "https://search.invalid/mcp",
+            ).also { it.secretVariableId = token.id },
+        )
+
+        val copied = duplicator.duplicate(source, "dup-creds-copy-$stamp", "alice")
+        val into = copied.workspaceId
+
+        val desk = requireNotNull(connections.findByWorkspaceIdAndName(into, "Desk"))
+        assertThat(desk.secret).isEqualTo("xoxb-own")
+        assertThat(desk.userToken).isEqualTo("xoxp-own")
+        assertThat(desk.appToken).isEqualTo("xapp-own")
+        val search = requireNotNull(mcpServers.findByWorkspaceIdAndName(into, "Search"))
+        val read = requireNotNull(variables.findByIdOrNull(requireNotNull(search.secretVariableId)))
+        assertThat(read.workspaceId).isEqualTo(into)
+        assertThat(read.name).isEqualTo("search-key")
+        assertThat(search.secret).isNull()
+        assertThat(copied.credentialsToSet).isEmpty()
+
+        // Without the variables, the server's reference has nothing to point at, and is named.
+        val bare = duplicator.duplicate(
+            source, "dup-creds-bare-$stamp", "alice",
+            parts = WorkspaceCopyPart.entries.toSet() - WorkspaceCopyPart.VARIABLES,
+        )
+        assertThat(mcpServers.findByWorkspaceIdAndName(bare.workspaceId, "Search")?.secretVariableId).isNull()
+        assertThat(bare.credentialsToSet).contains("MCP server Search")
     }
 
     /**
@@ -556,21 +634,22 @@ class WorkspaceDuplicateTest(
         fun fields(type: Class<*>) = type.declaredFields
             .filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) && !it.isSynthetic }
             .map { it.name }.toSet()
-        val left = setOf("id", "workspaceId", "providerId", "secret", "secretVariableId", "appToken",
-            "appTokenVariableId", "userToken", "userTokenVariableId", "lastCheckStatus", "lastCheckMessage",
-            "lastCheckedAt", "status", "reachable", "checkDetail", "toolCount")
+        val left = setOf("id", "workspaceId", "providerId",
+            "lastCheckStatus", "lastCheckMessage", "lastCheckedAt", "status", "reachable", "checkDetail", "toolCount")
         val copied = mapOf(
             io.mszymanski.orknux.connector.connection.WorkspaceConnection::class.java to setOf(
                 "connectionId", "name", "type", "url", "description", "urlOverride", "grantNewAgents", "pluginType", "authType", "smtpPort",
                 "smtpUsername", "smtpFrom", "smtpSecurity", "headers",
+                "secret", "secretVariableId", "userToken", "userTokenVariableId", "appToken", "appTokenVariableId",
             ),
             io.mszymanski.orknux.connector.connection.McpServer::class.java to setOf(
-                "name", "address", "description", "authType", "headers",
+                "name", "address", "description", "authType", "headers", "secret", "secretVariableId",
             ),
             io.mszymanski.orknux.connector.model.ModelProvider::class.java to setOf(
                 "name", "type", "endpoint", "authMethod", "apiVersion", "deploymentName", "region", "tenantId",
                 "clientId", "scope", "checkEnabled", "throttleTokensPerSecond", "throttleRequestsPerSecond",
                 "acceptRetryAfter", "chatApi", "sendsReasoning", "offerAllTools", "joinLoadedTools", "maxTools", "editMask",
+                "secret", "secretVariableId",
             ),
             io.mszymanski.orknux.connector.model.LlmModel::class.java to setOf(
                 "name", "modelId", "kind", "contextWindow", "maxOutput", "parallelToolCalls", "reasoningEffort", "temperature", "topP",

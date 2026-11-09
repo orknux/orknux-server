@@ -60,4 +60,21 @@ class SessionWake(
         val next = inbox.nextDue(session) ?: return
         if (!next.isAfter(java.time.OffsetDateTime.now())) engine.wake(event.executionId)
     }
+
+    /**
+     * The same, for a step parked between attempts. A person's answer that
+     * landed while an attempt was failing found the step running, so [due]
+     * woke nobody, and the retry then sat out its whole backoff with the answer
+     * unread - a minute and more, on prod, each time. The next attempt's turn
+     * reads the inbox first, so waking it now is the answer being read now.
+     *
+     * Only a step with a session has one to look in, and only an agent's step
+     * has a session - so a retry of anything else waits as its policy says.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    fun retrying(event: io.mszymanski.orknux.workflow.execution.StepRetrying) {
+        val session = steps.findByExecutionIdAndNodeKey(event.executionId, event.nodeKey)?.sessionId ?: return
+        val next = inbox.nextDue(session) ?: return
+        if (!next.isAfter(java.time.OffsetDateTime.now())) engine.wake(event.executionId)
+    }
 }

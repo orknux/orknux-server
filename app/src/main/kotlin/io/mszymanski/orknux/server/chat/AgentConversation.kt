@@ -1013,6 +1013,13 @@ class AgentConversation(
         var emptied = 0
 
         /*
+         * Whether the last round's tools put something in front of a person
+         * whose answer comes later - see [AwaitingPerson]. A model told to end
+         * its turn there may write nothing, and that is not a provider fault.
+         */
+        var askedPerson = false
+
+        /*
          * The skills this turn has already read, by what they were asked
          * with, and the call that read each. Issue #531: a skill's page does
          * not change inside a turn and is already in the conversation, so a
@@ -1254,6 +1261,43 @@ class AgentConversation(
                      * fine. Nothing was said, so there is nothing to tell the
                      * model about: the same round goes back unchanged.
                      */
+                    /*
+                     * Nothing, straight after asking a person and being told to
+                     * end the turn: the model did as it was told. The turn ends
+                     * here with no answer, as one would that said nothing -
+                     * not five identical retries and "could not answer", which
+                     * failed a Slack step for an agent that was right.
+                     */
+                    if (answer.reason == NO_MESSAGE && !answer.permanent && askedPerson) {
+                        // Answered already, while the model was being asked: go on with it now.
+                        val arrived = into?.let { arrivals(it) }.orEmpty()
+                        if (arrived.isNotEmpty()) {
+                            askedPerson = false
+                            arrived.forEach { conversation += ChatTurn(role = "user", content = it) }
+                            return@repeat
+                        }
+                        into?.let { session ->
+                            sessions.note(session, "${agent.name} ended its turn after asking the person, and said nothing more; it carries on when they answer.")
+                        }
+                        val ended = ChatCompletion.Answered(
+                            content = "",
+                            millis = spent,
+                            inputTokens = input,
+                            outputTokens = output,
+                            cachedInputTokens = cached,
+                            cacheWriteTokens = written,
+                            reasoning = thinking.toString(),
+                            reasoningMillis = thoughtFor,
+                        )
+                        /*
+                         * Nothing is kept for it: what was sent already ends on
+                         * the question's answer, and an assistant message with
+                         * no words in the middle of a conversation is one some
+                         * providers refuse the whole request over - which would
+                         * fail the very turn the person's answer wakes.
+                         */
+                        return ended
+                    }
                     val emptyRetries = settings.emptyAnswerRetries()
                     if (answer.reason == NO_MESSAGE && !answer.permanent && emptied < emptyRetries) {
                         emptied += 1
@@ -1326,6 +1370,8 @@ class AgentConversation(
                 }
 
                 is ChatCompletion.CalledTools -> {
+                    // Said again by this round's tools, or not at all.
+                    askedPerson = false
                     spent += answer.millis
                     input += answer.inputTokens
                     output += answer.outputTokens
@@ -1720,6 +1766,7 @@ class AgentConversation(
                                 .getOrNull()
                         }
                         val whole = picture?.let { AgentTools.withoutPicture(got, it, placed) } ?: got
+                        if (AwaitingPerson.asked(call.name, got)) askedPerson = true
                         /*
                          * Held to a share of the model's window. Chat 981: one
                          * svg_read answer was 523,768 characters, under the

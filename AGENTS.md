@@ -445,10 +445,17 @@ every start it is in effect. Never set them in a deployment.
 - **A built-in the server brings is a row on the Tools list, and a name in
   `agent.tools`.** `BuiltInTools.GRANTED` is the list; the form draws a row per
   entry and the round offers and withholds by the same names, so a tool added
-  there is visible and switchable the same day. A new agent starts with all of
-  them on and Always. Adding one is therefore two things: the name in that
-  list, and a migration that gives every agent that predates it the name - or
-  every existing agent has it switched off. V302 is the shape. The three
+  there is visible and switchable the same day. What an agent stores is the
+  ones it has switched *off* (`hiddenTools`), so a name added to the list is on
+  for every agent there already is, with no migration. What a migration is for
+  is the Always mark: a new agent starts with a built-in at Always unless
+  `STARTS_OFFERED` names it, and an agent that predates the tool has no mark,
+  so it would sit at Offer there and at Always everywhere else. Adding one that
+  starts at Always is therefore two things - the name in the list, and a
+  migration in V671's shape marking it on every agent that has not hidden it,
+  written for both databases; `BasicToolsAlwaysTest` reads those migrations
+  in the list's order. One that starts at Offer is the name and a line in
+  `STARTS_OFFERED`, as `mcp_status` is. The three
   booleans this rule used to name (`artifactAccess`, `finishAccess`,
   `pictureLinkAccess`) are views of the list now, kept so the API still
   answers them. A built-in that comes with a wider grant - the skill tools, the
@@ -545,10 +552,16 @@ every start it is in effect. Never set them in a deployment.
   how a PDF reached Slack as a text file of base64. Text types hold the text
   itself; everything else holds base64.
 - **A workspace copy decides every field.** `WorkspaceDuplicator` copies
-  connections, model providers, models and MCP servers field by field, and
-  leaves their credentials behind. `WorkspaceDuplicateTest` lists every field
-  of those entities as copied or left on purpose, so a field added to one fails
-  a test until somebody decides whether a copy carries it.
+  connections, model providers, models and MCP servers field by field,
+  credentials included: a copy that arrived without them was a workspace
+  where nothing could be called until every key had been found and typed
+  again. A credential kept as its own encrypted copy is copied as that; one
+  that reads a workspace variable is pointed at the copy's variable of the
+  same catalog and name, through `SecretReferences.bind` like any save, and
+  is named in what the copy still needs where there is none. The same holds
+  for copying one connection or provider. `WorkspaceDuplicateTest` lists every
+  field of those entities as copied or left on purpose, so a field added to
+  one fails a test until somebody decides whether a copy carries it.
 - **There is one attachment store.** Chat attachments and issue attachments share
   `AttachmentStore`, `InstallationSettings` and the list of what may be served
   inline. A second copy of the inline rule is how one of them ends up serving

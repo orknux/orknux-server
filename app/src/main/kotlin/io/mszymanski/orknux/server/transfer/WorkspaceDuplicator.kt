@@ -71,7 +71,9 @@ import java.time.format.DateTimeFormatter
  * administrator's, who may read every secret already, and a copy that cannot
  * run until each secret is typed in again was not what anybody copied for.
  * A file holds none, so a workspace read from one still lists them.
- * Connections', MCP servers' and providers' own credentials still stay behind.
+ * Connections', MCP servers' and providers' own credentials come the same way,
+ * and one that reads a variable reads the copy's variable of that name - with
+ * one exception, a Slack connection's app-level token: see [copyExternal].
  *
  * **Workflows** arrive published, as a duplicated one does: the copy is meant
  * to run like the original. One read from a file or a template is a draft.
@@ -109,6 +111,12 @@ class WorkspaceDuplicator(
     /** Whether a variable lent by another workspace is lent to the copy too. */
     @param:org.springframework.context.annotation.Lazy
     private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
+    /**
+     * The rules a credential is bound to a variable by, which a copy is held to
+     * as a save is. Lazy for the reason [sharing] is: it reads through it.
+     */
+    @param:org.springframework.context.annotation.Lazy
+    private val secrets: io.mszymanski.orknux.connector.security.SecretReferences,
     private val designCatalogs: io.mszymanski.orknux.server.design.DesignCatalogs,
     /**
      * One transaction per piece rather than one for the whole copy. Issue #570:
@@ -239,6 +247,8 @@ class WorkspaceDuplicator(
          * come whole.
          */
         fun carryPluginParameters(into: Long, by: String, needs: MutableList<String>): Int
+        /** Which agents each agent may ask, by name: agent name to the names it asks. */
+        fun agentAsks(): Map<String, List<String>>
     }
 
     /** What the variable step did: how many came, and which came without their value. */
@@ -247,7 +257,7 @@ class WorkspaceDuplicator(
     /** One connection, MCP server or provider with its models; [carry] writes it into a workspace. */
     private class ExternalPiece(
         val name: () -> String,
-        val carry: (into: Long, needs: MutableList<String>, models: MutableMap<ModelName, Long>) -> String,
+        val carry: (into: Long, needs: MutableList<String>, models: MutableMap<ModelName, Long>, references: MutableList<VariableReference>) -> String,
     )
 
     /** One component. Compared by identity: two pieces are never the same piece. */
@@ -354,8 +364,8 @@ class WorkspaceDuplicator(
          * connection, every agent on a model and every workflow running those
          * actions arrived as "no connection called Slack outbound here" - the
          * copy of a Slack desk kept almost nothing. Copied under the same names
-         * with their credentials left behind, which is the stance on secrets
-         * below, so every reference resolves and the list says what to set.
+         * with their credentials, so every reference resolves; a credential that
+         * reads a variable is pointed at the copy's once the variables have come.
          *
          * One transaction each, like the components, so a poll asking how far
          * the copy has got is answered between two of them on SQLite as well.
@@ -364,10 +374,11 @@ class WorkspaceDuplicator(
          */
         val needs = mutableListOf<String>()
         val modelIds = mutableMapOf<ModelName, Long>()
+        val references = mutableListOf<VariableReference>()
         externals.forEach { (kind, pieces) ->
             pieces.forEach { piece ->
                 val what = runCatching {
-                    step(wait) { piece.carry(into, needs, modelIds) }
+                    step(wait) { piece.carry(into, needs, modelIds, references) }
                 }.getOrElse { why ->
                     val called = runCatching { piece.name() }.getOrDefault("?")
                     throw stopped(from, into, "$kind \"$called\"", why, wait)
@@ -394,6 +405,12 @@ class WorkspaceDuplicator(
                 .getOrElse { why -> throw stopped(from, into, "the variables", why, wait) }
             counts["variable"] = carriedVariables.count
             secrets = carriedVariables.secrets
+        }
+        // Credentials that read a variable, now that the copy has its own.
+        if (references.isNotEmpty()) {
+            log.info("Copy of {} into {}: pointing credentials at the copy's variables", from, into)
+            runCatching { step(wait) { pointAtVariables(into, references, needs) } }
+                .onFailure { why -> throw stopped(from, into, "the credentials' variables", why, wait) }
         }
         if (WorkspaceCopyPart.MEMORIES in parts) {
             log.info("Copy of {} into {}: copying the memories", from, into)
@@ -463,6 +480,17 @@ class WorkspaceDuplicator(
             }
             if (pending.size == before) break
         }
+        /*
+         * The agents each agent may ask, once every agent is here. Each is
+         * imported as an envelope of its own, so one whose colleague came
+         * after it found nobody of that name and lost the grant.
+         */
+        if (WorkspaceCopyPart.of(ComponentKind.AGENT) in parts) {
+            log.info("Copy of {} into {}: pointing the agents at the agents they may ask", from, into)
+            runCatching { step(wait) { wireAgentAsks(into, origin.agentAsks()) } }
+                .onFailure { why -> problems += "the agents' grants to ask each other were not copied: ${reasonOf(why, wait)}" }
+        }
+
         pending.forEach { piece ->
             val called = runCatching { piece.name() }.getOrNull() ?: piece.ref
             val why = lastWhy[piece]
@@ -512,7 +540,7 @@ class WorkspaceDuplicator(
             kind to ids.map { id ->
                 ExternalPiece(
                     name = { externalName(kind, id) },
-                    carry = { into, needs, modelIds -> copyExternal(sourceId, into, kind, id, needs, modelIds) },
+                    carry = { into, needs, modelIds, references -> copyExternal(sourceId, into, kind, id, needs, modelIds, references) },
                 )
             }
         }
@@ -541,6 +569,12 @@ class WorkspaceDuplicator(
 
         override fun carryPluginParameters(into: Long, by: String, needs: MutableList<String>) =
             copyPluginParameters(sourceId, into, by, needs)
+
+        override fun agentAsks(): Map<String, List<String>> {
+            val held = agents.findByWorkspaceId(sourceId, Pageable.unpaged()).content.filter { !it.temporary }
+            val names = held.associate { it.id to it.name }
+            return held.associate { agent -> agent.name to agent.agents.mapNotNull { names[it] } }
+        }
     }
 
     /** A workspace file, already read and checked whole. Issue #590. */
@@ -556,7 +590,7 @@ class WorkspaceDuplicator(
 
         override fun externals() = listOf(
             "connection" to file.connections.map { node ->
-                ExternalPiece({ node.path("name").asString("?") }) { into, needs, _ ->
+                ExternalPiece({ node.path("name").asString("?") }) { into, needs, _, _ ->
                     /*
                      * An inherited connection reads the installation's default
                      * of the same name here, if this installation has one; one
@@ -572,14 +606,14 @@ class WorkspaceDuplicator(
                 }
             },
             "mcp server" to file.mcpServers.map { node ->
-                ExternalPiece({ node.path("name").asString("?") }) { into, needs, _ ->
+                ExternalPiece({ node.path("name").asString("?") }) { into, needs, _, _ ->
                     val made = mcpServers.save(mcpServerFrom(node, into))
                     if (node.path("credentialNeeded").asBoolean(false)) needs += "MCP server ${made.name}"
                     made.name
                 }
             },
             "model provider" to file.providers.map { node ->
-                ExternalPiece({ node.path("name").asString("?") }) { into, needs, modelIds ->
+                ExternalPiece({ node.path("name").asString("?") }) { into, needs, modelIds, _ ->
                     val made = providers.save(providerFrom(node, into))
                     if (node.path("credentialNeeded").asBoolean(false)) needs += "model provider ${made.name}"
                     node.path("models").values().forEach { model ->
@@ -606,6 +640,12 @@ class WorkspaceDuplicator(
 
         // A file holds no plugin's answers: its plugins may not be on this installation.
         override fun carryPluginParameters(into: Long, by: String, needs: MutableList<String>) = 0
+
+        override fun agentAsks(): Map<String, List<String>> =
+            file.components.filter { it.kind == ComponentKind.AGENT }.associate { held ->
+                val refs = held.envelope.findValue("agentRefs")
+                held.name to (refs?.values()?.mapNotNull { it.asString(null) } ?: emptyList())
+            }
     }
 
     /**
@@ -709,12 +749,14 @@ class WorkspaceDuplicator(
 
     /**
      * One connection, model provider with its models, or MCP server, copied
-     * without its credentials. Issue #570.
+     * with its credentials. Issue #570.
      *
      * Field by field rather than by reflection, for the reason the snapshot is:
-     * what is carried is a decision. What is left behind is named at each: the
-     * secret and the workspace variable it may be read from (variables are not
-     * copied), and the last check's result, which is about the original. An
+     * what is carried is a decision. A credential held as its own comes as its
+     * own, re-encrypted by the converter; one read from a variable is added to
+     * [references] and pointed at the copy's variable after the variables step.
+     * A Slack app-level token stays behind and is named. The last check's
+     * result stays behind too, being about the original. An
      * inherited connection keeps pointing at the installation's, whose
      * credential it reads, so it works as it did and needs nothing set.
      * WorkspaceDuplicateTest holds a list of every field, so a field added to
@@ -729,6 +771,7 @@ class WorkspaceDuplicator(
         id: Long,
         needs: MutableList<String>,
         modelIds: MutableMap<ModelName, Long>,
+        references: MutableList<VariableReference>,
     ): String = when (kind) {
         "connection" -> {
             val held = requireNotNull(connections.findByIdOrNull(id)?.takeIf { it.workspaceId == from })
@@ -752,9 +795,27 @@ class WorkspaceDuplicator(
                     headers = held.headers.map {
                         io.mszymanski.orknux.connector.connection.HttpHeader(it.name, it.value)
                     }.toMutableList(),
-                ),
-            )
-            if (held.connectionId == null && hadCredential(held)) needs += "connection ${held.name}"
+                ).also {
+                    // The converter re-encrypts each on the way in.
+                    it.secret = held.secret
+                    it.userToken = held.userToken
+                    it.appToken = held.appToken
+                },
+            ).also { copy ->
+                val what = "connection ${held.name}"
+                refer(references, what, from, held.secretVariableId) { id -> connections.findByIdOrNull(copy.id!!)?.let { it.secretVariableId = id; connections.save(it) } }
+                refer(references, what, from, held.userTokenVariableId) { id -> connections.findByIdOrNull(copy.id!!)?.let { it.userTokenVariableId = id; connections.save(it) } }
+                /*
+                 * The app-level token too, which is what the copy listens to
+                 * Slack with. One app listened to twice in one installation
+                 * shares its events between the two sockets - Slack hands each
+                 * event to one of them - so a copy kept listening alongside
+                 * its original hears some of the mentions each; that is the
+                 * operator's to settle on either connection's page, and a copy
+                 * that cannot listen at all was the worse surprise.
+                 */
+                refer(references, what, from, held.appTokenVariableId) { id -> connections.findByIdOrNull(copy.id!!)?.let { it.appTokenVariableId = id; connections.save(it) } }
+            }
             held.name
         }
 
@@ -771,23 +832,82 @@ class WorkspaceDuplicator(
                     headers = held.headers.map {
                         io.mszymanski.orknux.connector.connection.HttpHeader(it.name, it.value)
                     }.toMutableList(),
-                ),
-            )
-            if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "MCP server ${held.name}"
+                ).also { it.secret = held.secret },
+            ).also { copy ->
+                refer(references, "MCP server ${held.name}", from, held.secretVariableId) { id ->
+                    mcpServers.findByIdOrNull(copy.id!!)?.let { it.secretVariableId = id; mcpServers.save(it) }
+                }
+            }
             held.name
         }
 
         else -> {
             val held = requireNotNull(providers.findByIdOrNull(id)?.takeIf { it.workspaceId == from })
             log.info("Copy of workspace {} into {}: model provider \"{}\"", from, into, held.name)
-            val copy = providers.save(held.copied(workspaceId = into, name = held.name))
-            if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "model provider ${held.name}"
+            val copy = providers.save(held.copied(workspaceId = into, name = held.name).also { it.secret = held.secret })
+            refer(references, "model provider ${held.name}", from, held.secretVariableId) { id ->
+                providers.findByIdOrNull(copy.id!!)?.let { it.secretVariableId = id; providers.save(it) }
+            }
             models.findByProviderId(id).forEach { model ->
                 log.info("Copy of workspace {} into {}: model \"{}\" of \"{}\"", from, into, model.name, held.name)
                 val made = models.save(model.copied(providerId = requireNotNull(copy.id), name = model.name))
                 modelIds.putIfAbsent(ModelName(held.name, model.name), requireNotNull(made.id))
             }
             held.name
+        }
+    }
+
+    /**
+     * A credential field of a copied external that reads a workspace variable,
+     * to be pointed at the copy's own variable once the variables have come.
+     */
+    class VariableReference(val what: String, val sourceWorkspace: Long, val variableId: Long, val point: (Long) -> Unit)
+
+    private fun refer(into: MutableList<VariableReference>, what: String, from: Long, variableId: Long?, point: (Long) -> Unit) {
+        if (variableId != null) into += VariableReference(what, from, variableId, point)
+    }
+
+    /**
+     * The variable a copy in [into] reads where the original read [variableId]:
+     * the copy's own of the same catalog and name, or the same one where it is
+     * lent by another workspace and lent to the copy too. Null where neither -
+     * its part was switched off, or the lending does not reach the copy - so the
+     * copy never reads another workspace's credential by accident.
+     */
+    private fun copiedVariable(from: Long, into: Long, variableId: Long): Long? {
+        val variable = variables.findByIdOrNull(variableId) ?: return null
+        if (variable.workspaceId != from) return variable.id.takeIf { sharing.usable(into, variable) }
+        val catalog = variableCatalogs.findByIdOrNull(variable.catalogId)?.name ?: return null
+        val copyCatalog = variableCatalogs.findByWorkspaceIdAndName(into, catalog)?.id ?: return null
+        return variables.findByWorkspaceId(into).firstOrNull { it.catalogId == copyCatalog && it.name == variable.name }?.id
+    }
+
+    /**
+     * Each credential that read a variable, pointed at the copy's; one that
+     * cannot be is named.
+     *
+     * Through [SecretReferences.bind], as every save of a credential goes: the
+     * copy's variable of that catalog and name is found by name, and a name is
+     * not a promise that it is a secret or that the copy may read it. Written
+     * straight to the column, a reference to a variable that is not one was a
+     * card that looked configured and failed at the first call.
+     */
+    private fun pointAtVariables(into: Long, references: List<VariableReference>, needs: MutableList<String>) {
+        references.forEach { reference ->
+            val id = copiedVariable(reference.sourceWorkspace, into, reference.variableId)
+                ?.let { found -> runCatching { secrets.bind(into, found, null) }.getOrNull() }
+            if (id != null) reference.point(id) else if (reference.what !in needs) needs += reference.what
+        }
+    }
+
+    /** Each copied agent pointed at the copies of the agents it may ask, by name. */
+    private fun wireAgentAsks(into: Long, asks: Map<String, List<String>>) {
+        val copies = agents.findByWorkspaceId(into, Pageable.unpaged()).content.filter { !it.temporary }.associateBy { it.name }
+        asks.forEach { (name, asked) ->
+            if (asked.isEmpty()) return@forEach
+            val agent = copies[name] ?: return@forEach
+            agent.agents = asked.mapNotNull { copies[it]?.id }.distinct().toMutableList()
+            agents.save(agent)
         }
     }
 
@@ -910,10 +1030,6 @@ class WorkspaceDuplicator(
     private fun copyPluginParameters(from: Long, into: Long, by: String, needs: MutableList<String>): Int {
         val held = pluginParameters.findByWorkspaceId(from)
         if (held.isEmpty()) return 0
-        val sourceCatalogs = variableCatalogs.findByWorkspaceIdOrderByNameAsc(from).associate { it.id to it.name }
-        val copiedVariables = variables.findByWorkspaceId(into).associateBy { variable ->
-            variableCatalogs.findByIdOrNull(variable.catalogId)?.name to variable.name
-        }
         val declared = mutableMapOf<Long, List<io.mszymanski.orknux.server.plugin.PluginParameterView>>()
         var count = 0
         held.forEach { answer ->
@@ -924,16 +1040,7 @@ class WorkspaceDuplicator(
 
             var literal = answer.literalValue
             var variableId: Long? = null
-            answer.variableId?.let { id ->
-                val variable = variables.findByIdOrNull(id)
-                variableId = when {
-                    variable == null -> null
-                    variable.workspaceId == from ->
-                        copiedVariables[sourceCatalogs[variable.catalogId] to variable.name]?.id
-                    sharing.usable(into, variable) -> variable.id
-                    else -> null
-                }
-            }
+            answer.variableId?.let { id -> variableId = copiedVariable(from, into, id) }
             val isConnection = parameter?.type.equals(io.mszymanski.orknux.server.plugin.PluginDeclarations.CONNECTION, ignoreCase = true)
             if (isConnection && literal != null) {
                 val name = literal.trim().toLongOrNull()?.let { connections.findByIdOrNull(it) }

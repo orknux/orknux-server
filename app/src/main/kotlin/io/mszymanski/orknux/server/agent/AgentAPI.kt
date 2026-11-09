@@ -232,6 +232,8 @@ class AgentAPI(
                 requiredTools = startingAlways(input.orknuxAccess ?: STARTS_WITH_ORKNUX_ACCESS),
                 // Less the orknux_* tools that take away what people made, which start hidden.
                 hiddenTools = builtIns.orknuxStartsHidden().toMutableList(),
+                // And the person's Chrome, the one reaching built-in a new agent is given. See STARTS_GRANTED.
+                tools = BuiltInTools.STARTS_GRANTED.toMutableList(),
                 // And the skills the server brings, for the same reason: they
                 // are what a command means, and an agent that holds none has no
                 // commands to tell anybody about. Issue #471. With every
@@ -325,6 +327,8 @@ class AgentAPI(
                 // As a hand-made agent: nothing hidden, so every built-in. #455.
                 requiredTools = startingAlways(STARTS_WITH_ORKNUX_ACCESS),
                 hiddenTools = builtIns.orknuxStartsHidden().toMutableList(),
+                // As a hand-made agent: the person's Chrome. See STARTS_GRANTED.
+                tools = BuiltInTools.STARTS_GRANTED.toMutableList(),
                 // And the server's own skills and its plugins', as a hand-made
                 // agent has. Still nothing of the workspace's, which is what the
                 // paragraph above is about: these catalogs are the

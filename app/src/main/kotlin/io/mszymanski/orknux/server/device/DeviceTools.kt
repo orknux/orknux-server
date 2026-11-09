@@ -91,6 +91,15 @@ abstract class DeviceTools(protected val parts: DeviceToolsParts, val kind: Devi
     /** The computer each conversation used last, by session. */
     private val lastComputer = java.util.concurrent.ConcurrentHashMap<Long, String>()
 
+    /**
+     * The client action a call goes to: the tool's name less [prefix], unless a
+     * family says otherwise. A tool that grows an argument an older client
+     * would silently ignore routes the call that uses it to a new action, which
+     * that client refuses in words instead - so an API grows without an old
+     * client doing the wrong thing quietly. May rewrite [arguments] for it.
+     */
+    protected open fun actionOf(name: String, arguments: ObjectNode): String = name.removePrefix(prefix)
+
     /** How long a call waits for the client's answer; null is the installation's device wait. */
     protected open fun waitSeconds(): Long? = null
 
@@ -125,7 +134,7 @@ abstract class DeviceTools(protected val parts: DeviceToolsParts, val kind: Devi
                 arguments.put("maxCharacters", asked.coerceIn(500, most))
             }
             if (chooses) return chosen(user, call, arguments)
-            val answered = parts.links.call(user, kind, call.name.removePrefix(prefix), arguments, waitSeconds(), session?.let(::chatOf))
+            val answered = parts.links.call(user, kind, actionOf(call.name, arguments), arguments, waitSeconds(), session?.let(::chatOf))
             answered.error?.let { return error(it) }
             val result = answered.result ?: parts.mapper.createObjectNode()
             if (call.name == listTool && result is ObjectNode) {
@@ -144,7 +153,7 @@ abstract class DeviceTools(protected val parts: DeviceToolsParts, val kind: Devi
             val asked = arguments.remove(COMPUTER)?.let { if (it.isString) it.stringValue() else it.toString() }?.trim()?.ifEmpty { null }
             val connected = parts.links.computers(user, kind)
             if (connected.isEmpty()) throw DeviceNotConnectedException(kind)
-            val action = call.name.removePrefix(prefix)
+            val action = actionOf(call.name, arguments)
             if (call.name == listTool && asked == null && connected.size > 1) {
                 val each = connected.map { one ->
                     val answered = runCatching { parts.links.call(user, kind, action, arguments.deepCopy(), waitSeconds(), null, one.name) }

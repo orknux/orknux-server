@@ -571,6 +571,24 @@ class AgentBriefing(
         if (io.mszymanski.orknux.server.browser.BrowserTools.NAMES.none { BuiltInTools.granted(agent, it) }) {
             parts += SUGGEST_BROWSER
         }
+        /*
+         * And the desktop, for the same reason: a person reading out what a
+         * program on their computer shows and asking what to press is the same
+         * walk by screenshots, and Orknux for Windows and Orknux for Linux are
+         * what end it. Only where the desktop tools are not held - one that
+         * holds them is told how to use them by their shed.
+         */
+        if (io.mszymanski.orknux.server.desktop.DesktopTools.NAMES.none { BuiltInTools.granted(agent, it) }) {
+            parts += SUGGEST_DESKTOP
+        }
+        /*
+         * And the person's own Claude Code, which no agent reaches: it is a
+         * person's conversation, never something an agent runs on or hands work
+         * to. Said to every agent so that one asked to pass something to it
+         * says it cannot and where the person talks to it, instead of
+         * promising a hand-off no tool makes.
+         */
+        parts += CLAUDE_CODE_IS_THEIRS
 
         val reachable = if (connectionTools.recited(agent)) {
             connectionTools.granted(agent)
@@ -829,6 +847,21 @@ class AgentBriefing(
                 "the Orknux browser extension for Chrome would let you do such steps in their browser yourself: " +
                 "they install it, connect it to this server from its side panel, and whoever manages you gives " +
                 "you the browser tools on your Tools list."
+
+        /** What an agent without the desktop tools says when a person is walking it through a program on their computer; see [grants]. */
+        const val SUGGEST_DESKTOP =
+            "When a person keeps sending you screenshots of a program on their computer and asking what to do in " +
+                "it - what to click, what to type, which setting to change - help them with this step, and tell them " +
+                "once in the conversation that Orknux for Windows or Orknux for Linux would let you do such steps on " +
+                "their computer yourself: they start it, connect it to this server, and whoever manages you gives you " +
+                "the desktop tools on your Tools list."
+
+        /** What every agent is told about the person's own Claude Code, which it cannot reach; see [grants]. */
+        const val CLAUDE_CODE_IS_THEIRS =
+            "You cannot reach the person's own Claude Code, and no tool of yours passes anything to it. When " +
+                "somebody asks you to hand work to their Claude Code, or wants Claude Code to answer them, say so, " +
+                "and tell them they can talk to it themselves: with Claude Code running with the Orknux channel " +
+                "plugin, they pick My Claude Code in an Orknux chat."
 
         /** When the to-do list is worth keeping; said after [HOW_YOU_RUN] where the agent holds it. */
         const val PLAN_WITH_TODOS =

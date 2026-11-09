@@ -167,7 +167,8 @@ class OrknuxAgentToolsTest(
         assertThat(made.path("error").isMissingNode).describedAs(made.toString()).isTrue()
         val agent = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "PR searcher"))
         assertThat(agent.modelId).isEqualTo(chat)
-        assertThat(agent.tools).containsExactly("searchPullRequests")
+        // The tool asked for, beside the browser every new agent starts with: a list given on creation adds to that.
+        assertThat(agent.tools).containsExactlyInAnyOrderElementsOf(io.mszymanski.orknux.server.browser.BrowserTools.NAMES + "searchPullRequests")
         assertThat(agent.hiddenTools).describedAs("no built-in or orknux_ tool hidden but what starts hidden").containsExactlyElementsOf(DiagramTools.STARTS_HIDDEN)
         assertThat(agent.orknuxAccess).isTrue()
         assertThat(agent.description).isEqualTo("Searches pull requests.")
@@ -238,10 +239,13 @@ class OrknuxAgentToolsTest(
         assertThat(agent.modelId).describedAs("not sent, so not cleared").isEqualTo(chat)
         assertThat(agent.tools).containsExactly("searchIssues")
         assertThat(agent.hiddenTools).containsExactlyElementsOf(DiagramTools.STARTS_HIDDEN)
-        assertThat(messages()).containsExactlyInAnyOrder(
-            "Agent PR searcher system prompt updated",
-            "Agent PR searcher given tool searchIssues",
-            "Agent PR searcher can no longer call tool searchPullRequests",
+        // A list given on an update is the whole of what it holds, so the browser it was made with goes too.
+        assertThat(messages()).containsExactlyInAnyOrderElementsOf(
+            listOf(
+                "Agent PR searcher system prompt updated",
+                "Agent PR searcher given tool searchIssues",
+                "Agent PR searcher can no longer call tool searchPullRequests",
+            ) + io.mszymanski.orknux.server.browser.BrowserTools.NAMES.map { "Agent PR searcher can no longer call tool $it" },
         )
         assertThat(revisions.findAll()).singleElement().satisfies({
             assertThat(it.kind).isEqualTo(ComponentRevisionKind.AGENT)
