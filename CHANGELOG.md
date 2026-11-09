@@ -15,6 +15,30 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.4.1
+
+### ✨ Added
+
+- **An agent can say how the MCP servers are doing.** The new `mcp_status` tool lists every MCP server of the workspace - whether it was reachable at its last check, when, what the check said and how many tools it offered - and whether the agent holds it, including servers it was not given, so a failing MCP tool can be told apart from a server it never had. Asked to, it checks one named server again. It is a row on every agent's Tools list, at Offer.
+- **Dismiss on an agent's question.** A question an agent puts to you in a chat can be closed without answering when none of its options fit. The agent is told it was dismissed, so it stops waiting for it and carries on, which means it answers once more.
+- **The MCP pages say how to connect an AI client.** Under the title of the workspace's MCP page and of Admin → MCP, a link opens the same instructions as the Orknux MCP corner button, with this workspace's address.
+- **Orknux for Chrome 1.0.5 shows where your agent clicks and types**, with a ring and an outline that fade after a second and a half (a switch in its side panel turns them off). With this server, `browser_scroll` also scrolls by an amount, sideways, inside a box of the page that scrolls on its own, or until an element is in view; an older extension asked for those says it cannot, rather than scrolling the wrong thing.
+
+### 🔧 Changed
+
+- **New agents start with the browser tools.** An agent made from now on holds the `browser_*` tools, at Offer, so it can use your Chrome as soon as the extension is connected. Agents that already exist are not changed, and the web fetches and desktop tools stay off until somebody switches them on.
+- **Agents know about the desktop clients and about My Claude Code.** An agent without the desktop tools that is walked through a program on your computer by screenshots suggests Orknux for Windows or Linux once, and every agent, asked to hand work to your Claude Code, says it cannot and points you to My Claude Code. This adds up to two short paragraphs to every agent's briefing.
+- **Copying a workspace copies its credentials**, so the copy's models, connections and MCP servers work without typing any key again. One that reads a workspace secret reads the copy's secret of the same name. A Slack connection's app-level token is copied too: if the original and the copy are both left listening with the same Slack app, Slack hands each event to only one of them, so switch one off on its connection page.
+- **Copying, exporting and importing an agent keep its grants**: the connections it may use, the agents it may ask, its MCP servers, and every tool it must always carry, the `orknux_*` and MCP ones included.
+
+### 🐛 Fixed
+
+- **An agent that asks you something no longer stops answering.** One that asked a question and ended its turn there, as it is told to, sometimes failed with "could not answer" or went quiet until somebody wrote "." to wake it. Its turn now ends on the question, with no empty message under it, and it carries on when you answer - including an answer given while a retry was waiting. In a workflow, the next step no longer runs with an empty answer: the run stops there, and picks up from that step with the agent's real answer once you reply.
+- **Copying one model provider or connection keeps its credential.**
+- **A Slack connection shows Reconnect as soon as an app-level token is saved**, instead of after a reload.
+- **The session page reads properly at half a 1920 screen**: the title is one line rather than two letters per line, and the kind chips wrap rather than running under the side rail.
+- **Orknux Shell 1.0.37 names the agent it will use from the first screen** - the one last used, or the one your newest chat was with - rather than "agent", and closing its workspace list no longer leaves blank rows above the banner.
+
 ## 1.4.0
 
 ### ✨ Added
