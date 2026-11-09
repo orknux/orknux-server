@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.action
 import io.mszymanski.orknux.server.agent.AgentTool
 import io.mszymanski.orknux.server.agent.AgentToolParam
 import io.mszymanski.orknux.server.agent.AgentToolRepository
+import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
@@ -35,6 +36,8 @@ import org.springframework.boot.test.context.SpringBootTest
 @SpringBootTest
 class ParameterTypeTest(
     @Autowired val functions: WorkflowFunctionRepository,
+    @Autowired val actions: WorkflowActionRepository,
+    @Autowired val conditions: WorkflowConditionRepository,
     @Autowired val tools: AgentToolRepository,
     @Autowired val workspaces: WorkspaceRepository,
 ) {
@@ -44,6 +47,10 @@ class ParameterTypeTest(
     @BeforeEach
     fun reset() {
         tools.deleteAll()
+        // What holds a function goes before the functions: an action or a condition another class left behind
+        // points at one, and the 1.4.0 build found FunctionAPITest's rows here when CI's order put it first.
+        actions.deleteAll()
+        conditions.deleteAll()
         // Not the release's own, which every workspace's Research action calls (#659) and start-up writes back anyway.
         functions.deleteAll(functions.findAll().filter { it.scope != io.mszymanski.orknux.server.action.FunctionScope.EMBEDDED })
         workspaces.deleteAll()
