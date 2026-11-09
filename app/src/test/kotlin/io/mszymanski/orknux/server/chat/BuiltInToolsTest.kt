@@ -262,7 +262,7 @@ class BuiltInToolsTest(
 
     /**
      * On for every one of them, so an agent made today is offered exactly what
-     * one made yesterday was, and Always for all but the ones that start at
+     * one made yesterday was, with the browser besides, and Always for all but the ones that start at
      * Offer - which a tool limit leaves to be found. The three switches that
      * were columns read as they always did.
      */
@@ -272,7 +272,9 @@ class BuiltInToolsTest(
 
         graphQlTester.document("{ agent(id: $id) { tools requiredTools artifactAccess finishAccess pictureLinkAccess } }")
             .execute()
-            .path("agent.tools").entityList(String::class.java).containsExactly(*BuiltInTools.GRANTED.toTypedArray())
+            // And the person's Chrome, the one reaching built-in a new agent is given (STARTS_GRANTED), listed first as its own grant.
+            .path("agent.tools").entityList(String::class.java)
+            .containsExactly(*(BuiltInTools.STARTS_GRANTED + BuiltInTools.GRANTED).toTypedArray())
             .path("agent.requiredTools").entityList(String::class.java).containsExactly(*BuiltInTools.startingAlways().toTypedArray())
             .path("agent.artifactAccess").entity(Boolean::class.java).isEqualTo(true)
             .path("agent.finishAccess").entity(Boolean::class.java).isEqualTo(true)

@@ -130,6 +130,12 @@ class SessionShedsTest(
     fun `every door lends the same session tools, and only its own besides`() {
         val modelId = model(serve())
         val agentId = agent("Worker", modelId)
+        // Less the browser a new agent starts with: what reaches the person's Chrome is lent only where a
+        // person is, so it is no door's shared set, and this is about that set.
+        agents.findByIdOrNull(agentId)!!.let { held ->
+            held.tools.removeAll(io.mszymanski.orknux.server.browser.BrowserTools.NAMES)
+            agents.save(held)
+        }
 
         // The set itself, pinned: a tool added to it is a decision this names.
         val session = recorder.open(workspaceId, "pin", "pin")
