@@ -38,6 +38,7 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is SheetNameInvalidException,
             is SheetWorkbookInvalidException,
             is SheetTooLargeException,
+            is SheetFormatsTooManyException,
             is SheetChangedException,
             is SheetAnswerFailedException,
             is SheetImportRefusedException,

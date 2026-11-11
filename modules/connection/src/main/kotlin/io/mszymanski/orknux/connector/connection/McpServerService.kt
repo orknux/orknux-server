@@ -186,6 +186,37 @@ class McpServerService(
         return view(server)
     }
 
+    /**
+     * A copy of a server beside it, under "(copy)" - or "(copy 2)" and on, past
+     * the names taken - with everything it is set up with: the address, the
+     * headers, and the credential, its own encrypted copy or the same workspace
+     * secret it reads. Somebody copying a server to point the copy at another
+     * environment changes the address and nothing else, so a copy that had to
+     * be given its token again would be the step they came here to skip.
+     *
+     * What the last check found is not copied: the copy has not been checked.
+     */
+    @Transactional
+    fun duplicateMcpServer(id: Long): McpServerView {
+        val held = servers.findByIdOrNull(id) ?: throw McpServerNotFoundException(id)
+        val name = generateSequence(1) { it + 1 }
+            .map { n -> if (n == 1) "${held.name} (copy)" else "${held.name} (copy $n)" }
+            .first { servers.findByWorkspaceIdAndName(held.workspaceId, it) == null }
+        val copy = servers.save(
+            McpServer(
+                workspaceId = held.workspaceId,
+                name = name,
+                address = held.address,
+                description = held.description,
+                authType = held.authType,
+                secret = held.secret,
+                secretVariableId = held.secretVariableId,
+                headers = held.headers.map { HttpHeader(it.name, it.value) }.toMutableList(),
+            ),
+        )
+        return view(copy)
+    }
+
     /** Backs the MCP server settings form; a null secret keeps the stored one. */
     @Transactional
     fun updateMcpServer(id: Long, input: UpdateMcpServerInput): McpServerView {

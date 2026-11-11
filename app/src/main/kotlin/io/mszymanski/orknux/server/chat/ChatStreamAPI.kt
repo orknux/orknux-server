@@ -95,6 +95,8 @@ class ChatStreamAPI(
     private val links: ItemLinks,
     /** Where a Shell that writes in a chat claims it, so the commands its agent runs go to that computer. */
     private val deviceLinks: io.mszymanski.orknux.server.device.DeviceLinks,
+    /** Whether this server is stopping, which makes a turn that ends now one to answer again rather than a failure. */
+    private val ledger: ChatTurnLedger,
 ) {
 
     /**
@@ -196,7 +198,7 @@ class ChatStreamAPI(
         val started = chats.beginClaudeCode(id, text)
         return StreamingResponseBody { _ ->
             val stream = ServerSentEvents(response, mapper)
-            val generation = ChatGeneration()
+            val generation = ChatGeneration(durable = false)
             generations.register(id, generation)
             val worker = Thread.ofPlatform().name("chat-$id-claude-code").daemon().start {
                 SecurityContextHolder.setContext(asker)
@@ -473,6 +475,17 @@ class ChatStreamAPI(
                         return@start
                     }
 
+                    /*
+                     * Cut off by this server stopping rather than failed: the
+                     * turn is left as it stands, its row in place, and the
+                     * server that answers next answers it again - so nothing is
+                     * put back and nothing is said to fail. See [ChatTurnLedger].
+                     */
+                    if (ledger.stopping && answer !is ChatCompletion.Answered) {
+                        log.info("Chat {} was cut off by the server stopping; it will be answered again", id)
+                        return@start
+                    }
+
                     when (answer) {
                         is ChatCompletion.Failed -> {
                             giveUp()
@@ -493,6 +506,7 @@ class ChatStreamAPI(
                                 answer.inputTokens,
                                 answer.outputTokens,
                                 answer.cachedInputTokens,
+                                take = generation.take,
                             )
                             kept = true
                             /*
@@ -551,6 +565,10 @@ class ChatStreamAPI(
                     // The provider, the store, a stack overflow in something the turn ran - an Error too, since one
                     // ended this thread without a word and the chat dropped the turn with nobody told why. Said in
                     // the session and to the page, not only in the log.
+                    if (ledger.stopping && !kept) {
+                        log.info("Chat {} was cut off by the server stopping; it will be answered again", id)
+                        return@start
+                    }
                     log.warn("Chat {} could not finish its answer", id, failure)
                     val why = "The answer stopped on an error in the server: ${failure.javaClass.simpleName}" +
                         (failure.message?.takeIf { it.isNotBlank() }?.let { ": ${it.take(300)}" } ?: "")

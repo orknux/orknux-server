@@ -4,7 +4,9 @@ import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.design.SheetAPI
 import io.mszymanski.orknux.server.design.SheetCellAt
+import io.mszymanski.orknux.server.design.SheetCellFormat
 import io.mszymanski.orknux.server.design.SheetEngine
+import io.mszymanski.orknux.server.design.SheetFormats
 import io.mszymanski.orknux.server.design.SheetRepository
 import io.mszymanski.orknux.server.design.SheetTab
 import io.mszymanski.orknux.server.design.SheetView
@@ -60,7 +62,8 @@ class SheetTools(
             ToolSpec(
                 name = READ,
                 description = "One sheet's cells, tab by tab, row by row: each filled cell with what it shows and, for a " +
-                    "formula or anything else not shown as typed, what was typed (`typed`). Errors such as #DIV/0! are " +
+                    "formula or anything else not shown as typed, what was typed (`typed`), and its formatting " +
+                    "(`format`) where it has any. Errors such as #DIV/0! are " +
                     "answered as they are shown, with the reason where there is one. Narrow it to a tab and a range " +
                     "such as A1:F40 for a large sheet. Answers links to download it as .xlsx and each tab as .csv.",
                 parameters = listOf(
@@ -80,7 +83,8 @@ class SheetTools(
                     ToolParameterSpec("name", "What it is called.", required = true),
                     ToolParameterSpec(
                         TABS,
-                        "Its tabs, in order: [{\"name\": \"Budget\", \"cells\": {\"A1\": \"Item\", \"B2\": \"=SUM(B3:B9)\"}}]. " +
+                        "Its tabs, in order: [{\"name\": \"Budget\", \"cells\": {\"A1\": \"Item\", \"B2\": \"=SUM(B3:B9)\"}, " +
+                            "\"formats\": {\"A1\": {\"bold\": true}}}]. formats is optional, by cell; $FORMAT_SAID " +
                             "One empty tab called ${Sheets.FIRST_TAB} when left out.",
                         required = false,
                         TAB_LIST,
@@ -93,14 +97,23 @@ class SheetTools(
             ToolSpec(
                 name = WRITE,
                 description = "Writes cells in one tab of a sheet, keeping every cell not named. Give $CELLS by address, " +
-                    "or $ROWS - a grid of rows written from $AT down and to the right, for a table. $CELLS_SAID " +
-                    "An empty string clears a cell. $ANSWERED",
+                    "or $ROWS - a grid of rows written from $AT down and to the right, for a table - or $FORMATS to " +
+                    "format cells, or any of them at once. $CELLS_SAID " +
+                    "An empty string clears a cell; its formatting stays. $ANSWERED",
                 parameters = listOf(
                     ToolParameterSpec(SHEET, "The sheet's name, or its id.", required = true),
                     ToolParameterSpec(TAB, "The tab, by name; the first when left out.", required = false),
                     ToolParameterSpec(CELLS, "What to write, by address: {\"A1\": \"Total\", \"B1\": \"=SUM(B2:B9)\"}.", required = false, CELL_MAP),
                     ToolParameterSpec(ROWS, "Rows of cells to write as a block: [[\"Item\", \"Cost\"], [\"Rent\", \"1200\"]].", required = false, ROW_LIST),
                     ToolParameterSpec(AT, "Where $ROWS starts, its top left cell; A1 when left out.", required = false),
+                    ToolParameterSpec(
+                        FORMATS,
+                        "How to format cells, by cell or range: {\"A1:D1\": {\"bold\": true, \"fill\": \"#fff2cc\"}, " +
+                            "\"D2:D9\": {\"number\": \"currency\", \"currency\": \"zł\"}}. Only the keys given change; a key " +
+                            "given null or false is taken away, and a range given null loses all its formatting. $FORMAT_SAID",
+                        required = false,
+                        FORMAT_MAP,
+                    ),
                 ),
                 summary = "Writes cells in a sheet",
             ),
@@ -194,6 +207,7 @@ class SheetTools(
                     put("shows", value.shown)
                     if (typed != value.shown) put("typed", typed)
                     if (value.type == "e") value.message?.let { put("why", it) }
+                    tab.formats[address]?.let { put("format", it.asMap()) }
                 }
                 val size = address.length + cell.entries.sumOf { it.key.length + it.value.toString().length + 6 }
                 if (spent + size > most && cells.isNotEmpty()) {
@@ -250,7 +264,11 @@ class SheetTools(
                 }
             }
         }
-        if (writes.isEmpty()) return refuse("Nothing to write: give $CELLS or $ROWS")
+        val formatting = node(asked.path(FORMATS))?.let { given ->
+            if (!given.isObject) return refuse("Give $FORMATS as an object, from a cell or range to its formatting")
+            formatted(tab, given) ?: return refuse(tooWide(given))
+        }
+        if (writes.isEmpty() && formatting == null) return refuse("Nothing to write: give $CELLS, $ROWS or $FORMATS")
         val cells = LinkedHashMap(tab.cells)
         val touched = mutableSetOf<String>()
         writes.forEach { (cellAddress, value) ->
@@ -260,9 +278,36 @@ class SheetTools(
             workbook.cell(at.name, value, tab.name)?.let { (name, kept) -> cells[name] = kept }
             touched += "${index}!${at.name}"
         }
-        val changed = tabs.toMutableList().also { it[index] = tab.copy(cells = cells) }
+        val changed = tabs.toMutableList().also { it[index] = tab.copy(cells = cells, formats = formatting ?: tab.formats) }
         return written(api.saveTabs(held.id, changed), touched)
     }
+
+    /**
+     * A tab's formatting with [given] applied, range by range in the order
+     * given; null where a range is wider than a sheet may hold formatting for,
+     * which is said before anything is worked out cell by cell.
+     */
+    private fun formatted(tab: SheetTab, given: JsonNode): Map<String, SheetCellFormat>? {
+        val most = tuning[Tunable.SHEET_CELLS_MOST]
+        val formats = LinkedHashMap(tab.formats)
+        for ((said, format) in given.properties()) {
+            val range = Range.of(said)
+                ?: throw SheetWorkbookInvalidException("$said in $FORMATS is not a cell or a range; a range is like A1:D9")
+            if (range.size > most) return null
+            for (row in range.rows) {
+                for (column in range.columns) {
+                    val name = SheetCellAt(column, row).name
+                    val now = if (format.isNull) SheetCellFormat.NONE else SheetFormats.patch(formats[name] ?: SheetCellFormat.NONE, format, "$name in tab ${tab.name}")
+                    if (now.isEmpty) formats.remove(name) else formats[name] = now
+                }
+            }
+        }
+        return formats
+    }
+
+    private fun tooWide(given: JsonNode): String =
+        "A range in $FORMATS covers more cells than a sheet holds formatting for (${tuning[Tunable.SHEET_CELLS_MOST]}); " +
+            "format the cells that are used: ${given.propertyNames().joinToString(", ")}"
 
     private fun tabs(held: SheetView, asked: JsonNode): String {
         val tabs = workbook.read(held.workbook).toMutableList()
@@ -395,6 +440,9 @@ class SheetTools(
     private data class Range(val columns: IntRange, val rows: IntRange) {
         fun holds(at: SheetCellAt) = at.column in columns && at.row in rows
 
+        /** How many cells it covers: a whole column is a million. */
+        val size: Long get() = (columns.last - columns.first + 1).toLong() * (rows.last - rows.first + 1)
+
         companion object {
             private val COLUMNS = Regex("^([A-Za-z]{1,3}):([A-Za-z]{1,3})$")
             private val ROWS = Regex("^([0-9]{1,7}):([0-9]{1,7})$")
@@ -444,6 +492,43 @@ class SheetTools(
         private const val RENAME = "rename"
         private const val REMOVE = "remove"
         private const val WIDTHS = "widths"
+        private const val FORMATS = "formats"
+
+        /** What a cell's formatting may hold, said wherever a model sets one. */
+        private val FORMAT_SAID =
+            "A cell's formatting holds any of: bold, italic, underline, strike and wrap (true or false); color and fill " +
+                "(#rrggbb, the words and the cell behind them); align (${SheetFormats.ALIGNS.joinToString(", ")}); " +
+                "number (${SheetFormats.NUMBERS.joinToString(", ")} or general), which changes only how a number is shown, " +
+                "never what it is - write 0.25 and format it as percent to show 25%; decimals (places after the point); " +
+                "currency (its symbol, such as zł or €; \$ when left out); border (all, none, or a list of the sides " +
+                "to draw a line along: ${SheetFormats.SIDES.joinToString(", ")} - an outline round a range is its edge " +
+                "cells' outer sides); borderColor (#rrggbb, black when left out); and ungrouped (true to write a number " +
+                "or currency with no comma between thousands, as 2024 rather than 2,024)."
+
+        private val FORMAT: Map<String, Any?> = mapOf(
+            "type" to listOf("object", "null"),
+            "properties" to mapOf(
+                "bold" to mapOf("type" to "boolean"),
+                "italic" to mapOf("type" to "boolean"),
+                "underline" to mapOf("type" to "boolean"),
+                "strike" to mapOf("type" to "boolean"),
+                "wrap" to mapOf("type" to "boolean"),
+                "color" to mapOf("type" to "string"),
+                "fill" to mapOf("type" to "string"),
+                "align" to mapOf("type" to "string", "enum" to SheetFormats.ALIGNS),
+                "number" to mapOf("type" to "string", "enum" to SheetFormats.NUMBERS + "general"),
+                "decimals" to mapOf("type" to "integer"),
+                "currency" to mapOf("type" to "string"),
+                "border" to mapOf(
+                    "type" to listOf("array", "string"),
+                    "items" to mapOf("type" to "string", "enum" to SheetFormats.SIDES),
+                ),
+                "borderColor" to mapOf("type" to "string"),
+                "ungrouped" to mapOf("type" to "boolean"),
+            ),
+        )
+
+        private val FORMAT_MAP: Map<String, Any?> = mapOf("type" to "object", "additionalProperties" to FORMAT)
 
         /** How a cell is written, said in every tool that writes one so a model reads it where it writes. */
         private const val CELLS_SAID =
@@ -472,7 +557,7 @@ class SheetTools(
             "type" to "array",
             "items" to mapOf(
                 "type" to "object",
-                "properties" to mapOf("name" to mapOf("type" to "string"), "cells" to CELL_MAP),
+                "properties" to mapOf("name" to mapOf("type" to "string"), "cells" to CELL_MAP, "formats" to FORMAT_MAP),
             ),
         )
 

@@ -1099,6 +1099,8 @@ orknux:
     mcp.connected.minutes: ${ORKNUX_TUNING_MCP_CONNECTED_MINUTES:10}
     mcp.history.days: ${ORKNUX_TUNING_MCP_HISTORY_DAYS:30}
     # The person's own Chrome and Windows desktop, driven through the Orknux clients by the browser_* and desktop_* tools.
+    chat.resume.after.seconds: ${ORKNUX_TUNING_CHAT_RESUME_AFTER_SECONDS:60}
+    chat.resumes: ${ORKNUX_TUNING_CHAT_RESUMES:3}
     device.call.seconds: ${ORKNUX_TUNING_DEVICE_CALL_SECONDS:60}
     device.snapshot.characters: ${ORKNUX_TUNING_DEVICE_SNAPSHOT_CHARACTERS:20000}
     device.connected.seconds: ${ORKNUX_TUNING_DEVICE_CONNECTED_SECONDS:45}

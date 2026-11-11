@@ -69,7 +69,11 @@ class DocumentAPI(
     /** Who has it open, told when it is saved from any door; and the audit's once-per-visit. Issue #683. */
     private val published: org.springframework.context.ApplicationEventPublisher? = null,
     private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
+    /** The workspace's chat compaction, which the editor's conversation follows too. */
+    @param:Lazy private val compaction: io.mszymanski.orknux.server.chat.ChatCompaction? = null,
 ) {
+
+    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
     val content = DocumentContent(mapper)
 
@@ -384,9 +388,20 @@ class DocumentAPI(
         // What was attached goes with the turn it was sent on: pictures as pictures, the rest as text.
         val turns = files.turns(held.workspaceId, who(), messages.map { EditorChatTurn(it.role, it.content, it.attachmentIds.orEmpty()) })
         if (turns.none { it.role == "user" }) throw DocumentAnswerFailedException("there is nothing to answer")
-        val answered = chat.answer(view(held), modelId, turns, who(), readOnly = readOnly == true)
+        // The workspace's compaction, here as in a chat: past its line the older turns go to a summary first.
+        val compacted = compaction?.let { shrinker ->
+            runCatching { shrinker.compactTurns(workspaces.findByIdOrNull(held.workspaceId), turns, modelId) }
+                .onFailure { log.warn("The document chat could not be compacted; it is answered whole", it) }
+                .getOrNull()
+        }
+        val answered = chat.answer(view(held), modelId, compacted?.first ?: turns, who(), readOnly = readOnly == true)
         val now = find(id)
-        return DocumentAnswerView(answer = answered, changed = now.revision != held.revision, document = view(now))
+        return DocumentAnswerView(
+            answer = answered,
+            changed = now.revision != held.revision,
+            document = view(now),
+            compacted = compacted?.second?.let { DocumentCompactionView(summary = it.summary, replaced = it.replaced, kept = it.kept) },
+        )
     }
 
     /**
@@ -682,7 +697,12 @@ data class DocumentAnswerView(
     /** Whether the model saved anything, so the editor knows to take the document up. */
     val changed: Boolean,
     val document: DesignDocumentView,
+    /** Set when the older turns were summarised before this answer: the editor keeps the summary and the last [DocumentCompactionView.kept] turns instead. */
+    val compacted: DocumentCompactionView? = null,
 )
+
+/** What a compaction of the editor's conversation came to. */
+data class DocumentCompactionView(val summary: String, val replaced: Int, val kept: Int)
 
 /** One turn of the editor's conversation, which the editor keeps and sends up whole each time. */
 data class DocumentChatTurnInput @com.fasterxml.jackson.annotation.JsonCreator constructor(

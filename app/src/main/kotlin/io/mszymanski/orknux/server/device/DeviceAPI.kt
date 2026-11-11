@@ -31,7 +31,11 @@ data class DeviceHello(val user: String)
  * are that person's reach it; see [DeviceTools].
  */
 @RestController
-class DeviceAPI(private val links: DeviceLinks) {
+class DeviceAPI(
+    private val links: DeviceLinks,
+    /** Who uses which client, for Admin > Reports > Clients. */
+    private val uses: ClientUses,
+) {
 
     @GetMapping("/api/{device:browser|desktop|claude|terminal}/hello")
     fun hello(@PathVariable device: String): DeviceHello {
@@ -51,8 +55,12 @@ class DeviceAPI(private val links: DeviceLinks) {
         @RequestParam(required = false) version: String?,
         /** Which running copy of the client asks: one Shell of a person's, among several on other computers. */
         @RequestParam(required = false) instance: String?,
+        /** Read for the Clients report's Computer column: the system a browser runs on. */
+        @org.springframework.web.bind.annotation.RequestHeader(name = "User-Agent", required = false) agent: String? = null,
     ): ResponseEntity<DeviceCommand> {
         val seconds = (wait ?: LONGEST_WAIT_SECONDS).coerceIn(0, LONGEST_WAIT_SECONDS)
+        // Written down for the Clients report; never the reason a client's poll fails.
+        runCatching { uses.seen(currentUser(), kindOf(device), client, version, instance, agent) }
         val command = links.next(currentUser(), kindOf(device), client, version, seconds * 1000L, instance)
             ?: return ResponseEntity.noContent().build()
         return ResponseEntity.ok(command)

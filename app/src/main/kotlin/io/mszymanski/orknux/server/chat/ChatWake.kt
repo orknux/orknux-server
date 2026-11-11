@@ -36,6 +36,8 @@ class ChatWake(
     private val steps: ExecutionStepRepository,
     /** The page a tool call named, for the `called` frame. Issue #660. */
     private val links: ItemLinks,
+    /** Where a turn answered again is let go of when there turns out to be nothing to answer. */
+    @param:org.springframework.context.annotation.Lazy private val ledger: ChatTurnLedger,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -93,8 +95,37 @@ class ChatWake(
         }
     }
 
-    private fun answer(id: Long) {
-        val start = service.beginWake(id) ?: return
+    /**
+     * Answers again a turn a restart cut off - see [ChatTurnLedger]. As a
+     * woken turn, so a page open on the chat picks it up the way it picks up
+     * any turn the server started by itself. False where it could not be
+     * started at all; true once it is on its way, whatever it then comes to.
+     */
+    fun resume(id: Long): Boolean {
+        if (generations.answering(id) || !waking.add(id)) return true
+        return try {
+            turns.execute {
+                try {
+                    answer(id, resumed = true)
+                } catch (failure: Exception) {
+                    log.warn("Chat {}'s cut-off answer could not be answered again: {}", id, failure.message)
+                } finally {
+                    waking.remove(id)
+                }
+            }
+            true
+        } catch (refused: java.util.concurrent.RejectedExecutionException) {
+            waking.remove(id)
+            false
+        }
+    }
+
+    private fun answer(id: Long, resumed: Boolean = false) {
+        val start = (if (resumed) service.beginResume(id) else service.beginWake(id)) ?: run {
+            // Nothing left to answer: the turn is over, and nothing should look for it again.
+            if (resumed) ledger.ended(id)
+            return
+        }
         val chat = chats.findById(id).orElse(null) ?: return
         // Followable like a turn somebody asked for, so a page open on this chat
         // - or opened on it while this is being written - sees it arrive (#201).
@@ -107,10 +138,15 @@ class ChatWake(
                     service.finishSend(
                         id, said.content, said.reasoning, said.reasoningMillis, said.inputTokens, said.outputTokens,
                         said.cachedInputTokens,
+                        take = generation.take,
                     )
                     generation.post("chunk", mapOf("text" to said.content))
                 }
-                is ChatCompletion.Failed -> log.warn("Chat {} woke and could not answer: {}", id, said.reason)
+                is ChatCompletion.Failed -> {
+                    log.warn("Chat {} woke and could not answer: {}", id, said.reason)
+                    // Said to a page following it, as a turn somebody sent says its failure.
+                    if (!ledger.stopping) generation.post("error", mapOf("reason" to said.reason))
+                }
                 is ChatCompletion.CalledTools -> Unit
             }
         } finally {

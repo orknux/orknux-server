@@ -1058,6 +1058,16 @@ enum class Tunable(
         "The longest a task waits before trying its model again",
         "The wait starts at half a minute and doubles each time, up to this.",
     ),
+    CHAT_RESUME_AFTER_SECONDS(
+        "chat.resume.after.seconds", 60, 20, null, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "How long a chat answer may go unheard from before it is answered again",
+        "The server answering a chat or the quick chat says every few seconds that it is still at it. One cut off by a restart or a crash goes quiet, and is picked up again once it has been quiet this long; a server that stops on purpose hands its answers over at once.",
+    ),
+    CHAT_RESUMES(
+        "chat.resumes", 3, 0, null, TuningSection.AGENTS, TuningUnit.TIMES,
+        "How many times a cut-off chat answer is picked up again",
+        "An answer that keeps being cut off may be what is taking the server down; past this it is given up on. 0 never picks one up.",
+    ),
     DEVICE_CALL_SECONDS(
         "device.call.seconds", 60, 5, null, TuningSection.AGENTS, TuningUnit.SECONDS,
         "How long an agent waits for the person's browser or computer to answer one tool",

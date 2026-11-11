@@ -55,7 +55,16 @@ type Sheet {
     id: ID!
     workspaceId: ID!
     name: String!
-    "The workbook, as JSON: {\"tabs\": [{name, cells: {\"A1\": \"...\"}, widths: {\"A\": 160}}]}."
+    """
+    The workbook, as JSON: {"tabs": [{name, cells: {"A1": "..."}, widths: {"A": 160},
+    formats: {"A1": {"bold": true, "fill": "#fff2cc", "number": "currency"}}}]}.
+    formats is left out where nothing is formatted; a cell's formatting holds only
+    what is set, of bold, italic, underline, strike and wrap (true), color and fill
+    (#rrggbb), align (left, center, right), number (number, percent, currency, date),
+    decimals (0 to 30), currency (a symbol such as zł), border (the sides drawn,
+    of top, right, bottom and left, as a list) and borderColor (#rrggbb). A cell may be formatted
+    and empty. Values are worked out with each number written by its format.
+    """
     workbook: String!
     tabCount: Int!
     "How many cells hold anything, across every tab."

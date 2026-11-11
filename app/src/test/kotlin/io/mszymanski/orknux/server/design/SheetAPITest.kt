@@ -312,6 +312,258 @@ class SheetAPITest(
         )
     }
 
+    /**
+     * Formatting is kept beside the cells, in the same JSON, and a workbook
+     * written before there was any reads and writes exactly as it did. A number
+     * format changes what a cell shows and never what it is.
+     */
+    @Test
+    fun `a cell's formatting is saved, read back, and changes how a number is shown but not what it is`() {
+        val plain = """{"tabs":[{"name":"Sheet1","cells":{"A1":"1"}}]}"""
+        val old = create("Old", plain)
+        assertThat(sheets.findById(old).get().workbook).isEqualTo(plain)
+
+        val id = create("Styled")
+        save(
+            id,
+            """{"tabs":[{"name":"Sheet1","cells":{"A1":"Share","B1":"0.256","B2":"1234.5","B3":"46000","B4":"=B1*2"},
+                "formats":{"A1":{"bold":true,"italic":false,"color":"#C00","fill":"#fff2cc","align":"center","wrap":true},
+                           "B1":{"number":"percent","decimals":1},"B2":{"number":"currency","currency":"zł"},
+                           "B3":{"number":"date"},"B4":{"number":"percent"},"C9":{"fill":"#ddebf7"},"D1":{"bold":false}}}]}""",
+        ).path("saveSheet.cellCount").entity(Int::class.java).isEqualTo(5)
+
+        val formats = tabsOf(id).get(0).path("formats")
+        // Only what is set is kept, a colour is written in full and in small letters, and an empty cell may be formatted.
+        assertThat(formats.path("A1").toString()).isEqualTo("""{"bold":true,"color":"#cc0000","fill":"#fff2cc","align":"center","wrap":true}""")
+        assertThat(formats.path("C9").path("fill").stringValue()).isEqualTo("#ddebf7")
+        assertThat(formats.has("D1")).isFalse()
+
+        val shown = mapper.readTree(
+            graphQlTester.document("""{ sheet(id: $id) { values } }""").execute().path("sheet.values").entity(String::class.java).get(),
+        ).path("tabs").get(0).path("values")
+        assertThat(shown.path("B1").path("f").stringValue()).isEqualTo("25.6%")
+        assertThat(shown.path("B1").path("v").asDouble()).isEqualTo(0.256)
+        assertThat(shown.path("B2").path("f").stringValue()).isEqualTo("1,234.50 zł")
+        assertThat(shown.path("B3").path("f").stringValue()).isEqualTo("2025-12-09")
+        assertThat(shown.path("B4").path("f").stringValue()).isEqualTo("51%")
+
+        save(id, """{"tabs":[{"name":"Sheet1","cells":{},"formats":{"A1":{"colour":"#000000"}}}]}""").errors()
+            .expect { it.message == "The sheet cannot be saved: A1 in tab Sheet1 has no formatting called colour; a cell's formatting is bold, italic, underline, strike, color, fill, align, wrap, number, decimals, currency, border, borderColor, ungrouped" }
+            .verify()
+        save(id, """{"tabs":[{"name":"Sheet1","cells":{},"formats":{"A1":{"fill":"yellow"}}}]}""").errors()
+            .expect { it.message?.contains("fill in the formatting of A1 in tab Sheet1 is a colour") == true }.verify()
+        save(id, """{"tabs":[{"name":"Sheet1","cells":{},"formats":{"A1":{"number":"roman"}}}]}""").errors()
+            .expect { it.message?.contains("number in the formatting of A1 in tab Sheet1 is one of number, percent, currency, date") == true }.verify()
+
+        tunables.set(Tunable.SHEET_CELLS_MOST, 100, "alice")
+        val many = (1..101).joinToString(",") { "\"A$it\":{\"bold\":true}" }
+        save(id, """{"tabs":[{"name":"Sheet1","cells":{},"formats":{$many}}]}""").errors()
+            .expect { it.message == "A sheet holds formatting for at most 100 cells, and this one would hold 101" }.verify()
+    }
+
+    /** Out to .xlsx as Excel styles, and back in from one as the same formatting. */
+    @Test
+    fun `a sheet's formatting goes out in an xlsx and comes back in from one`() {
+        val id = create(
+            "Dressed",
+            """{"tabs":[{"name":"Main","cells":{"A1":"Item","B1":"Cost","B2":"0.5","B3":"12.5"},
+                 "formats":{"A1":{"bold":true,"italic":true,"underline":true,"strike":true,"color":"#c00000","fill":"#fff2cc"},
+                            "B1":{"align":"right","wrap":true},"B2":{"number":"percent"},"B3":{"number":"currency","currency":"€"},
+                            "C5":{"fill":"#ddebf7"}}}]}""",
+        )
+        val xlsx = download("/api/sheets/$id/export/xlsx").contentAsByteArray
+        XSSFWorkbook(ByteArrayInputStream(xlsx)).use { book ->
+            val sheet = book.getSheetAt(0)
+            val header = sheet.getRow(0).getCell(0).cellStyle
+            val font = book.getFontAt(header.fontIndex)
+            assertThat(font.bold).isTrue()
+            assertThat(font.italic).isTrue()
+            assertThat(font.strikeout).isTrue()
+            assertThat(font.underline).isEqualTo(org.apache.poi.ss.usermodel.Font.U_SINGLE)
+            assertThat((font as org.apache.poi.xssf.usermodel.XSSFFont).xssfColor.argbHex.lowercase()).endsWith("c00000")
+            assertThat((header as org.apache.poi.xssf.usermodel.XSSFCellStyle).fillForegroundXSSFColor.argbHex.lowercase()).endsWith("fff2cc")
+            assertThat(sheet.getRow(0).getCell(1).cellStyle.alignment).isEqualTo(org.apache.poi.ss.usermodel.HorizontalAlignment.RIGHT)
+            assertThat(sheet.getRow(0).getCell(1).cellStyle.wrapText).isTrue()
+            assertThat(sheet.getRow(1).getCell(1).cellStyle.dataFormatString).isEqualTo("0%")
+            assertThat(sheet.getRow(1).getCell(1).numericCellValue).isEqualTo(0.5)
+            assertThat(sheet.getRow(2).getCell(1).cellStyle.dataFormatString).isEqualTo("\"€\"#,##0.00")
+            assertThat(sheet.getRow(4).getCell(2).cellType).isEqualTo(org.apache.poi.ss.usermodel.CellType.BLANK)
+        }
+
+        val again = import("Dressed copy.xlsx", xlsx)
+        val tab = tabsOf(again).get(0)
+        assertThat(tab.path("cells").path("B2").stringValue()).isEqualTo("0.5")
+        assertThat(tab.path("formats").path("A1").toString())
+            .isEqualTo("""{"bold":true,"italic":true,"underline":true,"strike":true,"color":"#c00000","fill":"#fff2cc"}""")
+        assertThat(tab.path("formats").path("B1").toString()).isEqualTo("""{"align":"right","wrap":true}""")
+        assertThat(tab.path("formats").path("B2").toString()).isEqualTo("""{"number":"percent"}""")
+        assertThat(tab.path("formats").path("B3").toString()).isEqualTo("""{"number":"currency","currency":"€"}""")
+        assertThat(tab.path("formats").path("C5").path("fill").stringValue()).isEqualTo("#ddebf7")
+        assertThat(tab.path("formats").has("A2")).isFalse()
+    }
+
+    /**
+     * A cell's borders: kept in one order whatever order they were said in,
+     * "all" for every side, refused for a side there is not, written out as
+     * thin Excel lines and read back in from them.
+     */
+    @Test
+    fun `a cell's borders are saved, go out in an xlsx and come back in from one`() {
+        val id = create(
+            "Ruled",
+            """{"tabs":[{"name":"Main","cells":{"A1":"Item","B2":"9"},
+                 "formats":{"A1":{"border":["left","top"]},"B2":{"border":"all","borderColor":"#C00000"},"C3":{"border":"none"}}}]}""",
+        )
+        val formats = tabsOf(id).get(0).path("formats")
+        assertThat(formats.path("A1").toString()).isEqualTo("""{"border":["top","left"]}""")
+        assertThat(formats.path("B2").toString()).isEqualTo("""{"border":["top","right","bottom","left"],"borderColor":"#c00000"}""")
+        assertThat(formats.has("C3")).isFalse()
+
+        save(id, """{"tabs":[{"name":"Sheet1","cells":{},"formats":{"A1":{"border":["middle"]}}}]}""").errors()
+            .expect { it.message?.contains("border in the formatting of A1 in tab Sheet1 is all, none, or a list of the sides to draw: top, right, bottom, left") == true }
+            .verify()
+
+        val xlsx = download("/api/sheets/$id/export/xlsx").contentAsByteArray
+        XSSFWorkbook(ByteArrayInputStream(xlsx)).use { book ->
+            val sheet = book.getSheetAt(0)
+            val ruled = sheet.getRow(0).getCell(0).cellStyle
+            assertThat(ruled.borderTop).isEqualTo(org.apache.poi.ss.usermodel.BorderStyle.THIN)
+            assertThat(ruled.borderLeft).isEqualTo(org.apache.poi.ss.usermodel.BorderStyle.THIN)
+            assertThat(ruled.borderRight).isEqualTo(org.apache.poi.ss.usermodel.BorderStyle.NONE)
+            val boxed = sheet.getRow(1).getCell(1).cellStyle as org.apache.poi.xssf.usermodel.XSSFCellStyle
+            assertThat(boxed.borderBottom).isEqualTo(org.apache.poi.ss.usermodel.BorderStyle.THIN)
+            assertThat(boxed.bottomBorderXSSFColor.argbHex.lowercase()).endsWith("c00000")
+        }
+
+        val tab = tabsOf(import("Ruled copy.xlsx", xlsx)).get(0)
+        assertThat(tab.path("formats").path("A1").toString()).isEqualTo("""{"border":["top","left"]}""")
+        assertThat(tab.path("formats").path("B2").toString()).isEqualTo("""{"border":["top","right","bottom","left"],"borderColor":"#c00000"}""")
+    }
+
+    /**
+     * Number codes from a file are kept as they write a number, or left
+     * General: "0" and "0.00" write no comma between thousands, "#,##0"
+     * does, and a fraction or a scientific number - which none of the five
+     * can write - shows the number rather than something else.
+     */
+    @Test
+    fun `an imported number format writes the number as the file did, or is left General`() {
+        val codes = listOf("0", "0.00", "#,##0", "# ?/?", "0.00E+00", "\"$\"#,##0.00", "\"$\"0.00")
+        val xlsx = XSSFWorkbook().use { book ->
+            val sheet = book.createSheet("Codes")
+            codes.forEachIndexed { at, code ->
+                val cell = sheet.createRow(at).createCell(0)
+                cell.setCellValue(if (code.contains('E')) 0.00000015 else 2024.5)
+                cell.cellStyle = book.createCellStyle().apply { dataFormat = book.createDataFormat().getFormat(code) }
+            }
+            java.io.ByteArrayOutputStream().also(book::write).toByteArray()
+        }
+        val id = import("Codes.xlsx", xlsx)
+        val formats = tabsOf(id).get(0).path("formats")
+        assertThat(formats.path("A1").toString()).isEqualTo("""{"number":"number","decimals":0,"ungrouped":true}""")
+        assertThat(formats.path("A2").toString()).isEqualTo("""{"number":"number","ungrouped":true}""")
+        assertThat(formats.path("A3").toString()).isEqualTo("""{"number":"number","decimals":0}""")
+        assertThat(formats.has("A4")).isFalse()
+        assertThat(formats.has("A5")).isFalse()
+
+        val shown = mapper.readTree(
+            graphQlTester.document("""{ sheet(id: $id) { values } }""").execute().path("sheet.values").entity(String::class.java).get(),
+        ).path("tabs").get(0).path("values")
+        assertThat(listOf(1, 2, 3, 4, 6, 7).map { shown.path("A$it").path("f").stringValue() })
+            .containsExactly("2025", "2024.50", "2,025", "2024.5", "$2,024.50", "$2024.50")
+        // Left General, a tiny number is still the number, not the 0.00 a Number format would round it to.
+        assertThat(shown.path("A5").path("f").stringValue()).isNotIn("0", "0.00").matches(".*[1-9].*")
+    }
+
+    /** A CSV is read by programs: a formatted cell goes out as its number, not as what the format draws. */
+    @Test
+    fun `a csv export writes numbers as numbers whatever their format`() {
+        val id = create(
+            "Money",
+            """{"tabs":[{"name":"Sheet1","cells":{"A1":"1234.5","B1":"0.26","C1":"=A1*2"},
+                 "formats":{"A1":{"number":"currency"},"B1":{"number":"percent"},"C1":{"number":"number"}}}]}""",
+        )
+        val csv = download("/api/sheets/$id/export/csv").contentAsString
+        assertThat(csv.lines().first()).isEqualTo("1234.5,0.26,2469")
+    }
+
+    /**
+     * A file of empty, styled cells is read only up to the formatting a sheet
+     * keeps, across all its tabs, rather than holding a look per cell first.
+     */
+    @Test
+    fun `an import stops reading formatting past what a sheet keeps`() {
+        val xlsx = XSSFWorkbook().use { book ->
+            val filled = book.createCellStyle().apply {
+                setFillForegroundColor(org.apache.poi.xssf.usermodel.XSSFColor(byteArrayOf(0xdd.toByte(), 0xeb.toByte(), 0xf7.toByte())))
+                fillPattern = org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND
+            }
+            repeat(2) { tab ->
+                val sheet = book.createSheet("Grid ${tab + 1}")
+                for (row in 0 until 30) {
+                    val made = sheet.createRow(row)
+                    for (column in 0 until 10) made.createCell(column).cellStyle = filled
+                }
+            }
+            java.io.ByteArrayOutputStream().also(book::write).toByteArray()
+        }
+        val reader = io.mszymanski.orknux.server.embedded.SheetReader()
+        val budget = io.mszymanski.orknux.server.embedded.SheetReader.LookBudget(250)
+        val limits = io.mszymanski.orknux.server.embedded.SheetReader.Limits(rows = 1000, characters = Int.MAX_VALUE, unpackedBytes = 50L * 1024 * 1024, looks = budget)
+        fun looks(tab: String?) =
+            (reader.workbook(xlsx, tab, 1, null, limits, styled = true) as io.mszymanski.orknux.server.embedded.SheetReader.Reading.Read).page.looks.size
+        assertThat(looks(null)).isEqualTo(250)
+        assertThat(looks("Grid 2")).isEqualTo(0)
+
+        tunables.set(Tunable.SHEET_CELLS_MOST, 100, "alice")
+        val id = import("Grid.xlsx", xlsx)
+        val formats = tabsOf(id).sumOf { it.path("formats").size() }
+        assertThat(formats).isLessThanOrEqualTo(100)
+        assertThat(formats).isGreaterThan(0)
+    }
+
+    /** A model formats a range through the same tool it writes with, and reads the formatting back. */
+    @Test
+    fun `the orknux tools set and read a cell's formatting`() {
+        SecurityContextHolder.clearContext()
+        val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = true, actor = "Accountant")
+        fun call(name: String, arguments: String): JsonNode = mapper.readTree(tools.run(scope, name, arguments))
+        val spec = tools.specs(scope).single { it.name == SheetTools.WRITE }
+        assertThat(spec.parameters.map { it.name }).contains("formats")
+
+        val made = call(
+            SheetTools.CREATE,
+            """{"name":"Money","tabs":[{"name":"Sheet1","cells":{"A1":"Item","B1":"Cost","B2":"0.2"},"formats":{"A1":{"italic":true}}}]}""",
+        )
+        assertThat(made.has("error")).describedAs(made.toString()).isFalse()
+        val id = made.path("id").asLong()
+
+        val wrote = call(
+            SheetTools.WRITE,
+            """{"sheet":"$id","cells":{"B3":"=B2*2"},"formats":{"A1:B1":{"bold":true,"fill":"#fff2cc"},"B2:B3":{"number":"percent"}}}""",
+        )
+        assertThat(wrote.has("error")).describedAs(wrote.toString()).isFalse()
+        assertThat(wrote.path("wrote").path("B3").stringValue()).isEqualTo("40%")
+
+        // Only the keys given change: A1 stays italic, and is bold now too.
+        val read = call(SheetTools.READ, """{"sheet":"$id"}""").path("tabs").get(0).path("cells")
+        assertThat(read.path("A1").path("format").toString()).isEqualTo("""{"bold":true,"italic":true,"fill":"#fff2cc"}""")
+        assertThat(read.path("B2").path("shows").stringValue()).isEqualTo("20%")
+        assertThat(read.path("B2").path("typed").stringValue()).isEqualTo("0.2")
+
+        // Null takes one away, and a range given null loses everything.
+        call(SheetTools.WRITE, """{"sheet":"$id","formats":{"A1":{"fill":null,"italic":false},"B1:B3":null}}""")
+        val formats = tabsOf(id).get(0).path("formats")
+        assertThat(formats.path("A1").toString()).isEqualTo("""{"bold":true}""")
+        assertThat(formats.has("B1")).isFalse()
+        assertThat(formats.has("B2")).isFalse()
+
+        assertThat(call(SheetTools.WRITE, """{"sheet":"$id","formats":{"A:A":{"bold":true}}}""").path("error").stringValue())
+            .contains("covers more cells than a sheet holds formatting for")
+        assertThat(call(SheetTools.WRITE, """{"sheet":"$id","formats":{"A1":{"colour":"red"}}}""").path("error").stringValue())
+            .contains("has no formatting called colour")
+    }
+
     /** The briefing names every tool it mentions off what is offered, and the chat is offered working in the sheet alone. */
     @Test
     fun `the chat names only the tools it is offered`() {

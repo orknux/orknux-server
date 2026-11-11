@@ -159,7 +159,10 @@ class TokenAuthenticationFilter(
          */
         if (secret != null && secret.startsWith(io.mszymanski.orknux.server.client.ClientPairings.PREFIX)) {
             val path = request.requestURI.removePrefix(request.contextPath)
-            if (!io.mszymanski.orknux.server.client.ClientPairings.clientPath(path)) {
+            // Who it is first, since which client paired it decides which doors it opens: the Shell's opens more.
+            val held = clients.authenticate(secret)
+            val pairedBy = (held?.details as? io.mszymanski.orknux.server.client.ByClient)?.client
+            if (!io.mszymanski.orknux.server.client.ClientPairings.opens(pairedBy, path)) {
                 response.status = HttpServletResponse.SC_FORBIDDEN
                 response.contentType = "application/json"
                 response.writer.write("""{"error":"${io.mszymanski.orknux.server.client.ClientPairings.REFUSAL}","code":"ClientCredentialElsewhere"}""")
@@ -176,7 +179,7 @@ class TokenAuthenticationFilter(
              * than carried by the cookie.
              */
             SecurityContextHolder.setContext(
-                SecurityContextHolder.createEmptyContext().apply { authentication = clients.authenticate(secret) },
+                SecurityContextHolder.createEmptyContext().apply { authentication = held },
             )
             chain.doFilter(request, response)
             return

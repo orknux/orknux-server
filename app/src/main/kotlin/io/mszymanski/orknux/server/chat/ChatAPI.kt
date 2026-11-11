@@ -331,7 +331,12 @@ class ChatAPI(
         // Registered as being answered, like the streaming door's turn, so
         // something arriving meanwhile is read by this turn rather than waking
         // a second one beside it. See ChatWake.
-        val generation = ChatGeneration()
+        /*
+         * Not durable: the caller holds this request open for the answer and is
+         * told when it fails, so a restart in the middle is theirs to retry -
+         * answering it again as well would leave the chat with two.
+         */
+        val generation = ChatGeneration(durable = false)
         generations.register(id, generation)
         /*
          * Released only once the answer is kept, as the streaming door does: a

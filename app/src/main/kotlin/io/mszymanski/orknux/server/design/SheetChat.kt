@@ -122,7 +122,8 @@ class SheetChat(
             )
             append(
                 "Read it with ${tool(SheetTools.READ)} before changing it. Write cells with ${tool(SheetTools.WRITE)} - " +
-                    "a table in one call, as rows - and add, rename or remove tabs and set column widths with " +
+                    "a table in one call, as rows - and format them with its formats in the same call: a bold header, " +
+                    "money as currency, a share as a percent. Add, rename or remove tabs and set column widths with " +
                     "${tool(SheetTools.TABS_TOOL)}. ",
             )
             append(

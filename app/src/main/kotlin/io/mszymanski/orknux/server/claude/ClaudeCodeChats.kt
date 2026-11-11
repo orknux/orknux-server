@@ -241,7 +241,7 @@ class ClaudeCodeChats(
     private fun arrived(chatId: Long, text: String) {
         try {
             service.finishSend(chatId, text)
-            val generation = ChatGeneration(woken = true)
+            val generation = ChatGeneration(woken = true, durable = false)
             generations.register(chatId, generation)
             try {
                 generation.post("chunk", mapOf("text" to text))

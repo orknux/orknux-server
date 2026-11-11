@@ -83,6 +83,8 @@ class ChatService(
     private val modes: ChatModes,
     /** The page a call read back out of the session named. Issue #660. */
     private val links: ItemLinks,
+    /** The turns being written, one of which [finishSend] ends. */
+    private val turns: ChatTurnRepository,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -1394,6 +1396,39 @@ class ChatService(
     }
 
     /**
+     * The first half of answering again a turn a restart cut off. See
+     * [ChatTurnLedger].
+     *
+     * [beginWake] for any chat: the message being answered is in the thread
+     * already, and an agent's rounds so far are in its session, so the turn is
+     * built from what was written down. A chat with no agent is answered only
+     * where its thread still ends on what the person said - a model's answer
+     * after it means the turn was over after all. Null where there is nothing
+     * to answer, or no model to answer it with.
+     *
+     * Pictures, videos and sounds sent with the message are not asked again:
+     * they went to the model with the turn and were never written to the
+     * history, as [beginSend] says. The words are.
+     */
+    fun beginResume(id: Long): ChatSendStart? = writing.execute {
+        val session = sessions.findByIdOrNull(id) ?: return@execute null
+        val modelId = answeringModel(session) ?: return@execute null
+        val thread = history.findByConversationId(session.conversationId)
+        // A thread that ends on an answer was answered after all - the turn's row outlived it - for an agent as for a bare model.
+        if (thread.lastOrNull()?.messageType != MessageType.USER) return@execute null
+        val into = recording(session)
+        ChatSendStart(
+            modelId = modelId,
+            agentId = session.agentId,
+            llmSessionId = into,
+            conversationId = session.conversationId,
+            reasoningEffort = session.reasoningEffort,
+            turns = briefed(session) +
+                (sentBefore(session, into) ?: (standing(session, into) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
+        )
+    }
+
+    /**
      * The first half of asking the last answer again.
      *
      * [beginSend] with the question already asked. What the chat said last is
@@ -1529,8 +1564,25 @@ class ChatService(
         outputTokens: Long = 0,
         /** How many of [inputTokens] the provider reused from its cache, where it said. */
         cachedInputTokens: Long = 0,
+        /** The turn's take, [ChatGeneration.take]; null for a turn with no row, which is kept as it always was. */
+        take: Int? = null,
     ) {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
+        /*
+         * Another server took this turn over while this one went on writing it -
+         * handed over as this server stopped - and that server's answer is the
+         * one to keep: keeping this one too would end the chat on two answers.
+         * What this one cost is still counted.
+         */
+        val takenOver = take != null && turns.findByIdOrNull(id)?.let { it.resumes != take } == true
+        if (takenOver) {
+            log.info("Chat {}'s answer was taken over by another server; this one is not kept", id)
+            session.spentInputTokens += inputTokens
+            session.spentOutputTokens += outputTokens
+            session.spentCachedInputTokens += cachedInputTokens
+            sessions.save(session)
+            return
+        }
         val thread = history.findByConversationId(session.conversationId)
         /*
          * A turn that said nothing writes nothing. The one there is asked the
@@ -1542,6 +1594,12 @@ class ChatService(
          */
         val said = answer.isNotBlank()
         if (said) history.saveAll(session.conversationId, thread + AssistantMessage(answer))
+        /*
+         * And the turn is no longer one to answer again, in the same
+         * transaction as the answer: a server stopped between the two would
+         * otherwise answer it a second time when it came back. See [ChatTurnLedger].
+         */
+        if (turns.existsById(id)) turns.deleteById(id)
         /*
          * Added, never assigned.
          *

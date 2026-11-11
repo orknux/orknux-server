@@ -207,7 +207,7 @@ class ClientPairings(
         val signedInWith = held.authorities.orEmpty().lines().filter { it.isNotBlank() }.map { SimpleGrantedAuthority(it) }
         val roles = (signedInWith + person?.let(internal.getObject()::authoritiesOf).orEmpty()).distinctBy { it.authority }
         return UsernamePasswordAuthenticationToken(held.username, null, roles + SimpleGrantedAuthority(CLIENT_AUTHORITY))
-            .apply { details = ByClient(requireNotNull(held.id)) }
+            .apply { details = ByClient(requireNotNull(held.id), held.client) }
     }
 
     fun mine(username: String): List<ClientCredential> = credentials.findByUsernameIgnoreCaseOrderByCreatedAtDesc(username)
@@ -263,13 +263,41 @@ class ClientPairings(
 
         fun clientPath(path: String): Boolean = CLIENT_PATHS.any { it.matches(path) }
 
+        /** What the Shell calls itself when it pairs: [SHELL_PATHS] are its. */
+        const val SHELL = "Shell"
+
+        /**
+         * The doors a credential paired by Orknux Shell opens besides the clients' own.
+         *
+         * The Shell is not a device an agent drives but a person chatting from a
+         * terminal, so its credential has to reach what the web chat reaches:
+         * GraphQL, the chat stream and the files and voice a message carries.
+         * That is close to the person's whole API, deliberately - pairing a
+         * terminal is signing in on it - and it is still a credential of its
+         * own, listed under Connected clients and disconnected there. The other
+         * clients keep their narrow door: a credential copied off a Chrome
+         * extension still reaches nothing but that extension's work.
+         */
+        val SHELL_PATHS = listOf(
+            Regex("^/graphql$"),
+            Regex("^/api/chats(/.*)?$"),
+            Regex("^/api/attachments(/.*)?$"),
+            Regex("^/api/workspaces/\\d+/(attachments|speech|transcription)(/.*)?$"),
+            Regex("^/api/auth/method$"),
+            Regex("^/api/session$"),
+        )
+
+        /** Whether a credential paired by [client] opens [path]. */
+        fun opens(client: String?, path: String): Boolean =
+            clientPath(path) || (client == SHELL && SHELL_PATHS.any { it.matches(path) })
+
         private fun hash(secret: String): String =
             HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(secret.toByteArray()))
     }
 }
 
 /** Marks an authentication as a client credential's. */
-data class ByClient(val credentialId: Long)
+data class ByClient(val credentialId: Long, val client: String? = null)
 
 class ClientPairingCodeInvalidException : RuntimeException(
     "That pairing code is not valid: it may have been mistyped, used already, or run out. Make a new one in Orknux.",

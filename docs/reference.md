@@ -560,6 +560,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_TEMPORARY_FILE_SECONDS` | How long a temporary file is kept, and the longest a caller may ask for, in seconds. | `300` |
 | `ORKNUX_TUNING_MCP_CONNECTED_MINUTES` | How long since its last request an MCP client still counts as connected, in minutes. | `10` |
 | `ORKNUX_TUNING_MCP_HISTORY_DAYS` | How long MCP clients' sessions and calls are kept, in days. | `30` |
+| `ORKNUX_TUNING_CHAT_RESUME_AFTER_SECONDS` | How long a chat answer may go unheard from before it is answered again, in seconds. | `60` |
+| `ORKNUX_TUNING_CHAT_RESUMES` | How many times a cut-off chat answer is picked up again, in times; 0 never picks one up. | `3` |
 | `ORKNUX_TUNING_DEVICE_CALL_SECONDS` | How long an agent waits for the person's browser or computer to answer one tool, in seconds. | `60` |
 | `ORKNUX_TUNING_SHELL_COMMAND_SECONDS` | How long an agent waits for a command it ran in Orknux Shell, the person's approval included, in seconds. | `900` |
 | `ORKNUX_TUNING_DEVICE_SNAPSHOT_CHARACTERS` | How much of a page or a window a snapshot hands a model, in characters. | `20000` |

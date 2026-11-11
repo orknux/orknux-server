@@ -129,6 +129,35 @@ class ChatCompaction(
     }
 
     /**
+     * The same compaction, for a conversation the browser keeps and sends up
+     * whole: the editors' chats down the right of a document. There is no
+     * stored thread to rewrite, so the shorter conversation is answered and the
+     * caller hands [Compacted] back for the browser to keep instead - the
+     * summary, then the last [Compacted.kept] of what it sent.
+     *
+     * Same line, same model and same summary length as a chat's, because it is
+     * one setting on the workspace and somebody who turned it on meant every
+     * conversation in it. Null, and the turns sent as they are, while it is off,
+     * below the line, or when the summariser would not answer.
+     */
+    fun compactTurns(workspace: Workspace?, turns: List<ChatTurn>, fallbackModelId: Long): Pair<List<ChatTurn>, Compacted>? {
+        val threshold = workspace?.compactAfterTokens?.takeIf { it > 0 } ?: return null
+        if (turns.size <= KEEP + 1) return null
+        val carried = turns.sumOf { (it.content.length + CHARS_PER_TOKEN - 1) / CHARS_PER_TOKEN }
+        if (carried < threshold) return null
+
+        val older = turns.dropLast(KEEP)
+        val recent = turns.takeLast(KEEP)
+        val transcript = older.joinToString("\n\n") { "${it.role}: ${it.content}" }
+        val summary = summariseText(workspace.compactionModelId ?: fallbackModelId, transcript, workspace.compactionSummaryTokens ?: DEFAULT_SUMMARY_TOKENS)
+            ?: return null
+        log.info("Compacted an editor's conversation: {} turns ({} tokens) became a summary and the last {}", older.size, carried, KEEP)
+        // Said rather than instructed, as compactIfNeeded writes it and for the same reason.
+        return (listOf(ChatTurn(role = "assistant", content = summary)) + recent) to
+            Compacted(replaced = older.size, kept = recent.size, tokens = carried, summary = summary)
+    }
+
+    /**
      * The older turns, as one paragraph.
      *
      * Null when the model would not answer, and the caller then leaves the

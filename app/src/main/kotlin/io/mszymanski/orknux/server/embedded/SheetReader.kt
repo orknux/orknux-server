@@ -13,16 +13,28 @@ import org.apache.poi.openxml4j.exceptions.ODFNotOfficeXmlFileException
 import org.apache.poi.openxml4j.opc.OPCPackage
 import org.apache.poi.openxml4j.opc.PackageAccess
 import org.apache.poi.openxml4j.util.ZipSecureFile
+import org.apache.poi.hssf.usermodel.HSSFFont
+import org.apache.poi.hssf.usermodel.HSSFWorkbook
+import org.apache.poi.hssf.util.HSSFColor
+import org.apache.poi.ss.usermodel.BorderStyle
+import org.apache.poi.ss.usermodel.CellStyle
 import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.Color
 import org.apache.poi.ss.usermodel.DataFormatter
 import org.apache.poi.ss.usermodel.DateUtil
+import org.apache.poi.ss.usermodel.ExtendedColor
+import org.apache.poi.ss.usermodel.FillPatternType
+import org.apache.poi.ss.usermodel.Font
 import org.apache.poi.ss.usermodel.FormulaError
+import org.apache.poi.ss.usermodel.HorizontalAlignment
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import org.apache.poi.ss.util.CellReference
 import org.apache.poi.util.XMLHelper
 import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable
 import org.apache.poi.xssf.eventusermodel.XSSFReader
 import org.apache.poi.xssf.eventusermodel.XSSFSheetXMLHandler
+import org.apache.poi.xssf.model.StylesTable
+import org.apache.poi.xssf.usermodel.XSSFCellStyle
 import org.apache.poi.xssf.usermodel.XSSFComment
 import org.springframework.stereotype.Component
 import org.xml.sax.Attributes
@@ -60,7 +72,26 @@ import java.util.zip.ZipInputStream
 @Component
 class SheetReader {
 
-    data class Limits(val rows: Int, val characters: Int, val unpackedBytes: Long)
+    data class Limits(
+        val rows: Int,
+        val characters: Int,
+        val unpackedBytes: Long,
+        /** How many cells' looks may be kept, shared by every read handed the same one; every look where null. */
+        val looks: LookBudget? = null,
+    )
+
+    /**
+     * Looks still to be kept, counted down across every tab of one import.
+     * Without it a file of empty, styled cells - a template's whole grid, or a
+     * few bytes per cell made on purpose - held a look per cell in memory, tab
+     * after tab, before anything was trimmed to what a sheet keeps.
+     */
+    class LookBudget(most: Int) {
+        private var left = most
+
+        /** One more look kept, where there is room for it. */
+        fun take(): Boolean = (left > 0).also { if (it) left-- }
+    }
 
     /** What one read found. [sheets] is null for a CSV, [delimiter] null for a workbook. */
     data class Page(
@@ -74,7 +105,34 @@ class SheetReader {
         val from: Int,
         val to: Int,
         val total: Int,
+        /** How the page's cells are drawn, by cell, where they are drawn as anything; read only when asked, and never for a CSV or an .ods. */
+        val looks: Map<String, Look> = emptyMap(),
     )
+
+    /**
+     * How a cell in a file is drawn, as the file says it: colours as `#rrggbb`,
+     * [align] left, center or right, and [code] the Excel number format where
+     * it is not General. What the default is drawn as - black words, no fill -
+     * is left out, so a cell that was never formatted has no look at all.
+     */
+    data class Look(
+        val bold: Boolean = false,
+        val italic: Boolean = false,
+        val underline: Boolean = false,
+        val strike: Boolean = false,
+        val color: String? = null,
+        val fill: String? = null,
+        val align: String? = null,
+        val wrap: Boolean = false,
+        val code: String? = null,
+        val date: Boolean = false,
+        /** The sides with a line along them, of top, right, bottom and left, in that order. */
+        val border: List<String> = emptyList(),
+        /** The lines' colour where the file gave one other than black. */
+        val borderColor: String? = null,
+    ) {
+        val isPlain: Boolean get() = this == Look()
+    }
 
     sealed interface Reading {
         data class Read(val page: Page) : Reading
@@ -142,18 +200,18 @@ class SheetReader {
      * that unpacks past [Limits.unpackedBytes], or inflates suspiciously far,
      * is refused by POI before it is read.
      */
-    fun workbook(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits): Reading =
+    fun workbook(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits, styled: Boolean = false): Reading =
         try {
             when (magicOf(bytes)) {
                 FileMagic.OOXML -> when (val odf = openDocumentTypeOf(bytes)) {
-                    null -> xlsx(bytes, sheet, from, to, limits)
+                    null -> xlsx(bytes, sheet, from, to, limits, styled)
                     ODS -> ods(bytes, sheet, from, to, limits)
                     else -> Reading.Refused(
                         "That is an OpenDocument file of another kind ($odf), not a spreadsheet. " +
                             "A workbook is an .ods, an .xlsx or an .xls.",
                     )
                 }
-                FileMagic.OLE2 -> xls(bytes, sheet, from, to, limits)
+                FileMagic.OLE2 -> xls(bytes, sheet, from, to, limits, styled)
                 else -> Reading.Refused("That is not a workbook: it is neither an .ods, an .xlsx nor an .xls.")
             }
         } catch (unannounced: ODFNotOfficeXmlFileException) {
@@ -181,7 +239,7 @@ class SheetReader {
     private fun magicOf(bytes: ByteArray): FileMagic? =
         runCatching { FileMagic.valueOf(ByteArrayInputStream(bytes)) }.getOrNull()
 
-    private fun xlsx(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits): Reading {
+    private fun xlsx(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits, styled: Boolean): Reading {
         /*
          * A file rather than a stream: opened from a stream, POI unpacks every
          * part into memory first, which is the size limit and not a streaming
@@ -206,7 +264,7 @@ class SheetReader {
                         names += name
                         if (page == null && (sheet == null || name.equals(sheet.trim(), ignoreCase = true))) {
                             val window = Window(from, to, limits)
-                            val rows = Rows(window)
+                            val rows = Rows(window, if (styled) XssfLooks(styles) else null)
                             val handler = XSSFSheetXMLHandler(styles, null, strings, rows, CellText(), false)
                             XMLHelper.newXMLReader().apply { contentHandler = FormulaTap(handler, rows) }.parse(InputSource(stream))
                             page = window
@@ -223,14 +281,21 @@ class SheetReader {
     }
 
     /** The streaming reader's rows, gaps in the sheet's numbering kept as empty rows. */
-    private class Rows(private val window: Window) : XSSFSheetXMLHandler.SheetContentsHandler {
+    private class Rows(private val window: Window, private val looks: XssfLooks?) : XSSFSheetXMLHandler.SheetContentsHandler {
         private var cells = mutableListOf<String>()
         private var formulas = mutableMapOf<Int, String>()
+        private var styles = mutableMapOf<Int, Look>()
         private var last = 0
 
         /** A formula [FormulaTap] read off the cell at [reference], which the streaming handler only answers the value of. */
         fun formula(reference: String, text: String) {
             formulas[CellReference(reference).col.toInt()] = text
+        }
+
+        /** The style [FormulaTap] read off the cell at [reference]: an index into the file's styles, kept where it draws anything. */
+        fun style(reference: String, index: Int) {
+            val look = looks?.of(index) ?: return
+            styles[CellReference(reference).col.toInt()] = look
         }
 
         override fun startRow(rowNum: Int) {
@@ -240,10 +305,11 @@ class SheetReader {
             }
             cells = mutableListOf()
             formulas = mutableMapOf()
+            styles = mutableMapOf()
         }
 
         override fun endRow(rowNum: Int) {
-            window.offer(cells.dropLastWhile { it.isEmpty() }, formulas)
+            window.offer(cells.dropLastWhile { it.isEmpty() }, formulas, styles)
             last = rowNum + 1
         }
 
@@ -266,7 +332,12 @@ class SheetReader {
 
         override fun startElement(uri: String?, localName: String?, qName: String?, atts: Attributes?) {
             when (nameOf(localName, qName)) {
-                "c" -> cell = atts?.getValue("r")
+                "c" -> {
+                    cell = atts?.getValue("r")
+                    val style = atts?.getValue("s")?.toIntOrNull()
+                    val at = cell
+                    if (style != null && style != 0 && at != null) rows.style(at, style)
+                }
                 "f" -> formula = StringBuilder()
             }
             inner.startElement(uri, localName, qName, atts)
@@ -291,8 +362,14 @@ class SheetReader {
             localName?.ifEmpty { null } ?: qName.orEmpty().substringAfter(':')
     }
 
-    private fun xls(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits): Reading =
+    private fun xls(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits, styled: Boolean): Reading =
         WorkbookFactory.create(ByteArrayInputStream(bytes)).use { book ->
+            val looked = mutableMapOf<Short, Look?>()
+            fun lookOf(style: org.apache.poi.ss.usermodel.CellStyle): Look? = looked.getOrPut(style.index) {
+                val font = book.getFontAt(style.fontIndex)
+                val ink = (book as? HSSFWorkbook)?.let { (font as? HSSFFont)?.getHSSFColor(it) }
+                looks(style, font, hex(ink), if (style.fillPattern == FillPatternType.SOLID_FOREGROUND) hex(style.fillForegroundColorColor) else null)
+            }
             val names = (0 until book.numberOfSheets).map(book::getSheetName)
             val name = if (sheet == null) names.firstOrNull() else names.firstOrNull { it.equals(sheet.trim(), ignoreCase = true) }
             name ?: return Reading.Refused(noSheet(sheet, names))
@@ -306,8 +383,10 @@ class SheetReader {
                     continue
                 }
                 val formulas = mutableMapOf<Int, String>()
+                val styles = mutableMapOf<Int, Look>()
                 val cells = (0 until maxOf(row.lastCellNum.toInt(), 0)).map { column ->
                     row.getCell(column)?.let { cell ->
+                        if (styled && cell.cellStyle.index.toInt() != 0) lookOf(cell.cellStyle)?.let { styles[column] = it }
                         if (cell.cellType == CellType.FORMULA) formulas[column] = "=" + cell.cellFormula
                         val type = if (cell.cellType == CellType.FORMULA) cell.cachedFormulaResultType else cell.cellType
                         when (type) {
@@ -321,7 +400,7 @@ class SheetReader {
                         }
                     }.orEmpty()
                 }
-                window.offer(cells.dropLastWhile { it.isEmpty() }, formulas)
+                window.offer(cells.dropLastWhile { it.isEmpty() }, formulas, styles)
             }
             Reading.Read(window.finish(sheets = names, sheet = name, delimiter = null))
         }
@@ -476,12 +555,26 @@ class SheetReader {
         }
     }
 
+    /** An .xlsx's styles read as [Look]s, each once however many cells use it. */
+    private class XssfLooks(private val styles: StylesTable) {
+        private val read = mutableMapOf<Int, Look?>()
+
+        fun of(index: Int): Look? = read.getOrPut(index) {
+            runCatching {
+                val style = styles.getStyleAt(index) ?: return@runCatching null
+                val font = style.font
+                looks(style, font, hex(font.xssfColor), if (style.fillPattern == FillPatternType.SOLID_FOREGROUND) hex(style.fillForegroundColorColor) else null)
+            }.getOrNull()
+        }
+    }
+
     /** Which rows are kept: [from] onward, at most so many, and no more characters than allowed. */
     private class Window(from: Int, to: Int?, private val limits: Limits) {
         private val first = from.coerceAtLeast(1)
         private val last = minOf((to ?: Int.MAX_VALUE).toLong(), first.toLong() + limits.rows - 1)
         private val kept = mutableListOf<List<String>>()
         private val formulas = linkedMapOf<String, String>()
+        private val looks = linkedMapOf<String, Look>()
         private var characters = 0
         private var full = false
         private var header: List<String>? = null
@@ -490,8 +583,8 @@ class SheetReader {
         var seen = 0
             private set
 
-        /** A row, and its formulas by column. */
-        fun offer(cells: List<String>, rowFormulas: Map<Int, String> = emptyMap()) {
+        /** A row, its formulas by column, and how its cells are drawn by column. */
+        fun offer(cells: List<String>, rowFormulas: Map<Int, String> = emptyMap(), rowLooks: Map<Int, Look> = emptyMap()) {
             seen++
             if (seen == 1) header = cells
             if (full || seen < first || seen > last) return
@@ -503,6 +596,9 @@ class SheetReader {
             }
             kept += cells
             formulas += named
+            rowLooks.toSortedMap().forEach { (column, look) ->
+                if (limits.looks?.take() != false) looks[CellReference.convertNumToColString(column) + seen] = look
+            }
             characters += size
         }
 
@@ -516,6 +612,7 @@ class SheetReader {
             from = first,
             to = first + kept.size - 1,
             total = seen,
+            looks = looks,
         )
     }
 
@@ -525,6 +622,51 @@ class SheetReader {
 
         /** Longer than any OpenDocument type; a `mimetype` entry is never read past it. */
         const val MIMETYPE_MOST = 200
+
+        /** A style and its font as a [Look]; null where it draws a cell the way an unformatted one is drawn. */
+        fun looks(style: CellStyle, font: Font, ink: String?, fill: String?): Look? {
+            val code = style.dataFormatString?.takeUnless { it.isBlank() || it.equals("General", ignoreCase = true) }
+            val look = Look(
+                bold = font.bold,
+                italic = font.italic,
+                underline = font.underline != Font.U_NONE,
+                strike = font.strikeout,
+                color = ink?.takeUnless { it == "#000000" },
+                fill = fill?.takeUnless { it == "#ffffff" },
+                align = when (style.alignment) {
+                    HorizontalAlignment.LEFT -> "left"
+                    HorizontalAlignment.CENTER, HorizontalAlignment.CENTER_SELECTION -> "center"
+                    HorizontalAlignment.RIGHT -> "right"
+                    else -> null
+                },
+                wrap = style.wrapText,
+                border = listOfNotNull(
+                    "top".takeIf { style.borderTop != BorderStyle.NONE },
+                    "right".takeIf { style.borderRight != BorderStyle.NONE },
+                    "bottom".takeIf { style.borderBottom != BorderStyle.NONE },
+                    "left".takeIf { style.borderLeft != BorderStyle.NONE },
+                ),
+                borderColor = (style as? XSSFCellStyle)?.let { held ->
+                    listOf(held.topBorderXSSFColor, held.rightBorderXSSFColor, held.bottomBorderXSSFColor, held.leftBorderXSSFColor)
+                        .firstNotNullOfOrNull { hex(it) }
+                }?.takeUnless { it == "#000000" },
+                code = code,
+                date = code != null && DateUtil.isADateFormat(style.dataFormat.toInt(), code),
+            )
+            return look.takeUnless { it.isPlain }
+        }
+
+        /** A colour as `#rrggbb`; null for "automatic", which is the reader's ordinary ink. */
+        fun hex(color: Color?): String? {
+            val bytes = when (color) {
+                is ExtendedColor -> if (color.isAuto) null else (color.rgbWithTint ?: color.rgb)
+                is HSSFColor -> if (color.index == HSSFColor.HSSFColorPredefined.AUTOMATIC.index) null
+                    else color.triplet.map { it.toByte() }.toByteArray()
+                else -> null
+            } ?: return null
+            if (bytes.size < 3) return null
+            return "#" + bytes.takeLast(3).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        }
 
         /** A number as its plain value: 12.5, 3, 0.04 - never 3.0 or 1.2E7. */
         fun plain(value: Double): String = BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()

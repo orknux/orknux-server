@@ -83,6 +83,16 @@ class McpServerAPI(
         return created
     }
 
+    /** A copy of a server beside it, credential and all; see [McpServerService.duplicateMcpServer]. */
+    @MutationMapping
+    fun duplicateMcpServer(@Argument id: Long): McpServerView {
+        val server = servers.mcpServer(id) ?: throw McpServerNotFoundException(id)
+        requireWorkspaceAccess(server.workspaceId)
+        val copy = servers.duplicateMcpServer(id)
+        auditRecorder.record(server.workspaceId, WorkspaceAuditCategory.INTEGRATION, "MCP Server ${server.name} duplicated as ${copy.name}")
+        return copy
+    }
+
     /**
      * Backs the MCP server settings form; a null secret keeps the stored one.
      *

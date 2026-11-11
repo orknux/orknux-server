@@ -102,11 +102,16 @@ object Sheets {
     const val TAB_NAME_REFUSED = "[]:*?/\\"
 }
 
-/** One tab of a workbook: what was typed, by cell (`B4`), and the widths given to columns, by letter. */
+/**
+ * One tab of a workbook: what was typed, by cell (`B4`), the widths given to
+ * columns, by letter, and how cells are drawn, by cell - a cell may be
+ * formatted and hold nothing, so [formats] is not keyed on [cells].
+ */
 data class SheetTab(
     val name: String,
     val cells: Map<String, String>,
     val widths: Map<String, Int> = emptyMap(),
+    val formats: Map<String, SheetCellFormat> = emptyMap(),
 )
 
 /** A cell address taken apart: column and row from 0. */
@@ -184,6 +189,8 @@ class SheetWorkbook(private val mapper: ObjectMapper) {
         put("name", tab.name)
         put("cells", ordered(tab.cells))
         if (tab.widths.isNotEmpty()) put("widths", tab.widths.toSortedMap(compareBy({ it.length }, { it })))
+        // Left out where there is none, so a workbook nobody formatted is written exactly as it was before there was formatting.
+        if (tab.formats.isNotEmpty()) put("formats", ordered(tab.formats).mapValues { it.value.asMap() })
     }
 
     /**
@@ -237,7 +244,22 @@ class SheetWorkbook(private val mapper: ObjectMapper) {
                 }
             }
         }
-        return SheetTab(name = name, cells = held, widths = widths(node.path("widths"), name))
+        return SheetTab(name = name, cells = held, widths = widths(node.path("widths"), name), formats = formats(node.path("formats"), name))
+    }
+
+    /** A tab's formatting by cell; a cell given null, or formatting that draws nothing, is not kept. */
+    private fun formats(node: JsonNode, tab: String): Map<String, SheetCellFormat> {
+        if (node.isMissingNode || node.isNull) return emptyMap()
+        if (!node.isObject) throw SheetWorkbookInvalidException("the formats of tab $tab have to be an object, from address to formatting")
+        val held = linkedMapOf<String, SheetCellFormat>()
+        node.properties().forEach { (address, said) ->
+            val at = SheetCellAt.of(address)
+                ?: throw SheetWorkbookInvalidException("$address in the formats of tab $tab is not a cell; a cell is a column and a row, such as B4")
+            if (at.name in held) throw SheetWorkbookInvalidException("the formats of tab $tab name ${at.name} twice")
+            if (said.isNull) return@forEach
+            SheetFormats.read(said, "${at.name} in tab $tab").takeUnless { it.isEmpty }?.let { held[at.name] = it }
+        }
+        return held
     }
 
     private fun widths(node: JsonNode, tab: String): Map<String, Int> {
@@ -261,7 +283,7 @@ class SheetWorkbook(private val mapper: ObjectMapper) {
 
     companion object {
         /** Cells row by row and, within a row, column by column - how a person reads a sheet, and how a model is handed one. */
-        fun ordered(cells: Map<String, String>): Map<String, String> =
+        fun <T> ordered(cells: Map<String, T>): Map<String, T> =
             cells.entries
                 .sortedWith(compareBy({ SheetCellAt.of(it.key)?.row ?: 0 }, { SheetCellAt.of(it.key)?.column ?: 0 }))
                 .associateTo(linkedMapOf()) { it.key to it.value }

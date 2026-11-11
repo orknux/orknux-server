@@ -42,10 +42,39 @@ class ChatGeneration(
      * waits for one of these instead ([ChatGenerations.awaitWoken]).
      */
     val woken: Boolean = false,
+    /**
+     * Whether a server that stops while this is being written answers it again
+     * when it is back - see [ChatTurnLedger]. False only for "My Claude Code",
+     * whose answer is the person's own Claude Code's to give and is not ours to
+     * ask for twice.
+     */
+    val durable: Boolean = true,
 ) {
     private val lock = Object()
     private val frames = ArrayList<ChatFrame>()
     private var over = false
+
+    /**
+     * How many times the turn had been taken up again when this one began, as
+     * its `chat_turn` row said; null where it has no row. [ChatService.finishSend]
+     * keeps an answer only while the row still says the same: a higher count
+     * means another server took the turn over - this one was handed over as it
+     * stopped, and went on - and the answer is that server's to give.
+     */
+    @Volatile
+    var take: Int? = null
+
+    /**
+     * Which turn this is, as its first frame says. A page that lost its stream
+     * and follows again can then tell the answer it was reading from one the
+     * server started afresh after a restart, whose frames are not a replay of
+     * the ones it has drawn.
+     */
+    val turn: String = java.util.UUID.randomUUID().toString()
+
+    init {
+        frames.add(ChatFrame("turn", mapOf("id" to turn)))
+    }
 
     /** Adds a frame for every reader, present and future. Ignored once [finish]ed. */
     fun post(event: String, payload: Any) {
@@ -115,6 +144,17 @@ class ChatGenerations {
     /** Told when a chat has no turn left being answered; see [whenIdle]. */
     private val idle = java.util.concurrent.CopyOnWriteArrayList<(Long) -> Unit>()
 
+    /** Told of every turn that starts; see [whenBusy]. */
+    private val busy = java.util.concurrent.CopyOnWriteArrayList<(Long, ChatGeneration) -> Unit>()
+
+    /** Calls [listener] as each turn is registered. How [ChatTurnLedger] writes down that one is being answered. */
+    fun whenBusy(listener: (Long, ChatGeneration) -> Unit) {
+        busy += listener
+    }
+
+    /** The chats a turn is being answered on in this process, for the beat that says they still are. */
+    fun answeringChats(): Set<Long> = inFlight.filterValues { it.isNotEmpty() }.keys.toSet()
+
     /**
      * Calls [listener] each time a chat's last turn is released. How
      * [ChatWake] answers what arrived while a turn ran and that turn never read
@@ -129,6 +169,7 @@ class ChatGenerations {
         inFlight.compute(chatId) { _, held ->
             (held ?: java.util.concurrent.CopyOnWriteArrayList()).apply { add(generation) }
         }
+        busy.forEach { listener -> runCatching { listener(chatId, generation) } }
         synchronized(arrivals) { arrivals.notifyAll() }
     }
 

@@ -15,6 +15,30 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.4.2
+
+### ✨ Added
+
+- **Copy an MCP server.** Each server on Integrations has a copy button that makes "<name> (copy)" with the same address, description, headers and credential (its own token, or the same workspace secret), so a test copy of a production server needs only its address changed.
+- **A search box in documents.** It sits on the document's top bar, left of the page count, in place of the search icon; Ctrl+F still goes to it.
+- **A credential that reads a workspace secret links to it.** The ↗ beside a connection's, model provider's, MCP server's or search setting's chosen secret opens it on the Variables page.
+- **Quick chat keeps its conversation, with a New conversation button.** It opens on what you last said in that workspace, on any page, tab or computer, and New conversation starts it afresh.
+- **Send again in the quick chat.** A question that went unanswered - the model could not be reached, or it was stopped - has a Send again button under it, which asks it again in its place.
+- **Clear conversation in the document editor's chat**, over the conversation, and the chat now follows the workspace's compaction: past the workspace's *Compact after* line the older messages are summarised before the model is asked, and the chat shows the summary, marked as one, in their place. With compaction off nothing changes.
+- **Who uses which client, in Admin → Reports → Clients.** It lists everybody using the Chrome extension, Orknux for Windows, Orknux for Linux and Orknux Shell in a terminal (and the Claude Code plugin), with the computer (for a browser, the system it runs on), version, when each was first and last seen and whether it is connected now, and counts the people per client. It starts empty: a client is written down the first time it connects after the upgrade.
+- **Formatting in sheets.** A format bar over the sheet editor makes the selected cells bold, italic, underlined or struck through (Ctrl+B, Ctrl+I, Ctrl+U, changeable in Preferences), gives them a text colour, a fill and borders (all, outer, one side, or none), aligns and wraps them, and shows numbers as numbers, percentages, currency or dates with as many places as you choose - the value itself never changes. Copy, paste and dragging a corner carry the formatting; .xlsx exports and .xlsx/.xls imports keep it; and agents read and set it through `orknux_sheet` and the new `formats` of `orknux_write_sheet_cells`. Sheets saved before keep reading exactly as they did.
+
+### 🔧 Changed
+
+- **A double-click on a sheet column's edge fits the column to what is in it**, as a spreadsheet's does, and every selected column with it; it used to put the column back to its usual width.
+- **A pairing link signs Orknux Shell in.** A credential paired by the Shell now reaches what the Shell's chat needs - GraphQL, the chats, attachments, speech and transcription - as the person who paired it, and is listed and disconnected under Preferences › Connected clients like the others. Credentials paired by the Chrome extension, the desktop apps and Claude Code still open only their own doors.
+- **Chat answers survive a restart.** A chat or quick chat answer being written when the server restarts, is updated or crashes is answered again by the server that comes up next, instead of the chat ending on your question. A server that stops on purpose hands its answers over at once; after a crash they are picked up once they have been unheard from for a minute (`ORKNUX_TUNING_CHAT_RESUME_AFTER_SECONDS`), at most three times (`ORKNUX_TUNING_CHAT_RESUMES`). An agent picks up from its last round, so a tool call it was in the middle of may run again; files sent with the message are not sent to the model a second time. A quick chat question is asked again from the start.
+
+### 🐛 Fixed
+
+- **Reloading a document, sheet, wireframe or diagram while its chat answers no longer loses the answer.** The question is kept on the server and answered whoever is waiting; the page opened again shows the question being answered and draws the answer when it comes, taking up whatever the model changed. A question cut off by a server restart says so instead of waiting for ever.
+- **A sheet's cells could stay drawn as typed after a save**, a `0.256` where the cell should show `26%`, until the next change - the values worked out for the sheet as it was a moment before the save arrived after it and were taken for the current ones.
+
 ## 1.4.1
 
 ### ✨ Added

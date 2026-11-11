@@ -1,0 +1,25 @@
+# Admin > Reports > Clients: who uses which Orknux client.
+
+extend type Query {
+    "Every person's Orknux clients - the Chrome extension, Orknux for Windows and for Linux, Orknux Shell, the Claude Code plugin - with when each was first and last seen. Installation administrators only."
+    clientUses: [ClientUse!]!
+}
+
+type ClientUse {
+    username: String!
+    "The person's display name, where the server knows one."
+    displayName: String
+    "BROWSER, DESKTOP, CLAUDE or SHELL: the door it comes in by."
+    kind: String!
+    "What it calls itself: Chrome, Windows, Linux, Shell."
+    client: String
+    "Which copy of it, where a person runs several, such as Linux on studio."
+    name: String!
+    version: String
+    "The computer: a desktop client's own name for it, otherwise the system it runs on (Windows, macOS, Linux), where that is known."
+    computer: String
+    firstSeen: String!
+    lastSeen: String!
+    "Connected to this server now."
+    connected: Boolean!
+}

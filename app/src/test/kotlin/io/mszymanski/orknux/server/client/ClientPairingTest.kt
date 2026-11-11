@@ -46,14 +46,14 @@ class ClientPairingTest(
         SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(name, null, emptyList())
     }
 
-    private fun pair(code: String) = client.post().uri("/api/clients/pair").contentType(MediaType.APPLICATION_JSON)
-        .body("""{"code":"$code","client":"Chrome","name":"Chrome on test"}""").retrieve().toEntity(String::class.java)
+    private fun pair(code: String, by: String = "Chrome") = client.post().uri("/api/clients/pair").contentType(MediaType.APPLICATION_JSON)
+        .body("""{"code":"$code","client":"$by","name":"$by on test"}""").retrieve().toEntity(String::class.java)
 
     private fun hello(credential: String) = client.get().uri("/api/browser/hello")
         .header(HttpHeaders.AUTHORIZATION, "Bearer $credential").retrieve().toEntity(String::class.java)
 
-    private fun credentialFrom(code: String): String {
-        val paired = pair(code)
+    private fun credentialFrom(code: String, by: String = "Chrome"): String {
+        val paired = pair(code, by)
         assertThat(paired.statusCode).isEqualTo(HttpStatus.OK)
         return mapper.readTree(paired.body).path("credential").asString("")
     }
@@ -97,6 +97,35 @@ class ClientPairingTest(
             .contentType(MediaType.APPLICATION_JSON).body("""{"query":"{ myClients { id } }"}""").retrieve().toEntity(String::class.java)
         assertThat(graphql.statusCode).isEqualTo(HttpStatus.FORBIDDEN)
         assertThat(graphql.body).contains("client credential")
+    }
+
+    /**
+     * Orknux Shell is a person chatting from a terminal, so the credential it
+     * pairs for reaches what the web chat reaches - and only the Shell's does:
+     * a Chrome extension's, above, still stops at its own door.
+     */
+    @Test
+    fun `a credential the Shell paired reaches GraphQL and the chats, as the person`() {
+        val person = "shell-" + System.nanoTime()
+        signedInAs(person)
+        val credential = credentialFrom(api.startClientPairing().code, by = "Shell")
+        SecurityContextHolder.clearContext()
+
+        val graphql = client.post().uri("/graphql").header(HttpHeaders.AUTHORIZATION, "Bearer $credential")
+            .contentType(MediaType.APPLICATION_JSON).body("""{"query":"{ myClients { name } }"}""").retrieve().toEntity(String::class.java)
+        assertThat(graphql.statusCode).isEqualTo(HttpStatus.OK)
+        assertThat(graphql.body).contains("\"name\":\"Shell on test\"").doesNotContain("\"errors\"")
+
+        // Past the door: a chat that is not there is not found, rather than the credential refused.
+        val chat = client.post().uri("/api/chats/999999999/interrupt").header(HttpHeaders.AUTHORIZATION, "Bearer $credential")
+            .retrieve().toEntity(String::class.java)
+        assertThat(chat.statusCode).isNotEqualTo(HttpStatus.FORBIDDEN)
+        assertThat(chat.body.orEmpty()).doesNotContain("client credential")
+
+        // And no further than the person's own API: the administrators' doors outside it stay shut.
+        val elsewhere = client.get().uri("/api/admin/anything").header(HttpHeaders.AUTHORIZATION, "Bearer $credential")
+            .retrieve().toEntity(String::class.java)
+        assertThat(elsewhere.statusCode).isEqualTo(HttpStatus.FORBIDDEN)
     }
 
     @Test

@@ -4,15 +4,23 @@ import io.mszymanski.orknux.server.embedded.SheetReader
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVPrinter
 import org.apache.poi.ss.formula.FormulaParseException
+import org.apache.poi.ss.usermodel.BorderStyle
 import org.apache.poi.ss.usermodel.Cell
 import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.DataFormatter
+import org.apache.poi.ss.usermodel.FillPatternType
+import org.apache.poi.ss.usermodel.Font
 import org.apache.poi.ss.usermodel.FormulaError
 import org.apache.poi.ss.usermodel.FormulaEvaluator
+import org.apache.poi.ss.usermodel.HorizontalAlignment
+import org.apache.poi.xssf.usermodel.XSSFCellStyle
+import org.apache.poi.xssf.usermodel.XSSFColor
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.ByteArrayOutputStream
 import java.io.StringWriter
 import java.math.BigDecimal
 import java.math.MathContext
+import java.util.Locale
 
 /**
  * What a sheet's cells come to, and the sheet as a file.
@@ -44,7 +52,7 @@ class SheetEngine {
     }
 
     /** Every filled cell's value, tab by tab, in the order the tabs are in. */
-    fun values(tabs: List<SheetTab>): List<Pair<String, Map<String, Value>>> = built(tabs).use { (book, refused) ->
+    fun values(tabs: List<SheetTab>, formatted: Boolean = true): List<Pair<String, Map<String, Value>>> = built(tabs).use { (book, refused) ->
         val evaluator = book.creationHelper.createFormulaEvaluator()
         tabs.mapIndexed { index, tab ->
             val sheet = book.getSheetAt(index)
@@ -55,10 +63,25 @@ class SheetEngine {
                 when {
                     reason != null -> Value("e", "#NAME?", "#NAME?", reason)
                     cell == null -> Value("s", "", "")
-                    else -> valueOf(cell, evaluator)
+                    else -> valueOf(cell, evaluator).let { if (formatted) written(it, tab.formats[address]) else it }
                 }
             }
         }
+    }
+
+    /**
+     * A number as its cell's format writes it - 0.25 as 25%, 1234.5 as
+     * $1,234.50, 46000 as 2025-12-09 - by POI's formatter, which is the one
+     * Excel's codes were made for. Only [Value.shown] changes: [Value.value]
+     * stays the number, so a model reading 25% still learns it is 0.25.
+     * Written in one locale whoever reads it, as the plain number always was.
+     */
+    private fun written(value: Value, format: SheetCellFormat?): Value {
+        if (value.type != "n" || format == null) return value
+        val code = SheetFormats.excelCode(format) ?: return value
+        val number = (value.value as Number).toDouble()
+        val shown = runCatching { FORMATTER.get().formatRawCellContents(number, CUSTOM_FORMAT, code) }.getOrNull() ?: return value
+        return value.copy(shown = shown)
     }
 
     /** The workbook as an .xlsx, formulas and all, with the values worked out stored beside them. */
@@ -78,7 +101,8 @@ class SheetEngine {
      */
     fun csv(tabs: List<SheetTab>, tab: Int): String {
         val chosen = tabs.getOrNull(tab) ?: tabs.first()
-        val values = values(listOf(chosen)).single().second
+        // The numbers as numbers: a CSV is read by a program, and "$1,234.50" is text to one. Its format goes in an .xlsx.
+        val values = values(listOf(chosen), formatted = false).single().second
         val placed = values.mapKeys { requireNotNull(SheetCellAt.of(it.key)) }
         val rows = (placed.keys.maxOfOrNull { it.row } ?: -1) + 1
         val columns = (placed.keys.maxOfOrNull { it.column } ?: -1) + 1
@@ -123,9 +147,26 @@ class SheetEngine {
                 }
             }
             page.formulas.forEach { (address, formula) -> cells[address] = if (formula.startsWith("=")) formula else "=$formula" }
-            SheetTab(name = uniqueTab(name, taken, index), cells = cells).also { taken += it.name.lowercase() }
+            val formats = linkedMapOf<String, SheetCellFormat>()
+            page.looks.forEach { (address, look) -> formatOf(look).takeUnless { it.isEmpty }?.let { formats[address] = it } }
+            SheetTab(name = uniqueTab(name, taken, index), cells = cells, formats = formats).also { taken += it.name.lowercase() }
         }
     }
+
+    /** How a file drew a cell, as far as a sheet here can draw it. */
+    private fun formatOf(look: SheetReader.Look): SheetCellFormat =
+        SheetFormats.fromExcel(look.code, look.date).copy(
+            bold = look.bold,
+            italic = look.italic,
+            underline = look.underline,
+            strike = look.strike,
+            color = look.color,
+            fill = look.fill,
+            align = look.align,
+            wrap = look.wrap,
+            border = look.border,
+            borderColor = look.borderColor,
+        )
 
     /**
      * A tab name a file gave, made into one a sheet takes: the characters Excel
@@ -158,6 +199,7 @@ class SheetEngine {
     private fun built(tabs: List<SheetTab>): Built {
         val book = XSSFWorkbook()
         val refused = mutableMapOf<Cell, String>()
+        val styles = Styles(book)
         // Every tab first: a formula may name a tab that comes after its own.
         tabs.forEach { book.createSheet(it.name) }
         tabs.forEachIndexed { index, tab ->
@@ -170,8 +212,70 @@ class SheetEngine {
                 val cell = (sheet.getRow(at.row) ?: sheet.createRow(at.row)).createCell(at.column)
                 put(cell, typed, refused)
             }
+            // A formatted cell that holds nothing is still a cell in the file: a coloured header has empty cells in it.
+            tab.formats.forEach { (address, format) ->
+                val at = requireNotNull(SheetCellAt.of(address))
+                val row = sheet.getRow(at.row) ?: sheet.createRow(at.row)
+                (row.getCell(at.column) ?: row.createCell(at.column)).cellStyle = styles.of(format)
+            }
         }
         return Built(book, refused)
+    }
+
+    /**
+     * One cell style per distinct format rather than one per cell: Excel holds
+     * at most 64,000 styles in a file, and a column of a thousand bold cells is
+     * one style used a thousand times.
+     */
+    private class Styles(private val book: XSSFWorkbook) {
+        private val made = mutableMapOf<SheetCellFormat, XSSFCellStyle>()
+
+        fun of(format: SheetCellFormat): XSSFCellStyle = made.getOrPut(format) {
+            book.createCellStyle().apply {
+                if (format.bold || format.italic || format.underline || format.strike || format.color != null) {
+                    setFont(
+                        book.createFont().apply {
+                            bold = format.bold
+                            italic = format.italic
+                            if (format.underline) underline = Font.U_SINGLE
+                            strikeout = format.strike
+                            format.color?.let { setColor(XSSFColor(rgb(it))) }
+                        },
+                    )
+                }
+                format.fill?.let {
+                    setFillForegroundColor(XSSFColor(rgb(it)))
+                    fillPattern = FillPatternType.SOLID_FOREGROUND
+                }
+                when (format.align) {
+                    SheetFormats.ALIGN_LEFT -> alignment = HorizontalAlignment.LEFT
+                    SheetFormats.ALIGN_CENTER -> alignment = HorizontalAlignment.CENTER
+                    SheetFormats.ALIGN_RIGHT -> alignment = HorizontalAlignment.RIGHT
+                }
+                wrapText = format.wrap
+                // Thin lines, as a person drawing a table in Excel gets; automatic where no colour was chosen.
+                val ink = format.borderColor?.let { XSSFColor(rgb(it)) }
+                if (SheetFormats.TOP in format.border) {
+                    borderTop = BorderStyle.THIN
+                    ink?.let { setTopBorderColor(it) }
+                }
+                if (SheetFormats.RIGHT in format.border) {
+                    borderRight = BorderStyle.THIN
+                    ink?.let { setRightBorderColor(it) }
+                }
+                if (SheetFormats.BOTTOM in format.border) {
+                    borderBottom = BorderStyle.THIN
+                    ink?.let { setBottomBorderColor(it) }
+                }
+                if (SheetFormats.LEFT in format.border) {
+                    borderLeft = BorderStyle.THIN
+                    ink?.let { setLeftBorderColor(it) }
+                }
+                SheetFormats.excelCode(format)?.let { dataFormat = book.createDataFormat().getFormat(it) }
+            }
+        }
+
+        private fun rgb(hex: String): ByteArray = ByteArray(3) { hex.substring(1 + it * 2, 3 + it * 2).toInt(16).toByte() }
     }
 
     private fun put(cell: Cell, typed: String, refused: MutableMap<Cell, String>) {
@@ -236,5 +340,14 @@ class SheetEngine {
 
         /** What a spreadsheet opening a CSV starts a formula with. */
         const val CSV_FORMULA_START = "=+-@\t\r"
+
+        /**
+         * Writes a number out by a format code; US English, so a sheet reads the same to every person and model.
+         * One per thread: it keeps the codes it has parsed in a map that is not safe to share.
+         */
+        val FORMATTER: ThreadLocal<DataFormatter> = ThreadLocal.withInitial { DataFormatter(Locale.US) }
+
+        /** The first index Excel leaves to codes a file defines itself, which is what every one of ours is. */
+        const val CUSTOM_FORMAT = 164
     }
 }

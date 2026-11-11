@@ -99,6 +99,17 @@ type DocumentAnswer {
     "Whether it saved anything."
     changed: Boolean!
     document: DesignDocument!
+    "Set when the workspace's compaction summarised the older turns before this answer: the editor keeps the summary and the last `kept` turns it sent, instead of everything."
+    compacted: DocumentCompaction
+}
+
+"What a compaction of an editor's conversation came to."
+type DocumentCompaction {
+    summary: String!
+    "How many turns the summary stands in for."
+    replaced: Int!
+    "How many of the most recent turns were kept word for word."
+    kept: Int!
 }
 
 "One turn of the editor's conversation."

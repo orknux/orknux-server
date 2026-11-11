@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.mszymanski</groupId>
         <artifactId>orknux-server</artifactId>
-        <version>1.4.1</version>
+        <version>1.4.2</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -919,6 +919,7 @@
                              TaskSweepTest calls the sweep itself. Same bargain:
                              the bean is still built, which is what lets it. -->
                         <orknux.task.sweep.enabled>false</orknux.task.sweep.enabled>
+                        <orknux.chat.resume.enabled>false</orknux.chat.resume.enabled>
                         <!-- No workspace appears on start: contexts share a database
                              other tests count workspaces in. FirstWorkspaceTest calls it. -->
                         <orknux.workspace.first-enabled>false</orknux.workspace.first-enabled>

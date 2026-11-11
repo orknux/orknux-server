@@ -191,6 +191,8 @@ class SheetAPI(
             rows = Sheets.ROWS_MOST,
             characters = Int.MAX_VALUE,
             unpackedBytes = tuning[Tunable.SHEET_UNPACKED_MB].toLong() * 1024 * 1024,
+            // No more looks read than a sheet keeps formatting for, across every tab.
+            looks = SheetReader.LookBudget(tuning[Tunable.SHEET_CELLS_MOST]),
         )
         val tabs = if (filename.lowercase().endsWith(".csv") || filename.lowercase().endsWith(".tsv")) {
             val text = String(bytes, StandardCharsets.UTF_8)
@@ -198,10 +200,12 @@ class SheetAPI(
                 SheetReader.Reading.Refused("a CSV has one tab")
             }.map { it.copy(name = Sheets.FIRST_TAB) }
         } else {
-            engine.imported(reader.workbook(bytes, null, 1, null, limits)) { tab -> reader.workbook(bytes, tab, 1, null, limits) }
+            engine.imported(reader.workbook(bytes, null, 1, null, limits, styled = true)) { tab ->
+                reader.workbook(bytes, tab, 1, null, limits, styled = true)
+            }
         }
         val called = cleanName(name?.takeIf { it.isNotBlank() } ?: filename.substringBeforeLast('.').ifBlank { filename })
-        val made = make(workspaceId, called, held(tabs), catalogId)
+        val made = make(workspaceId, called, held(formattedWithin(tabs)), catalogId)
         audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Sheet ${made.name} imported from $filename")
         return view(made)
     }
@@ -330,7 +334,24 @@ class SheetAPI(
         val most = tuning[Tunable.SHEET_CELLS_MOST]
         val count = tabs.sumOf { it.cells.size }
         if (count > most) throw SheetTooLargeException(count, most)
+        val formatted = tabs.sumOf { it.formats.size }
+        if (formatted > most) throw SheetFormatsTooManyException(formatted, most)
         return tabs
+    }
+
+    /**
+     * A file's formatting held to the Tunable by dropping what is past it,
+     * rather than refusing the file: a file that came in before sheets had
+     * formatting must still come in, and a file formats empty cells far more
+     * freely than a person does - a whole styled row of a template is one.
+     */
+    private fun formattedWithin(tabs: List<SheetTab>): List<SheetTab> {
+        var left = tuning[Tunable.SHEET_CELLS_MOST]
+        return tabs.map { tab ->
+            val kept = tab.formats.entries.take(left.coerceAtLeast(0)).associate { it.key to it.value }
+            left -= kept.size
+            if (kept.size == tab.formats.size) tab else tab.copy(formats = kept)
+        }
     }
 
     private fun touch(held: Sheet) {

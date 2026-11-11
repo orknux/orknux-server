@@ -14,7 +14,10 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Service
+import org.springframework.web.bind.annotation.DeleteMapping
+import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
@@ -692,8 +695,10 @@ class QuickChat(
  * Answers the panel.
  *
  * REST rather than GraphQL to sit beside the other two things a chat needs —
- * transcription and speech — and because what goes up is a short conversation
- * that is never stored, which is a poor fit for a mutation that implies it was.
+ * transcription and speech. The panel asks through `quick-chat/asks`, whose
+ * questions are kept and answered on the server (see [QuickChatAsks]); the
+ * single request that returned with its answer is still here for anything
+ * that calls it.
  */
 @RestController
 class QuickChatAPI(
@@ -703,6 +708,8 @@ class QuickChatAPI(
     private val quickChatModels: QuickChatModels,
     /** "My Claude Code": the person's own Claude Code answering in place of the workspace's model. */
     private val claudeCode: io.mszymanski.orknux.server.claude.ClaudeCodeChats,
+    /** Questions answered on the server rather than inside the request, so they outlive it. */
+    private val asks: QuickChatAsks,
 ) {
 
     @PostMapping("/api/workspaces/{workspaceId}/quick-chat")
@@ -746,36 +753,7 @@ class QuickChatAPI(
             asker = SecurityContextHolder.getContext().authentication?.name ?: "somebody",
         )
         return when (val answer = said.completion) {
-            is ChatCompletion.Answered -> ResponseEntity.ok(
-                buildMap {
-                    put("answer", answer.content)
-                    put("millis", answer.millis)
-                    // Only when there is one: an absent field is easier for the
-                    // panel to read than a null it has to keep testing.
-                    said.suggestion?.let {
-                        put(
-                            "suggestion",
-                            mapOf(
-                                "functionId" to it.functionId.toString(),
-                                "function" to it.name,
-                                "note" to it.note,
-                                "code" to it.code,
-                            ),
-                        )
-                    }
-                    said.toolSuggestion?.let {
-                        put(
-                            "toolSuggestion",
-                            mapOf(
-                                "toolId" to it.toolId.toString(),
-                                "tool" to it.name,
-                                "note" to it.note,
-                                "code" to it.code,
-                            ),
-                        )
-                    }
-                },
-            )
+            is ChatCompletion.Answered -> ResponseEntity.ok(answerOf(answer, said))
             is ChatCompletion.Failed -> refuse(HttpStatus.BAD_GATEWAY, answer.reason)
             // The loop above ends on one of the two above; a tool call reaching
             // here would mean it did not, and saying so beats answering blank.
@@ -783,8 +761,127 @@ class QuickChatAPI(
         }
     }
 
+    /**
+     * Puts a question to the panel and answers at once with its id; the answer
+     * is worked out on the server whoever is still waiting for it, and read
+     * with [asked]. The same refusals as [ask], made before anything is kept.
+     *
+     * The door the panel uses since answers outlive the page and the server:
+     * [ask] held a request open for as long as the model took, so a reload, a
+     * closed tab or a restart lost the answer, and the conversation lived only
+     * in the browser. [ask] stays, for whatever already calls it.
+     */
+    @PostMapping("/api/workspaces/{workspaceId}/quick-chat/asks")
+    fun begin(
+        @PathVariable workspaceId: Long,
+        @RequestBody asked: QuickChatRequest,
+    ): ResponseEntity<Any> {
+        val workspace = access.requireVisible(workspaceId)
+        val person = SecurityContextHolder.getContext().authentication?.name ?: return refuse(HttpStatus.UNAUTHORIZED, "Nobody is signed in.")
+        val byClaude = asked.answeredBy == io.mszymanski.orknux.server.chat.ANSWERED_BY_CLAUDE_CODE
+        if (byClaude && !claudeCode.availability().available) {
+            return refuse(HttpStatus.CONFLICT, io.mszymanski.orknux.server.claude.ClaudeCodeChats.UNAVAILABLE)
+        }
+        if (!byClaude && quickChatModels.of(workspace) == null) return refuse(HttpStatus.CONFLICT, "This workspace has no quick chat model.")
+        val messages = asked.messages.filter { it.content.isNotBlank() }
+        if (messages.none { it.role != "assistant" }) return refuse(HttpStatus.BAD_REQUEST, "There is nothing to answer.")
+        val kept = asks.ask(workspaceId, person, messages, asked.page, asked.answeredBy.takeIf { byClaude })
+        return ResponseEntity.ok(mapOf("id" to kept.id.toString(), "status" to kept.status.name))
+    }
+
+    /**
+     * Where a question has got to: waiting, or answered with what
+     * [ask] would have answered. With `wait`, held up to that many seconds
+     * (at most thirty) for it to be settled, so the panel hears an answer the
+     * moment it is written without asking over and over.
+     */
+    @GetMapping("/api/workspaces/{workspaceId}/quick-chat/asks/{id}")
+    fun asked(
+        @PathVariable workspaceId: Long,
+        @PathVariable id: Long,
+        @RequestParam(required = false, defaultValue = "0") wait: Long,
+    ): ResponseEntity<Any> {
+        access.requireVisible(workspaceId)
+        val person = SecurityContextHolder.getContext().authentication?.name ?: return refuse(HttpStatus.UNAUTHORIZED, "Nobody is signed in.")
+        val held = asks.awaited(id, workspaceId, person, wait.coerceIn(0, 30))
+            ?: return refuse(HttpStatus.NOT_FOUND, "There is no such question.")
+        return ResponseEntity.ok(
+            buildMap {
+                put("id", id.toString())
+                put("status", held.status.name)
+                putAll(asks.resultOf(held))
+                held.error?.let { put("error", it) }
+            },
+        )
+    }
+
+    /** Stop: the question is dropped, and an answer that still comes is not kept. */
+    @PostMapping("/api/workspaces/{workspaceId}/quick-chat/asks/{id}/stop")
+    fun stop(@PathVariable workspaceId: Long, @PathVariable id: Long): ResponseEntity<Any> {
+        access.requireVisible(workspaceId)
+        val person = SecurityContextHolder.getContext().authentication?.name ?: return refuse(HttpStatus.UNAUTHORIZED, "Nobody is signed in.")
+        if (!asks.stop(id, workspaceId, person)) return refuse(HttpStatus.NOT_FOUND, "There is no such question.")
+        return ResponseEntity.ok(mapOf("stopped" to true))
+    }
+
+    /** The conversation the panel held last in this workspace, and the question still being answered. */
+    @GetMapping("/api/workspaces/{workspaceId}/quick-chat/thread")
+    fun thread(@PathVariable workspaceId: Long): ResponseEntity<Any> {
+        access.requireVisible(workspaceId)
+        val person = SecurityContextHolder.getContext().authentication?.name ?: return refuse(HttpStatus.UNAUTHORIZED, "Nobody is signed in.")
+        val held = asks.thread(workspaceId, person)
+        return ResponseEntity.ok(
+            buildMap {
+                put("messages", held.messages)
+                held.pending?.let { put("pending", it.toString()) }
+                held.error?.let { put("error", it) }
+            },
+        )
+    }
+
+    /** New conversation: the panel opens empty from now on. */
+    @DeleteMapping("/api/workspaces/{workspaceId}/quick-chat/thread")
+    fun clear(@PathVariable workspaceId: Long): ResponseEntity<Any> {
+        access.requireVisible(workspaceId)
+        val person = SecurityContextHolder.getContext().authentication?.name ?: return refuse(HttpStatus.UNAUTHORIZED, "Nobody is signed in.")
+        asks.clear(workspaceId, person)
+        return ResponseEntity.ok(mapOf("cleared" to true))
+    }
+
     private fun refuse(status: HttpStatus, says: String): ResponseEntity<Any> =
         ResponseEntity.status(status).body(mapOf("error" to says))
+
+    companion object {
+        /** What the panel is handed for an answer: the words, and any change offered beside them. */
+        fun answerOf(answer: ChatCompletion.Answered, said: QuickChat.Answer): Map<String, Any?> = buildMap {
+            put("answer", answer.content)
+            put("millis", answer.millis)
+            // Only when there is one: an absent field is easier for the
+            // panel to read than a null it has to keep testing.
+            said.suggestion?.let {
+                put(
+                    "suggestion",
+                    mapOf(
+                        "functionId" to it.functionId.toString(),
+                        "function" to it.name,
+                        "note" to it.note,
+                        "code" to it.code,
+                    ),
+                )
+            }
+            said.toolSuggestion?.let {
+                put(
+                    "toolSuggestion",
+                    mapOf(
+                        "toolId" to it.toolId.toString(),
+                        "tool" to it.name,
+                        "note" to it.note,
+                        "code" to it.code,
+                    ),
+                )
+            }
+        }
+    }
 }
 
 /** Where the person is, as the interface knows it. */
