@@ -71,6 +71,8 @@ class DocumentAPI(
     private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
     /** The workspace's chat compaction, which the editor's conversation follows too. */
     @param:Lazy private val compaction: io.mszymanski.orknux.server.chat.ChatCompaction? = null,
+    /** Where a deleted document is kept so it can be put back; see the recycle bin. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -233,8 +235,30 @@ class DocumentAPI(
             ),
         )
         keepImages(made, doc)
-        audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Document ${made.name} added")
+        // A restore re-creates the shell through here and says "restored" itself; an add is not a restore.
+        if (door != DocumentDoor.RESTORE) {
+            audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Document ${made.name} added")
+        }
         return view(made)
+    }
+
+    /**
+     * Re-creates a document from a recycle bin snapshot: a fresh row, named and
+     * filed as it was, with its content and page settings put back.
+     *
+     * An empty shell is made first, in the catalog it was in or the workspace's
+     * first if that is gone, and the snapshot is then applied to it the way a
+     * version restore applies one - its pictures not re-checked, because some may
+     * have been deleted since, and its id a new one. The recycle bin writes the
+     * one audit line; the shell's add and the restore both stay quiet.
+     */
+    @Transactional
+    fun recreate(workspaceId: Long, catalogId: Long?, snapshot: String): DesignDocumentView {
+        access.requireVisible(workspaceId)
+        val name = io.mszymanski.orknux.server.revision.ComponentSnapshot.nameIn(snapshot, mapper)
+        val filed = catalogId?.let { catalogs.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }?.id
+        val shell = create(workspaceId, filed, name, content.read(null, workspaceId), null, DocumentDoor.RESTORE)
+        return restore(requireNotNull(shell.id), snapshot)
     }
 
     @MutationMapping
@@ -362,6 +386,9 @@ class DocumentAPI(
     @Transactional
     fun deleteDocument(@Argument id: Long): Boolean {
         val held = find(id)
+        // Kept whole so it can be put back, then removed as before. Its image
+        // rows are re-derived from the content on restore, so they are not kept.
+        recycleBin.bin(held)
         images.deleteByDocumentId(requireNotNull(held.id))
         documents.delete(held)
         revisions?.forget(io.mszymanski.orknux.server.revision.ComponentRevisionKind.DOCUMENT, requireNotNull(held.id))

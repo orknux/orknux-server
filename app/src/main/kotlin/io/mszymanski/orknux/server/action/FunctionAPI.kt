@@ -76,6 +76,8 @@ class FunctionAPI(
     /** What a chat turn's files say, for the model. */
     private val files: io.mszymanski.orknux.server.attachment.EditorChatFiles,
     private val tuning: io.mszymanski.orknux.server.tuning.Tuning = io.mszymanski.orknux.server.tuning.Tuning.DEFAULTS,
+    /** Where a deleted workspace function is kept so it can be put back; see the recycle bin. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin,
 ) {
 
     /**
@@ -715,6 +717,9 @@ class FunctionAPI(
         val importers = dependants.importersOfFunction(id)
         if (importers.isNotEmpty()) throw FunctionImportedException(function.name, importers.phrases())
 
+        // Kept whole so it can be put back, then removed as before. An
+        // organisation-level function has no workspace bin; bin() skips it.
+        recycleBin.bin(function)
         functions.delete(function)
         // Its history goes with it: the rows point at an id in a table that no
         // longer holds it, and no foreign key can say so for us.

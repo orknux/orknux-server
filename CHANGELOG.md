@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **A recycle bin for a workspace.** Deleting an agent, tool, function, skill, document or diagram now moves it to the workspace's new Recycle Bin page (under Workspace) instead of removing it for good. From there it can be restored - re-created with the same name and settings - or deleted for good, and anything left is purged automatically after a while (`ORKNUX_TUNING_RECYCLE_BIN_RETENTION_DAYS`, 7 days by default, also on Admin → Settings). A restore is refused if something now has the object's name, so free it first. Other kinds of object still delete as before.
+
 ## 1.4.2
 
 ### ✨ Added

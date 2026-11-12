@@ -59,6 +59,8 @@ class AgentAPI(
     private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
     /** Whether the flag tools' marks are the agent's to change; see SessionFlagToolMarks. */
     private val flagMarks: io.mszymanski.orknux.server.flag.SessionFlagToolMarks,
+    /** Where a deleted agent is kept so it can be put back; see the recycle bin. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin,
 ) {
 
     /**
@@ -934,6 +936,8 @@ class AgentAPI(
         val users = dependants.of(DependencyKind.AGENT, id)
         if (users.isNotEmpty()) throw AgentInUseException(agent.name, users.phrases())
 
+        // Kept whole so it can be put back, then removed as before.
+        recycleBin.bin(agent)
         agents.delete(agent)
         auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent ${agent.name} deleted")
         return true

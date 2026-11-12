@@ -1,0 +1,47 @@
+# The recycle bin: objects a workspace deleted, kept whole so they can be put
+# back until they are purged. Deleting an agent, tool, function, skill, document
+# or diagram writes it down first and then removes it as before; a restore
+# re-creates it (with a new id, because a delete is refused while anything still
+# uses it); the retention is RECYCLE_BIN_RETENTION_DAYS, or sooner by hand.
+
+extend type Query {
+    "A workspace's recycle bin, newest first. Anyone who can see the workspace may read it."
+    recycleBin(workspaceId: ID!, page: Int = 0, size: Int = 20): RecycleBinPage!
+}
+
+extend type Mutation {
+    "Puts a deleted object back, re-created from its snapshot with a new id. Refused if its name is taken now."
+    restoreRecycleBinEntry(id: ID!): Boolean!
+    "Removes one entry from the bin for good, before its retention is up."
+    purgeRecycleBinEntry(id: ID!): Boolean!
+    "Empties a workspace's whole bin for good. Answers how many entries went."
+    emptyRecycleBin(workspaceId: ID!): Int!
+}
+
+"Which kind of object a bin entry holds, and the screen it is listed under."
+enum RecycleBinKind {
+    AGENT
+    TOOL
+    FUNCTION
+    SKILL
+    DOCUMENT
+    DIAGRAM
+}
+
+"One deleted object, as the bin lists it; what it held is not read until it is restored."
+type RecycleBinEntry {
+    id: ID!
+    kind: RecycleBinKind!
+    "What it was called when it was deleted."
+    name: String!
+    deletedAt: String!
+    deletedBy: String!
+}
+
+type RecycleBinPage {
+    content: [RecycleBinEntry!]!
+    page: Int!
+    size: Int!
+    totalElements: Int!
+    totalPages: Int!
+}

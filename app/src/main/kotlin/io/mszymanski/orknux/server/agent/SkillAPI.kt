@@ -42,6 +42,10 @@ class SkillAPI(
     private val agentRows: AgentRepository,
     /** What the loaded plugins bring, for the picker that grants a catalog. */
     private val fromPlugins: PluginSkills,
+    /** Where a deleted skill is kept so it can be put back; see the recycle bin. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin,
+    /** For reading a bin snapshot back when a skill is restored. */
+    private val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
     /**
@@ -285,10 +289,40 @@ class SkillAPI(
     fun deleteSkill(@Argument id: Long): Boolean {
         val skill = skills.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) } ?: return false
 
+        // Kept whole so it can be put back, then removed as before.
+        recycleBin.bin(skill)
         skills.delete(skill)
         revisions.forget(ComponentRevisionKind.SKILL, id)
         auditRecorder.record(skill.workspaceId, WorkspaceAuditCategory.AGENT, "Skill ${skill.name} deleted")
         return true
+    }
+
+    /**
+     * Re-creates a skill from a recycle bin snapshot: a fresh row, in the folder
+     * it was in if that is still there and the workspace's default one if not.
+     * Refused if its name is taken now, as a rename would be.
+     *
+     * Its own door, as a revision restore is - a skill carries an id key the
+     * snapshot does not keep, so it is derived here and made unique the way a new
+     * skill's is. The recycle bin writes the one audit line; this writes none.
+     */
+    @Transactional
+    fun recreateFromBin(workspaceId: Long, catalogId: Long?, snapshot: String): Long {
+        val name = io.mszymanski.orknux.server.revision.ComponentSnapshot.nameIn(snapshot, mapper)
+        if (skills.findByWorkspaceIdAndName(workspaceId, name) != null) throw SkillNameTakenException(name)
+        val catalog = catalogId
+            ?.let { catalogs.findByIdOrNull(it) }
+            ?.takeIf { it.workspaceId == workspaceId }
+            ?.let { requireNotNull(it.id) }
+            ?: defaultCatalog(workspaceId)
+        val skill = AgentSkill(workspaceId = workspaceId, catalogId = catalog, name = name, content = "")
+        io.mszymanski.orknux.server.revision.ComponentSnapshot.restore(skill, snapshot, mapper)
+        // The folder resolved above, not the snapshot's, which may have been deleted.
+        skill.catalogId = catalog
+        skill.key = keyFor(workspaceId, null, skill.name, except = null)
+        skill.lastModifiedAt = OffsetDateTime.now()
+        skill.lastModifiedBy = currentUser()
+        return requireNotNull(skills.save(skill).id)
     }
 
     /**

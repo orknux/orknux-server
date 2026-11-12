@@ -1179,6 +1179,14 @@ enum class Tunable(
         "How long MCP clients' sessions and calls are kept",
         "Who reached a workspace over MCP, from where, and every call they made. Older than this, it is let go of.",
     ),
+
+    /* ---- Temporary files ---- */
+
+    RECYCLE_BIN_RETENTION_DAYS(
+        "recycle.bin.retention.days", 7, 1, null, TuningSection.FILES, TuningUnit.DAYS,
+        "How long a deleted object is kept in the recycle bin",
+        "A deleted agent, tool, function, skill, document or diagram waits in its workspace's recycle bin, where it can be restored. Older than this, it is purged for good.",
+    ),
     ;
 
     constructor(

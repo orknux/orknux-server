@@ -62,6 +62,8 @@ class DiagramAPI(
     private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
     /** Keeps what each save displaces; see the class's note. */
     private val revisions: io.mszymanski.orknux.server.revision.ComponentRevisionRecorder? = null,
+    /** Where a deleted diagram is kept so it can be put back; see the recycle bin. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin,
 ) {
 
     val document = DiagramDocument(mapper)
@@ -195,8 +197,26 @@ class DiagramAPI(
             ),
         )
         writeRows(requireNotNull(made.id), drawing)
-        audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Diagram ${made.name} added")
+        // A restore re-creates the diagram through here and says "restored" itself; an add is not a restore.
+        if (door != DiagramDoor.RESTORE) {
+            audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Diagram ${made.name} added")
+        }
         return view(made)
+    }
+
+    /**
+     * Re-creates a diagram from a recycle bin snapshot: a fresh row, named and
+     * filed as it was, with its whole drawing - nodes, lines and layers - put
+     * back from the captured text. Its id is a new one, and the catalog falls
+     * back to the workspace's default when the one it was in is gone. The recycle
+     * bin writes the one audit line; the create stays quiet on a RESTORE door.
+     */
+    @Transactional
+    fun recreate(workspaceId: Long, catalogId: Long?, snapshot: String): DiagramView {
+        val was = io.mszymanski.orknux.server.revision.ComponentSnapshot.diagramIn(snapshot, mapper)
+        val name = io.mszymanski.orknux.server.revision.ComponentSnapshot.nameIn(snapshot, mapper)
+        val filed = catalogId?.let { catalogs.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }?.id
+        return create(workspaceId, name, filed, document.read(was.document), was.description, DiagramDoor.RESTORE)
     }
 
     @MutationMapping
@@ -327,6 +347,9 @@ class DiagramAPI(
     @Transactional
     fun deleteDiagram(@Argument id: Long): Boolean {
         val held = find(id)
+        // Kept whole - its whole drawing, read while its rows are still here -
+        // so it can be put back, then removed as before.
+        recycleBin.bin(held, snapshot(held))
         diagrams.delete(held)
         revisions?.forget(io.mszymanski.orknux.server.revision.ComponentRevisionKind.DIAGRAM, requireNotNull(held.id))
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Diagram ${held.name} removed")

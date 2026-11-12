@@ -71,6 +71,8 @@ class ToolAPI(
     private val libraryImports: LibraryImports,
     private val variables: WorkspaceVariableRepository,
     @param:org.springframework.context.annotation.Lazy private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
+    /** Where a deleted tool is kept so it can be put back; see the recycle bin. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin,
 ) {
 
     /** The columns this list can be put in the order of. Issue #358. */
@@ -307,6 +309,8 @@ class ToolAPI(
         val granted = dependants.of(DependencyKind.TOOL, id)
         if (granted.isNotEmpty()) throw ToolInUseException(tool.name, granted.phrases())
 
+        // Kept whole so it can be put back, then removed as before.
+        recycleBin.bin(tool)
         tools.delete(tool)
         revisions.forget(ComponentRevisionKind.TOOL, id)
         auditRecorder.record(tool.workspaceId, WorkspaceAuditCategory.AGENT, "Tool ${tool.name} deleted")

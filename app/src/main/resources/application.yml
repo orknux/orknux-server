@@ -1095,6 +1095,8 @@ orknux:
     temporary.files.per.session: ${ORKNUX_TUNING_TEMPORARY_FILES_PER_SESSION:3}
     temporary.files.most: ${ORKNUX_TUNING_TEMPORARY_FILES_MOST:50}
     temporary.file.seconds: ${ORKNUX_TUNING_TEMPORARY_FILE_SECONDS:300}
+    # How long a deleted object waits in its workspace's recycle bin before it is purged.
+    recycle.bin.retention.days: ${ORKNUX_TUNING_RECYCLE_BIN_RETENTION_DAYS:7}
     # Who reached a workspace over MCP and what they called, as Admin -> MCP shows it.
     mcp.connected.minutes: ${ORKNUX_TUNING_MCP_CONNECTED_MINUTES:10}
     mcp.history.days: ${ORKNUX_TUNING_MCP_HISTORY_DAYS:30}
