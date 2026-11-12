@@ -23,13 +23,13 @@ class ModelAnswerLimitTest(
 ) {
 
     @Test
-    fun `a fresh installation lets a model take an hour`() {
+    fun `a fresh installation lets a model take five minutes`() {
         graphQlTester.document("{ installationSettings { modelAnswerLimitMinutes modelAnswerLimitMinutesConfigured } }")
             .execute().also {
-                it.path("installationSettings.modelAnswerLimitMinutes").entity(Int::class.java).isEqualTo(60)
-                it.path("installationSettings.modelAnswerLimitMinutesConfigured").entity(Int::class.java).isEqualTo(60)
+                it.path("installationSettings.modelAnswerLimitMinutes").entity(Int::class.java).isEqualTo(5)
+                it.path("installationSettings.modelAnswerLimitMinutesConfigured").entity(Int::class.java).isEqualTo(5)
             }
-        assertThat(limits.answer()).isEqualTo(Duration.ofMinutes(60))
+        assertThat(limits.answer()).isEqualTo(Duration.ofMinutes(5))
     }
 
     @Test
@@ -43,6 +43,6 @@ class ModelAnswerLimitTest(
                     assertThat(errors.single().extensions["code"]).isEqualTo("ModelAnswerLimitOutOfRange")
                 }
         }
-        graphQlTester.document("mutation { setModelAnswerLimitMinutes(minutes: 60) { modelAnswerLimitMinutes } }").execute()
+        graphQlTester.document("mutation { setModelAnswerLimitMinutes(minutes: 5) { modelAnswerLimitMinutes } }").execute()
     }
 }

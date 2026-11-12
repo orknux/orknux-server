@@ -374,7 +374,7 @@ class ModelAPITest(
 
         graphQlTester.document("""{ model(id: $modelId) { answerLimitMinutes answerLimitMinutesInherited } }""").execute()
             .path("model.answerLimitMinutes").valueIsNull()
-            .path("model.answerLimitMinutesInherited").entity(Int::class.java).isEqualTo(60)
+            .path("model.answerLimitMinutesInherited").entity(Int::class.java).isEqualTo(5)
 
         graphQlTester.document(
             """mutation { updateModelQuotas(id: $modelId, input: { resetInterval: MONTHLY, answerLimitMinutes: 15 })

@@ -21,6 +21,12 @@ have failed.
 
 - **A recycle bin for a workspace.** Deleting an agent, tool, function, skill, document or diagram now moves it to the workspace's new Recycle Bin page (under Workspace) instead of removing it for good. From there it can be restored - re-created with the same name and settings - or deleted for good, and anything left is purged automatically after a while (`ORKNUX_TUNING_RECYCLE_BIN_RETENTION_DAYS`, 7 days by default, also on Admin → Settings). A restore is refused if something now has the object's name, so free it first. Other kinds of object still delete as before.
 
+- **Drag an arrow's end in a diagram to pin or re-point it.** A connection's ends used to float - each found the side of its box facing the other box, wherever they were. Now an end dragged onto a particular side of a box pins there and leaves from that side; dragged onto another box it re-points the line to it; dragged onto a box's middle it floats again as before. Exports and thumbnails draw the pinned sides too. A line that was never touched keeps floating.
+
+### 🔧 Changed
+
+- **A model is now given five minutes to answer by default, not an hour.** The default Model Answer Time Limit drops from 60 to 5 minutes, so a model that has not answered within five minutes is given up on. An installation that set its own limit, or a model with one of its own, keeps it; only installations left on the default change. A local model that thinks for a long time may now be cut off mid-thought - raise the limit on Admin → Settings, or per model, if that happens.
+
 ## 1.4.2
 
 ### ✨ Added

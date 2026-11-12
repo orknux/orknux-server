@@ -269,6 +269,16 @@ sealed interface ChatCompletion {
          * reply the server dropped.
          */
         val detail: String? = null,
+        /**
+         * Whether the provider could not be reached for this call at all - it
+         * timed out (the answer time limit ran out on a model still thinking),
+         * the connection dropped, or the host would not answer. Nothing was
+         * said about the request, so the same round can be asked again
+         * unchanged, which is what the turn does with it up to its retry bound.
+         * Distinct from a settled refusal, which repeats, and from an empty
+         * reply, which arrived.
+         */
+        val unreachable: Boolean = false,
     ) : ChatCompletion
 }
 
@@ -664,7 +674,7 @@ class ModelChatClient(
             // thinking. None of it is the provider's answer to this request, so
             // none of it is settled.
             log.warn("Calling {} failed", ready.request.uri(), failure)
-            ChatCompletion.Failed(unreachable(ready.request, failure), permanent = false)
+            ChatCompletion.Failed(unreachable(ready.request, failure), permanent = false, unreachable = true)
         }
     }
 
@@ -984,7 +994,7 @@ class ModelChatClient(
                 // sentence wanted is the wrapped one's.
                 val cause = (failure as? ExecutionException)?.cause ?: failure
                 log.warn("Calling {} failed", ready.request.uri(), cause)
-                return ChatCompletion.Failed(unreachable(ready.request, cause), permanent = false)
+                return ChatCompletion.Failed(unreachable(ready.request, cause), permanent = false, unreachable = true)
             }
             val millis = (System.nanoTime() - started) / 1_000_000
 
@@ -1192,7 +1202,7 @@ class ModelChatClient(
                 // did not resolve, a timeout on a model still thinking. None of
                 // it is the provider's answer, so none of it is settled.
                 log.warn("Calling {} failed", endpoint, failure)
-                return ChatCompletion.Failed(Unreachable.describe(endpoint, failure), permanent = false)
+                return ChatCompletion.Failed(Unreachable.describe(endpoint, failure), permanent = false, unreachable = true)
             }
             val millis = (System.nanoTime() - started) / 1_000_000
 

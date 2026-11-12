@@ -410,6 +410,7 @@ class DiagramAPI(
                 layer = it.layerKey,
                 points = DiagramLink.readPoints(it.points),
                 color = it.color, width = it.width, labelAt = it.labelAt,
+                fromSide = DiagramSide.byKey(it.fromSide), toSide = DiagramSide.byKey(it.toSide),
             )
         },
         layers = document.readLayers(diagrams.findByIdOrNull(diagramId)?.layers),
@@ -539,6 +540,7 @@ class DiagramAPI(
                     lineStyle = edge.line.key, startEnd = edge.start.key, endEnd = edge.end.key, routing = edge.routing.key,
                     layerKey = edge.layer,
                     points = DiagramLink.writePoints(edge.points), labelAt = edge.labelAt, color = edge.color, width = edge.width,
+                    fromSide = edge.fromSide?.key, toSide = edge.toSide?.key,
                 )
             },
         )

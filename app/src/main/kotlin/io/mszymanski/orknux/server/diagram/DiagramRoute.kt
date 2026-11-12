@@ -36,7 +36,27 @@ object DiagramRoute {
 
     /** One line as it is drawn: by its own corners where it has them, else the way its routing says. */
     fun of(edge: DiagramLink, from: DiagramShape, to: DiagramShape): Route =
-        if (edge.routed) through(from, to, edge.points, edge.labelAt) else of(from, to, edge.routing)
+        if (edge.routed) through(from, to, edge.points, edge.labelAt) else of(from, to, edge.routing, edge.fromSide, edge.toSide)
+
+    /**
+     * Where a line heading out of [node] aims, so its end lands where it should:
+     * far off the pinned side where one is set, so the outline's own point on
+     * that side is where it leaves; the floating target [fx], [fy] otherwise -
+     * the other box, which is how every end found its side before one could be
+     * pinned.
+     */
+    private fun aim(node: DiagramShape, side: DiagramSide?, fx: Double, fy: Double): Pair<Double, Double> {
+        val cx = node.x + node.w / 2.0
+        val cy = node.y + node.h / 2.0
+        val far = 1_000_000.0
+        return when (side) {
+            DiagramSide.TOP -> cx to cy - far
+            DiagramSide.BOTTOM -> cx to cy + far
+            DiagramSide.LEFT -> cx - far to cy
+            DiagramSide.RIGHT -> cx + far to cy
+            null -> fx to fy
+        }
+    }
 
     /** How near a side's corner a line may leave a shape: past a rounded corner, where the side is no longer one. */
     const val SIDE_INSET = 12.0
@@ -169,14 +189,16 @@ object DiagramRoute {
 
     private const val CURVE_STEPS = 24
 
-    fun of(from: DiagramShape, to: DiagramShape, routing: DiagramRouting): Route {
+    fun of(from: DiagramShape, to: DiagramShape, routing: DiagramRouting, fromSide: DiagramSide? = null, toSide: DiagramSide? = null): Route {
         val ax = from.x + from.w / 2.0
         val ay = from.y + from.h / 2.0
         val bx = to.x + to.w / 2.0
         val by = to.y + to.h / 2.0
         if (routing == DiagramRouting.STRAIGHT) {
-            val (x1, y1) = DiagramOutline.border(from, bx, by)
-            val (x2, y2) = DiagramOutline.border(to, ax, ay)
+            val (fax, fay) = aim(from, fromSide, bx, by)
+            val (tax, tay) = aim(to, toSide, ax, ay)
+            val (x1, y1) = DiagramOutline.border(from, fax, fay)
+            val (x2, y2) = DiagramOutline.border(to, tax, tay)
             return Route("M ${r(x1)} ${r(y1)} L ${r(x2)} ${r(y2)}", (x1 + x2) / 2, (y1 + y2) / 2, listOf(x1 to y1, x2 to y2))
         }
         val across = max(to.x - (from.x + from.w), from.x - (to.x + to.w))
@@ -185,8 +207,10 @@ object DiagramRoute {
         val far = 1_000_000.0
         return if (across >= down) {
             val toward = if (bx >= ax) 1 else -1
-            val (x1, y1) = DiagramOutline.border(from, ax + toward * far, ay)
-            val (x2, y2) = DiagramOutline.border(to, bx - toward * far, by)
+            val (fax, fay) = aim(from, fromSide, ax + toward * far, ay)
+            val (tax, tay) = aim(to, toSide, bx - toward * far, by)
+            val (x1, y1) = DiagramOutline.border(from, fax, fay)
+            val (x2, y2) = DiagramOutline.border(to, tax, tay)
             val mx = (x1 + x2) / 2
             val corners = if (routing != DiagramRouting.ORTHOGONAL) null
             else if (abs(y1 - y2) < 0.5) listOf(x1 to y1, x2 to y2)
@@ -195,8 +219,10 @@ object DiagramRoute {
             Route(d, mx, (y1 + y2) / 2, corners)
         } else {
             val toward = if (by >= ay) 1 else -1
-            val (x1, y1) = DiagramOutline.border(from, ax, ay + toward * far)
-            val (x2, y2) = DiagramOutline.border(to, bx, by - toward * far)
+            val (fax, fay) = aim(from, fromSide, ax, ay + toward * far)
+            val (tax, tay) = aim(to, toSide, bx, by - toward * far)
+            val (x1, y1) = DiagramOutline.border(from, fax, fay)
+            val (x2, y2) = DiagramOutline.border(to, tax, tay)
             val my = (y1 + y2) / 2
             val corners = if (routing != DiagramRouting.ORTHOGONAL) null
             else if (abs(x1 - x2) < 0.5) listOf(x1 to y1, x2 to y2)

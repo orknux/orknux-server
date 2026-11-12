@@ -24,8 +24,8 @@ fun interface ModelCallLimits {
         model.answerLimitMinutes?.let { Duration.ofMinutes(it.coerceIn(FEWEST_MINUTES, MOST_MINUTES).toLong()) } ?: answer()
 
     companion object {
-        /** What a fresh installation allows: an hour. */
-        val DEFAULT: Duration = Duration.ofMinutes(60)
+        /** What a fresh installation allows: five minutes. Raise it per model, or installation-wide in Admin settings, for a model that thinks for longer. */
+        val DEFAULT: Duration = Duration.ofMinutes(5)
 
         /** The shortest limit that may be set, here or on a model. */
         const val FEWEST_MINUTES = 1

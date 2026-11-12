@@ -76,6 +76,10 @@ data class DiagramLink(
     val color: String? = null,
     /** Its thickness in pixels; null is the one every line had. */
     val width: Int? = null,
+    /** The side of [from] it is pinned to; null is the floating end that finds the side facing [to]. */
+    val fromSide: DiagramSide? = null,
+    /** The side of [to] it is pinned to; null is the floating end that finds the side facing [from]. */
+    val toSide: DiagramSide? = null,
 ) {
     /** The nearest of the four kinds a line had before it had a style and two ends. */
     val kind: DiagramEdgeKind get() = DiagramEdgeKind.nearest(line, start, end)
@@ -328,6 +332,15 @@ class DiagramDocument(private val mapper: ObjectMapper) {
             labelAt = node.path("labelAt").takeIf { it.isNumber }?.doubleValue()?.takeIf { it in 0.0..1.0 },
             color = color(node.path("color"), id),
             width = thickness(node.path("width"), "edge $id", "width"),
+            fromSide = side(node, "fromSide", id),
+            toSide = side(node, "toSide", id),
+        )
+    }
+
+    /** The side one end is pinned to, or null where it is absent; a word that is no side is refused. */
+    private fun side(node: JsonNode, field: String, of: String): DiagramSide? = text(node.path(field))?.let { said ->
+        DiagramSide.byKey(said) ?: throw DiagramDocumentInvalidException(
+            "edge $of has $field $said, which is not one of ${DiagramSide.entries.joinToString(", ") { it.key }}",
         )
     }
 
@@ -453,6 +466,8 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         edge.labelAt?.let { put("labelAt", it) }
         edge.color?.let { put("color", it) }
         edge.width?.let { put("width", it) }
+        edge.fromSide?.let { put("fromSide", it.key) }
+        edge.toSide?.let { put("toSide", it.key) }
     }
 
     /** A node changed in place: whatever [change] names is replaced, the rest kept; a null clears notes, colour or parent. */
@@ -547,6 +562,6 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         val STYLED = listOf("line", "start", "end")
 
         /** What a line's corners were found for: change one and they are dropped. */
-        val ROUTED = listOf("routing", "from", "to", "source", "target")
+        val ROUTED = listOf("routing", "from", "to", "source", "target", "fromSide", "toSide")
     }
 }

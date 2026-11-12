@@ -262,6 +262,14 @@ class DiagramEdge(
 
     @Column
     val width: Int? = null,
+
+    /** The side of its source box it is pinned to; null is the floating end every line had. V684. */
+    @Column(name = "from_side", length = 8)
+    val fromSide: String? = null,
+
+    /** The side of its target box it is pinned to; null is the floating end every line had. V684. */
+    @Column(name = "to_side", length = 8)
+    val toSide: String? = null,
 )
 
 interface DiagramCatalogRepository : JpaRepository<DiagramCatalog, Long> {
@@ -488,6 +496,24 @@ enum class DiagramRouting(val key: String, val said: String) {
 
     companion object {
         fun byKey(key: String?): DiagramRouting? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
+    }
+}
+
+/**
+ * The side of a box one end of a line is pinned to, where somebody dragged it
+ * there. Null is the line left to find its own way out - the side facing the
+ * other box, wherever the boxes are - which is how every line ran before an end
+ * could be pinned, and what a line that says nothing still does.
+ */
+enum class DiagramSide(val key: String) {
+    TOP("top"),
+    RIGHT("right"),
+    BOTTOM("bottom"),
+    LEFT("left"),
+    ;
+
+    companion object {
+        fun byKey(key: String?): DiagramSide? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
     }
 }
 

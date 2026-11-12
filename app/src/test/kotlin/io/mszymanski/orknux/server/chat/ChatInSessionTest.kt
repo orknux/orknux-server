@@ -1060,7 +1060,7 @@ class ChatInSessionTest(
     /**
      * A companion model that does not answer within the time limit is passed
      * over for the chat's own model. A busy companion held the title for the
-     * whole answer time limit, an hour by default.
+     * whole answer time limit, five minutes by default.
      */
     @Test
     fun `a companion model that does not answer in time is passed over for the chat's own`() {

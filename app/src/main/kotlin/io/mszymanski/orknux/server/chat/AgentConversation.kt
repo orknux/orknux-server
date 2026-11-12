@@ -1311,6 +1311,28 @@ class AgentConversation(
                         }
                         return@repeat
                     }
+                    /*
+                     * A call that timed out, dropped or could not reach the
+                     * provider is the same remedy as an empty answer: nothing
+                     * was said about the request, so the same round is asked
+                     * again unchanged rather than ending the turn. It shares the
+                     * empty-answer budget - both are "nothing usable came back" -
+                     * so a provider that keeps timing out still gives up rather
+                     * than hanging the turn for ever. This matters more since the
+                     * model answer time limit became minutes rather than an hour:
+                     * a single slow call is retried, not reported.
+                     */
+                    if (answer.unreachable && !answer.permanent && emptied < emptyRetries) {
+                        emptied += 1
+                        log.warn("Agent {} could not reach the provider; asking again ({} of {})", agent.name, emptied, emptyRetries)
+                        into?.let { session ->
+                            sessions.note(
+                                session,
+                                "The provider could not be reached (${answer.reason}), so the same round was asked again ($emptied of $emptyRetries).",
+                            )
+                        }
+                        return@repeat
+                    }
                     if (!answer.replyFault || answer.permanent || retried >= settings.unusableReplyRetries()) {
                         return answer.also { record(into, agent, it, hangup) }
                     }

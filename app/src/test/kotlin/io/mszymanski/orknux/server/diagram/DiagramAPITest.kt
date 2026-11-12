@@ -222,6 +222,31 @@ class DiagramAPITest(
             .expect { it.message?.contains("routing zigzag") == true }.verify()
     }
 
+    @Test
+    fun `an arrow's ends are pinned to a side of their box, saved and read back, and a bad side is refused`() {
+        val id = create("Pinned")
+        save(
+            id,
+            """{"nodes":[{"id":"a"},{"id":"b"},{"id":"c"}],"edges":[
+                {"id":"pin","from":"a","to":"b","fromSide":"top","toSide":"bottom"},
+                {"id":"half","from":"b","to":"c","fromSide":"left"},
+                {"id":"float","from":"a","to":"c"}
+            ]}""",
+        )
+        val read = graphQlTester.document("""{ diagram(id: $id) { document } }""").execute()
+            .path("diagram.document").entity(String::class.java).get()
+        val edges = tools.jackson.databind.ObjectMapper().readTree(read).path("edges").associateBy { it.path("id").stringValue() }
+        // A pinned end carries its side through the edge rows and the document; a floating end carries none.
+        assertThat(edges.getValue("pin").path("fromSide").stringValue()).isEqualTo("top")
+        assertThat(edges.getValue("pin").path("toSide").stringValue()).isEqualTo("bottom")
+        assertThat(edges.getValue("half").path("fromSide").stringValue()).isEqualTo("left")
+        assertThat(edges.getValue("half").has("toSide")).isFalse()
+        assertThat(edges.getValue("float").has("fromSide")).isFalse()
+        assertThat(edges.getValue("float").has("toSide")).isFalse()
+        save(id, """{"nodes":[{"id":"a"},{"id":"b"}],"edges":[{"id":"e","from":"a","to":"b","fromSide":"sideways"}]}""").errors()
+            .expect { it.message?.contains("fromSide sideways") == true }.verify()
+    }
+
     /** From the editor's door: notes past the cap are refused and name the node; the cap is the installation's. */
     @Test
     fun `notes past the cap are refused from the editor, and the cap is a Tunable`() {

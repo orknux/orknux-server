@@ -1766,8 +1766,9 @@ class InstallationSettings(
 
     /**
      * How many times one round is asked again after the provider sent nothing
-     * back - a stream that closed before anything came, a dropped connection.
-     * It was two, fixed, which a busy local model ran through in seconds.
+     * back - a stream that closed before anything came, a dropped connection,
+     * or the answer time limit running out on a model still thinking. It was
+     * two, fixed, which a busy local model ran through in seconds.
      */
     fun emptyAnswerRetries(): Int {
         val held = settings.findByIdOrNull(SettingNames.EMPTY_ANSWER_RETRIES) ?: return emptyAnswerRetriesConfigured()
