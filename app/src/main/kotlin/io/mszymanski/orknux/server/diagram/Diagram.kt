@@ -198,6 +198,9 @@ class DiagramNode(
 
     @Column(name = "border_width")
     val borderWidth: Int? = null,
+
+    /** How far it is turned about its middle, in whole degrees clockwise; null is upright. V685. */
+    val rotation: Int? = null,
 )
 
 /** One line between two boxes, by their keys. */

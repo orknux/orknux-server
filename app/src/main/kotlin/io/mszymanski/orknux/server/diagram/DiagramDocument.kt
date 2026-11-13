@@ -31,6 +31,12 @@ data class DiagramShape(
     val borderWidth: Int? = null,
     /** The picture it shows, where it is an image: a [DiagramImage]'s id, or an address on the web. */
     val image: String? = null,
+    /**
+     * How far it is turned about its middle, in whole degrees clockwise, 1 to
+     * 359; null is upright. Its x, y, w and h stay those of the box before it
+     * was turned, which is what the editor moves and resizes.
+     */
+    val rotation: Int? = null,
 ) {
     /** The uploaded picture it shows, by id; null for an address on the web, or none. */
     val uploadedImage: Long? get() = image?.takeIf { it.all(Char::isDigit) }?.toLongOrNull()
@@ -259,12 +265,29 @@ class DiagramDocument(private val mapper: ObjectMapper) {
             link = link(node.path("link"), id),
             border = color(node.path("border"), id),
             borderWidth = thickness(node.path("borderWidth"), "node $id", "borderWidth"),
+            rotation = turn(node.path("rotation"), id),
             image = text(node.path("image"))?.trim()?.takeIf { it.isNotEmpty() }?.also { said ->
                 if (said.length > Diagrams.LINK_LENGTH || !(said.all(Char::isDigit) || PICTURE_ADDRESS.matches(said))) {
                     throw DiagramDocumentInvalidException("node $id has image $said, which is neither an uploaded picture's id nor an address on the web (https://...)")
                 }
             },
         )
+    }
+
+    /**
+     * How far a node is turned: whole degrees clockwise. Any number is taken
+     * and brought into one turn - 450 and -270 are both 90 - and a whole turn,
+     * like none, is upright and kept as nothing.
+     */
+    private fun turn(value: JsonNode, id: String): Int? {
+        if (value.isMissingNode || value.isNull) return null
+        val read = when {
+            value.isNumber -> value.doubleValue()
+            value.isString -> value.stringValue()?.trim()?.toDoubleOrNull()
+            else -> null
+        }?.takeIf { it.isFinite() && kotlin.math.abs(it) <= 1_000_000 }
+            ?: throw DiagramDocumentInvalidException("node $id has rotation $value, which is not a number of degrees")
+        return Math.floorMod(read.roundToInt(), 360).takeIf { it != 0 }
     }
 
     /** A stroke's thickness: whole pixels from 1 to [MOST_THICKNESS]; absent or null is the usual one. */
@@ -440,6 +463,7 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         node.link?.let { put("link", it) }
         node.border?.let { put("border", it) }
         node.borderWidth?.let { put("borderWidth", it) }
+        node.rotation?.let { put("rotation", it) }
         node.image?.let { put("image", it) }
         node.notes?.let { notes ->
             if (notesUpTo != null && notes.length > notesUpTo) {

@@ -6,6 +6,11 @@ import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.dependency.ComponentDependants
 import io.mszymanski.orknux.server.dependency.DependencyKind
 import io.mszymanski.orknux.server.dependency.phrases
+import io.mszymanski.orknux.server.recyclebin.BinReference
+import io.mszymanski.orknux.server.recyclebin.RecycleBin
+import io.mszymanski.orknux.server.recyclebin.enumAt
+import io.mszymanski.orknux.server.recyclebin.flagAt
+import io.mszymanski.orknux.server.recyclebin.textAt
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workflow.MappingMode
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
@@ -21,6 +26,7 @@ import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
+import tools.jackson.databind.JsonNode
 
 /**
  * A workspace's conditions: the questions its workflows ask.
@@ -37,6 +43,8 @@ class ConditionAPI(
     private val workspaces: WorkspaceRepository,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
+    /** Where a deleted condition is kept so it can be put back; null where a test builds this by hand. */
+    private val recycleBin: RecycleBin? = null,
 ) {
 
     /**
@@ -206,9 +214,85 @@ class ConditionAPI(
         val users = dependants.of(DependencyKind.CONDITION, id)
         if (users.isNotEmpty()) throw ConditionInUseException(condition.name, users.phrases())
 
+        // Kept whole, with the names of what it points at, so it can be put back; then removed as before.
+        recycleBin?.bin(condition, snapshot(condition))
         conditions.delete(condition)
         auditRecorder.record(condition.workspaceId, WorkspaceAuditCategory.WORKFLOW, "Condition ${condition.name} deleted")
         return true
+    }
+
+    /**
+     * A condition as the recycle bin keeps it: everything the form holds.
+     *
+     * The function it calls and the conditions a composite is made of are kept
+     * by id *and* by name - an id is right while the thing was never deleted,
+     * and the name is how one that has itself been through the bin, and come
+     * back under a new id, is found again.
+     */
+    private fun snapshot(condition: WorkflowCondition): Map<String, Any?> = mapOf(
+        "name" to condition.name,
+        "type" to condition.type.name,
+        "property" to condition.property?.name,
+        "check" to condition.check?.name,
+        "negate" to condition.negate,
+        "functionId" to condition.functionId,
+        "functionName" to condition.functionId?.let { functions.findByIdOrNull(it) }?.name,
+        "values" to condition.values.toList(),
+        "arguments" to condition.arguments.map {
+            mapOf("name" to it.name, "expression" to it.expression, "mode" to it.mode.name)
+        },
+        "members" to condition.members.map { mapOf("id" to it, "name" to conditions.findByIdOrNull(it)?.name) },
+        "icon" to condition.icon,
+    )
+
+    /**
+     * Puts a binned condition back, through the same checks a new one passes.
+     *
+     * Into the shared list, whichever it came from: one a workflow owned was
+     * reached through a node that no longer points at it, so the catalogue is
+     * the only place left where somebody can find it again. A function or a
+     * member condition that has gone since is a refusal naming it, not a
+     * condition saved with a hole where its question was.
+     */
+    @Transactional
+    fun recreate(workspaceId: Long, held: JsonNode): WorkflowCondition {
+        val name = held.textAt("name").orEmpty()
+        if (conditions.findByWorkspaceIdAndWorkflowIdIsNullAndName(workspaceId, name) != null) {
+            throw ConditionNameTakenException(name)
+        }
+        val function = BinReference.at(held, "function").resolve(
+            "condition", name, "the function",
+            byId = { id -> functions.findByIdOrNull(id)?.takeIf { it.scope != FunctionScope.WORKSPACE || it.workspaceId == workspaceId } },
+            byName = { functions.findByWorkspaceIdAndName(workspaceId, it) },
+        )
+        val members = held.path("members").values().mapNotNull { member ->
+            BinReference.of(member).resolve(
+                "condition", name, "the condition",
+                byId = { id -> conditions.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId } },
+                byName = { conditions.findByWorkspaceIdAndWorkflowIdIsNullAndName(workspaceId, it) },
+            )?.id
+        }
+        return conditions.save(
+            WorkflowCondition(
+                workspaceId = workspaceId,
+                name = name,
+                type = held.enumAt<ConditionType>("type") ?: ConditionType.VALUE,
+                property = held.enumAt<ConditionProperty>("property"),
+                check = held.enumAt<ConditionCheck>("check"),
+                negate = held.flagAt("negate") ?: false,
+                functionId = function?.id,
+                values = held.path("values").values().mapNotNull { it.takeIf { v -> v.isString }?.stringValue() }.toMutableList(),
+                arguments = held.path("arguments").values().map {
+                    ConditionArgument(
+                        name = it.textAt("name").orEmpty(),
+                        expression = it.textAt("expression").orEmpty(),
+                        mode = it.enumAt<MappingMode>("mode") ?: MappingMode.VALUE,
+                    )
+                }.toMutableList(),
+                members = members.toMutableList(),
+                icon = held.textAt("icon"),
+            ).also { validate(it, itsOwnId = null) },
+        )
     }
 
     /** The list's Type badge and Description, and the sentence under the form. */

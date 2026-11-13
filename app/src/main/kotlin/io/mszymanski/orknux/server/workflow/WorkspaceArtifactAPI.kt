@@ -56,6 +56,8 @@ class WorkspaceArtifactAPI(
     private val layers: io.mszymanski.orknux.server.design.DesignImageLayers,
     /** The image catalogs the Images page files its pictures in. Lazy: the catalogs are Design's, and Design reaches here. */
     @param:org.springframework.context.annotation.Lazy private val catalogs: io.mszymanski.orknux.server.design.DesignCatalogs,
+    /** Where a deleted picture is written down, bytes and all, before it goes. Lazy: it reaches Design too. */
+    @param:org.springframework.context.annotation.Lazy private val pictureBin: PictureBin? = null,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -379,11 +381,13 @@ class WorkspaceArtifactAPI(
         val gone = when (kind) {
             ArtifactKind.IMAGE -> pictures.findByIdOrNull(rowId)
                 ?.takeIf { access.canSee(it.workspaceId) }
+                ?.also { pictureBin?.bin(it) }
                 ?.also { pictures.delete(it) }
                 ?.let { Removed(it.workspaceId, it.filename, it.location) }
 
             ArtifactKind.TASK -> taskPictures.findByIdOrNull(rowId)
                 ?.takeIf { access.canSee(it.workspaceId) }
+                ?.also { pictureBin?.bin(it) }
                 ?.also { taskPictures.delete(it) }
                 ?.let { Removed(it.workspaceId, it.filename, it.location) }
 
@@ -396,6 +400,8 @@ class WorkspaceArtifactAPI(
             ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)
                 ?.takeIf { access.canSee(it.workspaceId) }
                 ?.also { image ->
+                    // A draft is on no list and is nobody's picture yet: only a picture goes to the bin.
+                    if (image.versionOf == null) pictureBin?.bin(image)
                     // The artifact hosting it serves its file, which goes now: said here rather than left to the cascade alone.
                     saved.findByHostedImageId(rowId)?.let { host ->
                         saved.delete(host)

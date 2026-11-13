@@ -53,6 +53,8 @@ class ActionAPI(
     private val workflows: io.mszymanski.orknux.server.workflow.WorkspaceWorkflowRepository,
     /** The numbers this reads from Admin -> Settings. Issue #453. */
     private val tuning: Tuning = Tuning.DEFAULTS,
+    /** Where a deleted action is kept so it can be put back; null where a test builds this by hand. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin? = null,
 ) {
 
     /**
@@ -279,6 +281,16 @@ class ActionAPI(
         val users = dependants.of(DependencyKind.ACTION, id)
         if (users.isNotEmpty()) throw ActionInUseException(action.name, users.phrases())
 
+        // Kept whole - its settings and mappings - so it can be put back, then removed as before.
+        recycleBin?.bin(
+            action,
+            // By name as well as by id: what it points at may itself be deleted and put back, under a new id.
+            mapOf(
+                "function" to action.functionId?.let { functions.findByIdOrNull(it) }?.name,
+                "condition" to action.conditionId?.let { conditions.findByIdOrNull(it) }?.name,
+                "connection" to action.connectionId?.let { connections.workspaceConnection(it) }?.name,
+            ),
+        )
         actions.delete(action)
         auditRecorder.record(action.workspaceId, WorkspaceAuditCategory.WORKFLOW, "Action ${action.name} deleted")
         return true

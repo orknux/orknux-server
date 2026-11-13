@@ -283,6 +283,31 @@ object DiagramOutline {
         }
     }
 
+    /** A direction turned by [degrees] clockwise as the screen has it, y running down. */
+    fun turned(dx: Double, dy: Double, degrees: Int): Pair<Double, Double> {
+        val angle = Math.toRadians(degrees.toDouble())
+        val cos = kotlin.math.cos(angle)
+        val sin = kotlin.math.sin(angle)
+        return (dx * cos - dy * sin) to (dx * sin + dy * cos)
+    }
+
+    /**
+     * The upright box a node covers once turned: its own where it is not, the
+     * box around its turned corners where it is. What a picture has to leave
+     * room for.
+     */
+    fun extent(node: DiagramShape): DoubleArray {
+        val turn = node.rotation
+            ?: return doubleArrayOf(node.x.toDouble(), node.y.toDouble(), (node.x + node.w).toDouble(), (node.y + node.h).toDouble())
+        val cx = node.x + node.w / 2.0
+        val cy = node.y + node.h / 2.0
+        val corners = listOf(-1 to -1, 1 to -1, 1 to 1, -1 to 1).map { (sx, sy) -> turned(sx * node.w / 2.0, sy * node.h / 2.0, turn) }
+        return doubleArrayOf(
+            cx + corners.minOf { it.first }, cy + corners.minOf { it.second },
+            cx + corners.maxOf { it.first }, cy + corners.maxOf { it.second },
+        )
+    }
+
     /**
      * Where a line from [node]'s centre towards (tx, ty) leaves it: the outline
      * a person sees, so an arrow at a database touches the cylinder rather than
@@ -302,6 +327,19 @@ object DiagramOutline {
     fun borderFrom(node: DiagramShape, ox: Double, oy: Double, tx: Double, ty: Double): Pair<Double, Double> {
         val cx = node.x + node.w / 2.0
         val cy = node.y + node.h / 2.0
+        node.rotation?.let { turn ->
+            /*
+             * A turned shape is met in its own frame: the ray turned back by
+             * as much, the upright outline found, and that point turned
+             * forward again. From the middle whatever was asked, since a point
+             * inside the upright box may lie outside the turned shape.
+             */
+            val (ux, uy) = turned(tx - ox, ty - oy, -turn)
+            if (ux == 0.0 && uy == 0.0) return ox to oy
+            val (px, py) = borderFrom(node.copy(rotation = null), cx, cy, cx + ux, cy + uy)
+            val (rx, ry) = turned(px - cx, py - cy, turn)
+            return (cx + rx) to (cy + ry)
+        }
         val dx = tx - ox
         val dy = ty - oy
         if (dx == 0.0 && dy == 0.0) return ox to oy

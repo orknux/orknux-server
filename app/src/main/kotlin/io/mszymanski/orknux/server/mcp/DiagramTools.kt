@@ -734,9 +734,10 @@ class DiagramTools(
                 "conversation, puts a picture of it there."
 
         private const val NODE_SAID =
-            "Each is {id, kind, label, x, y, w, h, color, border, borderWidth, notes, parent, layer, link, image}: whole pixels from the top left, absolute even " +
+            "Each is {id, kind, label, x, y, w, h, color, border, borderWidth, rotation, notes, parent, layer, link, image}: whole pixels from the top left, absolute even " +
                 "inside a group; id optional on a new one; color #rrggbb is its fill; border #rrggbb and borderWidth, whole " +
-                "pixels 1 to 12, its outline - null for the usual; notes are free text about the node; parent " +
+                "pixels 1 to 12, its outline - null for the usual; rotation turns it about its middle, in degrees " +
+                "clockwise - null or 0 for upright; notes are free text about the node; parent " +
                 "is the id of the group it sits in; layer is the id of the layer it is on, the first when left out; link is what a " +
                 "reader opens from the box - a web address, or another diagram as diagram:<id> (its id from $LIST), a document " +
                 "as document:<id> or a wireframe as wireframe:<id> - and " +
@@ -790,6 +791,7 @@ class DiagramTools(
                     "link" to mapOf("type" to "string"),
                     "border" to mapOf("type" to "string"),
                     "borderWidth" to mapOf("type" to "number"),
+                    "rotation" to mapOf("type" to "number"),
                     "image" to mapOf("type" to "string"),
                 ),
             ),

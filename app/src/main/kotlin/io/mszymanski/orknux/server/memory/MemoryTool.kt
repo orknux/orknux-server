@@ -26,6 +26,8 @@ class MemoryTool(
     private val catalogs: MemoryCatalogRepository,
     private val memories: MemoryRepository,
     private val auditRecorder: WorkspaceAuditRecorder,
+    /** The same bin the browser's delete fills: an agent's delete is not a way round it. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin? = null,
 ) {
 
     /** What this looks like to an agent choosing whether to call it. */
@@ -370,6 +372,7 @@ class MemoryTool(
             ?: throw MemorySaveRefusedException(
                 "There is no memory called \"$said\" in ${into.name}. memory_search with that catalog lists them.",
             )
+        recycleBin?.bin(held, into.workspaceId)
         memories.delete(held)
         auditRecorder.recordAutomated(
             into.workspaceId,

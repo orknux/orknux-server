@@ -49,13 +49,16 @@ object DiagramRoute {
         val cx = node.x + node.w / 2.0
         val cy = node.y + node.h / 2.0
         val far = 1_000_000.0
-        return when (side) {
-            DiagramSide.TOP -> cx to cy - far
-            DiagramSide.BOTTOM -> cx to cy + far
-            DiagramSide.LEFT -> cx - far to cy
-            DiagramSide.RIGHT -> cx + far to cy
-            null -> fx to fy
+        val (dx, dy) = when (side) {
+            DiagramSide.TOP -> 0.0 to -far
+            DiagramSide.BOTTOM -> 0.0 to far
+            DiagramSide.LEFT -> -far to 0.0
+            DiagramSide.RIGHT -> far to 0.0
+            null -> return fx to fy
         }
+        // A side turns with its box: the top of one turned a quarter is on its right.
+        val (tx, ty) = node.rotation?.let { DiagramOutline.turned(dx, dy, it) } ?: (dx to dy)
+        return (cx + tx) to (cy + ty)
     }
 
     /** How near a side's corner a line may leave a shape: past a rounded corner, where the side is no longer one. */
@@ -79,8 +82,9 @@ object DiagramRoute {
         val cx = node.x + node.w / 2.0
         val cy = node.y + node.h / 2.0
         val far = 1_000_000.0
+        // A turned box is left from its middle: its sides no longer run along the axes a corner's line does.
         fun along(at: Double, low: Double, high: Double, middle: Double) =
-            if (at >= low + SIDE_INSET && at <= high - SIDE_INSET) at else middle
+            if (node.rotation == null && at >= low + SIDE_INSET && at <= high - SIDE_INSET) at else middle
         return when {
             px in left..right && (py < top || py > bottom) -> {
                 val down = py > bottom

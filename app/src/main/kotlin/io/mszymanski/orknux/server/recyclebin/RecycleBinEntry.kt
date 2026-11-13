@@ -20,12 +20,11 @@ import java.time.OffsetDateTime
 /**
  * A kind of object the recycle bin holds and can put back.
  *
- * The six that keep their whole state in one snapshot and carry no file of their
- * own (`ComponentSnapshot` writes and reads every one of them), which is what
- * makes a delete reversible by writing the object down and re-creating it. A
- * seventh kind is a seventh entry here and a seventh branch where a delete is
- * turned into a [RecycleBin.bin] call and where a restore re-creates it; nothing
- * else changes.
+ * A delete is made reversible by writing the whole object down - into one
+ * snapshot, which for most kinds keeps every part of it inline (`ComponentSnapshot`
+ * or the object's own door writes and reads it) - and re-creating it on restore.
+ * A new kind is a new entry here, a [RecycleBin.bin] overload the delete calls,
+ * and a new branch where a restore re-creates it; nothing else changes.
  *
  * [auditCategory] is where the log line goes - the same screen the object lives
  * on, so "Agent Foo restored" is filed where "Agent Foo deleted" was.
@@ -37,10 +36,36 @@ enum class RecycleBinKind(val auditCategory: WorkspaceAuditCategory) {
     FUNCTION(WorkspaceAuditCategory.WORKFLOW),
     DOCUMENT(WorkspaceAuditCategory.WORKSPACE),
     DIAGRAM(WorkspaceAuditCategory.WORKSPACE),
+    SHEET(WorkspaceAuditCategory.WORKSPACE),
+    ACTION(WorkspaceAuditCategory.WORKFLOW),
+    WIREFRAME(WorkspaceAuditCategory.WORKSPACE),
+    MEMORY(WorkspaceAuditCategory.MEMORY),
+    IMAGE(WorkspaceAuditCategory.WORKFLOW),
+    ISSUE(WorkspaceAuditCategory.WORKSPACE),
+    WORKFLOW(WorkspaceAuditCategory.WORKFLOW),
+
+    /*
+     * The rest of the catalogue an action sits in. Each is written and put back
+     * by its own door, and each may name something else in the workspace - a
+     * condition its function, a trigger its connection, a variable its catalog -
+     * so its snapshot keeps that as an id and a name; see [BinReference].
+     */
+    CONDITION(WorkspaceAuditCategory.WORKFLOW),
+    TRIGGER(WorkspaceAuditCategory.WORKFLOW),
+    OBJECT(WorkspaceAuditCategory.OBJECT),
+    VARIABLE(WorkspaceAuditCategory.WORKFLOW),
+
+    /**
+     * A folder, with what it held when it was deleted - one entry, so the
+     * folder comes back as a folder, its memories or skills in it, rather than
+     * as its contents scattered into the default one.
+     */
+    MEMORY_CATALOG(WorkspaceAuditCategory.MEMORY),
+    SKILL_CATALOG(WorkspaceAuditCategory.AGENT),
     ;
 
-    /** How a line names it: "Agent", "Tool", … - the enum word, capitalised. */
-    val label: String get() = name.lowercase().replaceFirstChar { it.uppercase() }
+    /** How a line names it: "Agent", "Tool", "Memory catalog", … - the enum's words, the first capitalised. */
+    val label: String get() = name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
 /**
@@ -95,12 +120,94 @@ class RecycleBinEntry(
 
 interface RecycleBinRepository : JpaRepository<RecycleBinEntry, Long> {
 
-    /** A workspace's bin, newest first, which is the only way the page reads it. */
+    /** A workspace's bin, newest first, whole - snapshots and all. Only what empties a bin reads it this way. */
     fun findByWorkspaceIdOrderByDeletedAtDescIdDesc(workspaceId: Long, pageable: Pageable): Page<RecycleBinEntry>
+
+    /**
+     * A workspace's bin, newest first, as the page lists it: every column but
+     * the snapshot. A deleted picture or an issue with screenshots carries its
+     * bytes in there, and a list that read twenty of those to print twenty
+     * names would read megabytes to show a line each.
+     */
+    @Query(
+        "select new io.mszymanski.orknux.server.recyclebin.RecycleBinLine(e.id, e.kind, e.name, e.deletedAt, e.deletedBy) " +
+            "from RecycleBinEntry e where e.workspaceId = :workspaceId order by e.deletedAt desc, e.id desc",
+        countQuery = "select count(e) from RecycleBinEntry e where e.workspaceId = :workspaceId",
+    )
+    fun lines(@Param("workspaceId") workspaceId: Long, pageable: Pageable): Page<RecycleBinLine>
+
+    /** The workflow definitions a workspace's bin holds, which go for good when the bin is emptied. */
+    @Query("select e.originalId from RecycleBinEntry e where e.workspaceId = :workspaceId and e.kind = :kind")
+    fun originalsIn(@Param("workspaceId") workspaceId: Long, @Param("kind") kind: RecycleBinKind): List<Long>
+
+    /** The same, for everything the retention sweep is about to take. */
+    @Query("select e.originalId from RecycleBinEntry e where e.deletedAt < :before and e.kind = :kind")
+    fun originalsDeletedBefore(@Param("before") before: OffsetDateTime, @Param("kind") kind: RecycleBinKind): List<Long>
+
+    /** Whether any bin still holds a workflow definition, before it is deleted for good. */
+    fun existsByKindAndOriginalId(kind: RecycleBinKind, originalId: Long): Boolean
+
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from RecycleBinEntry e where e.workspaceId = :workspaceId")
+    fun deleteByWorkspace(@Param("workspaceId") workspaceId: Long): Int
 
     /** What the retention sweep takes: everything deleted before a date, across every workspace. */
     @Query("select e.id from RecycleBinEntry e where e.deletedAt < :before")
     fun idsDeletedBefore(@Param("before") before: OffsetDateTime): List<Long>
+}
+
+/** One line of a bin, without what the object held. */
+data class RecycleBinLine(
+    val id: Long,
+    val kind: RecycleBinKind,
+    val name: String,
+    val deletedAt: OffsetDateTime,
+    val deletedBy: String,
+)
+
+/**
+ * A binned workflow whose definition is no longer there to put back - which
+ * takes something outside the bin having removed it, since the bin itself keeps
+ * a definition for as long as it holds the entry.
+ */
+class RecycleBinWorkflowGoneException(val name: String) :
+    RuntimeException("The workflow $name can no longer be restored: its definition is gone"), Refusal {
+
+    override val arguments get() = mapOf("name" to name)
+}
+
+/**
+ * A binned object that names something the workspace no longer has - the
+ * function a condition calls, the connection a trigger listens on.
+ *
+ * Refused rather than put back without it. A delete is refused while anything
+ * uses the object, but nothing holds in place what the object itself used, so
+ * that may have gone since; and a trigger restored without its condition fires
+ * on everything, which is a different trigger from the one that was deleted.
+ * [what] and [called] say what to put back first - "the function", "isVip" - and
+ * a restore finds it by that name, so making a new one called that does as well
+ * as restoring the old; which matters for a connection, which the bin does not
+ * keep.
+ */
+class RecycleBinReferenceGoneException(val kind: String, val name: String, val what: String, val called: String?) :
+    RuntimeException(
+        "The $kind $name cannot be restored yet: ${listOfNotNull(what, called).joinToString(" ")}, which it uses, " +
+            "is no longer here. Restore that first, or make one with that name.",
+    ),
+    Refusal {
+
+    /**
+     * `missing` is the English phrase the sentence uses; `missingName` is the
+     * name alone, which is the half a translation can put in a sentence of its
+     * own without an English noun in the middle of it.
+     */
+    override val arguments
+        get() = mapOf(
+            "kind" to kind,
+            "name" to name,
+            "missing" to listOfNotNull(what, called).joinToString(" "),
+            "missingName" to (called ?: what),
+        )
 }
 
 class RecycleBinEntryNotFoundException(val id: Long) :

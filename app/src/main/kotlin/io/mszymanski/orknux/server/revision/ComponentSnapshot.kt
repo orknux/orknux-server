@@ -1,9 +1,12 @@
 package io.mszymanski.orknux.server.revision
 
+import io.mszymanski.orknux.server.action.ArgumentMapping
+import io.mszymanski.orknux.server.action.ConnectionAction
 import io.mszymanski.orknux.server.action.FunctionExternal
 import io.mszymanski.orknux.server.action.FunctionParam
 import io.mszymanski.orknux.server.action.ScriptImport
 import io.mszymanski.orknux.server.action.ValueType
+import io.mszymanski.orknux.server.action.WorkflowAction
 import io.mszymanski.orknux.server.action.WorkflowFunction
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentSkill
@@ -210,6 +213,47 @@ object ComponentSnapshot {
             "orientation" to document.orientation,
             "margins" to document.margins,
             "language" to document.language,
+        ),
+    )
+
+    /**
+     * An action: every setting a form holds, its argument mappings, and the ids
+     * it points at - a connection, a function, a condition, a speech model - kept
+     * as the columns hold them, so a restore reaches exactly what it reached. Its
+     * workflowId is not kept: a restored action goes back to the workspace's
+     * catalogue, never to a workflow that may be gone. Written field by field for
+     * the reason the rest here is: an action that gains a setting gains a line.
+     */
+    fun of(action: WorkflowAction, mapper: ObjectMapper): String = mapper.writeValueAsString(
+        mapOf(
+            "version" to VERSION,
+            "name" to action.name,
+            "type" to action.type.name,
+            "subtype" to action.subtype.name,
+            "connectionId" to action.connectionId,
+            "connectionAction" to action.connectionAction?.name,
+            "content" to action.content,
+            "targetName" to action.targetName,
+            "emailTo" to action.emailTo,
+            "emailCc" to action.emailCc,
+            "emailSubject" to action.emailSubject,
+            "emailReplyTo" to action.emailReplyTo,
+            "speechText" to action.speechText,
+            "speechVoice" to action.speechVoice,
+            "speechModelId" to action.speechModelId,
+            "url" to action.url,
+            "method" to action.method,
+            "headers" to action.headers,
+            "functionId" to action.functionId,
+            "pluginKey" to action.pluginKey,
+            "pluginAction" to action.pluginAction,
+            "conditionExpression" to action.conditionExpression,
+            "conditionId" to action.conditionId,
+            "timeoutSeconds" to action.timeoutSeconds,
+            "retryIntervalSeconds" to action.retryIntervalSeconds,
+            "durationSeconds" to action.durationSeconds,
+            "icon" to action.icon,
+            "mappings" to action.mappings.map { mapOf("argument" to it.argument, "expression" to it.expression) },
         ),
     )
 
@@ -467,6 +511,45 @@ object ComponentSnapshot {
         if (held.has("maxSubagentsAtOnce")) agent.maxSubagentsAtOnce = number(held, "maxSubagentsAtOnce")?.toInt()
         if (held.has("reasoningEffort")) agent.reasoningEffort = held.path("reasoningEffort").takeIf { it.isString }?.asString()
         if (held.has("chattiness")) agent.chattiness = enumOf(held, "chattiness", agent.chattiness)
+    }
+
+    /**
+     * Puts an action's settings back onto a fresh row. Type and subtype are what
+     * decide which settings matter, so they come first; the mappings are rebuilt
+     * from the pairs the snapshot kept, in their order. workflowId is left null,
+     * as [of] does not keep it.
+     */
+    fun restore(action: WorkflowAction, snapshot: String, mapper: ObjectMapper) {
+        val held = mapper.readTree(snapshot)
+        action.name = text(held, "name") ?: action.name
+        action.type = enumOf(held, "type", action.type)
+        action.subtype = enumOf(held, "subtype", action.subtype)
+        action.connectionId = number(held, "connectionId")
+        action.connectionAction = text(held, "connectionAction")?.let { runCatching { ConnectionAction.valueOf(it) }.getOrNull() }
+        action.content = text(held, "content")
+        action.targetName = text(held, "targetName")
+        action.emailTo = text(held, "emailTo")
+        action.emailCc = text(held, "emailCc")
+        action.emailSubject = text(held, "emailSubject")
+        action.emailReplyTo = text(held, "emailReplyTo")
+        action.speechText = text(held, "speechText")
+        action.speechVoice = text(held, "speechVoice")
+        action.speechModelId = number(held, "speechModelId")
+        action.url = text(held, "url")
+        action.method = text(held, "method")
+        action.headers = text(held, "headers")
+        action.functionId = number(held, "functionId")
+        action.pluginKey = text(held, "pluginKey")
+        action.pluginAction = text(held, "pluginAction")
+        action.conditionExpression = text(held, "conditionExpression")
+        action.conditionId = number(held, "conditionId")
+        action.timeoutSeconds = number(held, "timeoutSeconds")?.toInt()
+        action.retryIntervalSeconds = number(held, "retryIntervalSeconds")?.toInt()
+        action.durationSeconds = number(held, "durationSeconds")?.toInt()
+        action.icon = text(held, "icon")
+        action.mappings = held.path("mappings").values()
+            .map { ArgumentMapping(text(it, "argument") ?: "", text(it, "expression") ?: "") }
+            .toMutableList()
     }
 
     // ---------------------------------------------------------------- reading

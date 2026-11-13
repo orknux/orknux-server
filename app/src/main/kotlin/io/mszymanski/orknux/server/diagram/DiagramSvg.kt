@@ -24,11 +24,12 @@ class DiagramSvg {
      * picture - a PDF's links - places it by this.
      */
     fun frame(drawing: DiagramDrawing): List<Int> {
-        val nodes = drawing.visible().nodes
-        val left = (nodes.minOfOrNull { it.x } ?: 0) - PAD
-        val top = (nodes.minOfOrNull { it.y } ?: 0) - PAD
-        val right = (nodes.maxOfOrNull { it.x + it.w } ?: 200) + PAD
-        val bottom = (nodes.maxOfOrNull { it.y + it.h } ?: 100) + PAD
+        // Each node's box as it is drawn: a turned one reaches past the box it was turned from.
+        val boxes = drawing.visible().nodes.map { DiagramOutline.extent(it) }
+        val left = (boxes.minOfOrNull { kotlin.math.floor(it[0]).toInt() } ?: 0) - PAD
+        val top = (boxes.minOfOrNull { kotlin.math.floor(it[1]).toInt() } ?: 0) - PAD
+        val right = (boxes.maxOfOrNull { kotlin.math.ceil(it[2]).toInt() } ?: 200) + PAD
+        val bottom = (boxes.maxOfOrNull { kotlin.math.ceil(it[3]).toInt() } ?: 100) + PAD
         return listOf(left, top, max(1, right - left), max(1, bottom - top))
     }
 
@@ -115,7 +116,15 @@ class DiagramSvg {
         return label.contains('\n') || fitted(line, EDGE_LABEL_WIDTH, 12) != line
     }
 
+    /** A node as it is drawn: turned about its middle where it is, words and all, as the editor turns it. */
     private fun StringBuilder.node(node: DiagramShape, pictures: (DiagramShape) -> String? = { null }) {
+        val turn = node.rotation ?: return upright(node, pictures)
+        append("<g transform=\"rotate($turn ${r(node.x + node.w / 2.0)} ${r(node.y + node.h / 2.0)})\">")
+        upright(node, pictures)
+        append("</g>")
+    }
+
+    private fun StringBuilder.upright(node: DiagramShape, pictures: (DiagramShape) -> String?) {
         val (x, y, w, h) = listOf(node.x, node.y, node.w, node.h)
         if (node.kind == DiagramNodeKind.IMAGE) {
             picture(node, pictures(node))
@@ -178,9 +187,12 @@ class DiagramSvg {
         if (jumped != null) {
             append("<path d=\"$jumped\" fill=\"none\" ${stroked(edge)} stroke-linejoin=\"round\"")
         } else if (edge.routing == DiagramRouting.STRAIGHT) {
-            // As a line element, as every line was drawn before there was a choice.
-            val (x1, y1) = border(from, to.x + to.w / 2.0, to.y + to.h / 2.0)
-            val (x2, y2) = border(to, from.x + from.w / 2.0, from.y + from.h / 2.0)
+            // As a line element, as every line was drawn before there was a choice -
+            // between the ends the route found, which is where a pinned side is
+            // read: worked out again here from the two middles, a pinned line was
+            // exported leaving the side that faced the other box.
+            val (x1, y1) = route.points?.firstOrNull() ?: border(from, to.x + to.w / 2.0, to.y + to.h / 2.0)
+            val (x2, y2) = route.points?.lastOrNull() ?: border(to, from.x + from.w / 2.0, from.y + from.h / 2.0)
             append("<line x1=\"${r(x1)}\" y1=\"${r(y1)}\" x2=\"${r(x2)}\" y2=\"${r(y2)}\" ${stroked(edge)}")
         } else {
             append("<path d=\"${route.d}\" fill=\"none\" ${stroked(edge)} stroke-linejoin=\"round\"")

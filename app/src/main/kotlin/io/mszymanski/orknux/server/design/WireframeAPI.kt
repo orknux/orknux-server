@@ -37,7 +37,7 @@ class WireframeAPI(
     private val wireframes: WireframeRepository,
     private val audit: WorkspaceAuditRecorder,
     private val access: WorkspaceAccess,
-    mapper: ObjectMapper,
+    private val mapper: ObjectMapper,
     /** Lazy: the chat reaches the orknux_* tools, which save through here. */
     @param:Lazy private val chat: WireframeChat,
     /** What a turn's files say, for the model. */
@@ -52,6 +52,8 @@ class WireframeAPI(
     private val catalogs: DesignCatalogs? = null,
     /** A hosted wireframe's page, written again on every save; null only where a test builds this by hand. */
     private val hosting: WireframeHosting? = null,
+    /** Where a deleted wireframe is put down whole; null only where a test builds this by hand. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin? = null,
 ) {
 
     private val document = WireframeDocument(mapper)
@@ -164,9 +166,43 @@ class WireframeAPI(
         hosting?.unhost(id)?.let {
             audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} no longer hosted as a page")
         }
+        recycleBin?.bin(held, snapshot(held))
         wireframes.delete(held)
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} removed")
         return true
+    }
+
+    /**
+     * The whole of a wireframe, for the recycle bin: its name and its drawing.
+     * A picture an image element shows is one of the workspace's own, named by
+     * its key, so it is not this wireframe's to carry.
+     */
+    fun snapshot(wireframe: Wireframe): String =
+        mapper.writeValueAsString(mapOf("name" to wireframe.name, "document" to wireframe.document))
+
+    /**
+     * Re-creates a wireframe from a recycle bin snapshot: a fresh row with the
+     * same name and drawing, filed in its catalog or the workspace's default
+     * when the one it was in is gone. Not hosted again - its page went with it.
+     * The recycle bin writes the one audit line; this none.
+     */
+    @Transactional
+    fun recreate(workspaceId: Long, catalogId: Long?, snapshot: String): WireframeView {
+        val tree = mapper.readTree(snapshot)
+        val who = who()
+        return view(
+            wireframes.save(
+                Wireframe(
+                    workspaceId = workspaceId,
+                    name = tree.path("name").asString(),
+                    // Written by this class when it was deleted, so it is kept as it was rather than checked again.
+                    document = tree.path("document").asString(),
+                    createdBy = who,
+                    updatedBy = who,
+                    catalogId = catalogs?.resolveOrDefault(workspaceId, DesignCatalogKind.WIREFRAME, catalogId),
+                ),
+            ),
+        )
     }
 
     /**

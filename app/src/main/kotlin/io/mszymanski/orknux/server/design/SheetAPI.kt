@@ -56,6 +56,8 @@ class SheetAPI(
     private val rooms: LiveRooms? = null,
     /** The catalogs a sheet is filed in; null only where a test builds this by hand. */
     private val catalogs: DesignCatalogs? = null,
+    /** Where a deleted sheet is kept so it can be put back; null where a test builds this by hand. */
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin? = null,
 ) {
 
     private val workbook = SheetWorkbook(mapper)
@@ -157,9 +159,26 @@ class SheetAPI(
     @Transactional
     fun deleteSheet(@Argument id: Long): Boolean {
         val held = find(id)
+        // Kept whole - its name and workbook - so it can be put back, then removed as before.
+        recycleBin?.bin(held, snapshot(held))
         sheets.delete(held)
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Sheet ${held.name} removed")
         return true
+    }
+
+    /** The whole of a sheet, for the recycle bin: its name and its workbook. */
+    fun snapshot(sheet: Sheet): String =
+        mapper.writeValueAsString(mapOf("name" to sheet.name, "workbook" to sheet.workbook))
+
+    /**
+     * Re-creates a sheet from a recycle bin snapshot: a fresh row with the same
+     * name and workbook, filed in its catalog or the workspace's default when the
+     * one it was in is gone. The recycle bin writes the one audit line; this none.
+     */
+    @Transactional
+    fun recreate(workspaceId: Long, catalogId: Long?, snapshot: String): SheetView {
+        val tree = mapper.readTree(snapshot)
+        return view(make(workspaceId, tree.path("name").asText(), workbook.read(tree.path("workbook").asText()), catalogId, restored = true))
     }
 
     /**
@@ -307,9 +326,10 @@ class SheetAPI(
         )
     }
 
-    private fun make(workspaceId: Long, name: String, tabs: List<SheetTab>, catalogId: Long? = null): Sheet {
+    private fun make(workspaceId: Long, name: String, tabs: List<SheetTab>, catalogId: Long? = null, restored: Boolean = false): Sheet {
         val who = who()
-        val filed = catalogs?.resolve(workspaceId, DesignCatalogKind.SHEET, catalogId)
+        // A restore files into the default where the catalog it came from is gone; anything else is refused there.
+        val filed = if (restored) catalogs?.resolveOrDefault(workspaceId, DesignCatalogKind.SHEET, catalogId) else catalogs?.resolve(workspaceId, DesignCatalogKind.SHEET, catalogId)
         return sheets.save(
             Sheet(workspaceId = workspaceId, name = name, workbook = workbook.write(tabs), createdBy = who, updatedBy = who, catalogId = filed),
         )

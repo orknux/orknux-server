@@ -4,6 +4,11 @@ import io.mszymanski.orknux.server.dependency.ComponentDependants
 import io.mszymanski.orknux.server.dependency.DependencyKind
 import io.mszymanski.orknux.server.dependency.phrases
 import io.mszymanski.orknux.server.graphql.Refusal
+import io.mszymanski.orknux.server.recyclebin.BinReference
+import io.mszymanski.orknux.server.recyclebin.RecycleBin
+import io.mszymanski.orknux.server.recyclebin.enumAt
+import io.mszymanski.orknux.server.recyclebin.longAt
+import io.mszymanski.orknux.server.recyclebin.textAt
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
@@ -19,6 +24,7 @@ import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
+import tools.jackson.databind.JsonNode
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
@@ -39,6 +45,8 @@ class ObjectAPI(
     private val dependants: ComponentDependants,
     /** How deep a shape may go: Admin > Settings. */
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    /** Where a deleted object is kept so it can be put back; null where a test builds this by hand. */
+    private val recycleBin: RecycleBin? = null,
 ) {
 
     /**
@@ -241,10 +249,103 @@ class ObjectAPI(
         val users = dependants.of(DependencyKind.OBJECT, id)
         if (users.isNotEmpty()) throw ObjectInUseException(held.name, users.phrases())
 
+        // Kept whole, with the names of the objects it points at, so it can be put back; then removed as before.
+        recycleBin?.bin(held, snapshot(held))
         objects.delete(held)
         auditRecorder.record(held.workspaceId, WorkspaceAuditCategory.OBJECT, "Object ${held.name} deleted")
         return true
     }
+
+    /**
+     * An object as the recycle bin keeps it: its properties as they are stored,
+     * shapes defined in place included.
+     *
+     * A property points at another object by id, at the top or anywhere inside
+     * an inline shape, so [REFERENCES] holds the name each of those ids went by.
+     * One of them may be this object's own - that is how a tree is described -
+     * which is why the snapshot says what its id was.
+     */
+    private fun snapshot(held: WorkflowObject): Map<String, Any?> = mapOf(
+        "id" to held.id,
+        "name" to held.name,
+        "description" to held.description,
+        "createdBy" to held.createdBy,
+        "createdAt" to held.createdAt.toString(),
+        "properties" to held.properties.map {
+            mapOf(
+                "name" to it.name,
+                "kind" to it.kind.name,
+                "refObjectId" to it.refObjectId,
+                "elementKind" to it.elementKind?.name,
+                "description" to it.description,
+                "inlineProperties" to it.inlineProperties,
+            )
+        },
+        REFERENCES to held.properties.flatMap { it.references() }.distinct().map { id ->
+            mapOf("id" to id, "name" to objects.findByIdOrNull(id)?.name)
+        },
+    )
+
+    /**
+     * Puts a binned object back, under the name it had.
+     *
+     * Every reference is resolved again rather than trusted, as a save resolves
+     * them: to the object of that id while this workspace still has it, and
+     * otherwise to the one of that name - which is what an object deleted and
+     * restored since, under a new id, now is. One that is neither is a refusal
+     * saying which object to put back first. A reference to itself follows the
+     * object to its new id, which is why it is saved empty first: there is no
+     * id to point at until there is a row.
+     */
+    @Transactional
+    fun recreate(workspaceId: Long, held: JsonNode): WorkflowObject {
+        val name = held.textAt("name").orEmpty()
+        if (objects.findByWorkspaceIdAndName(workspaceId, name) != null) throw ObjectNameTakenException(name)
+
+        val was = held.longAt("id")
+        val elsewhere = held.path(REFERENCES).values()
+            .map(BinReference::of)
+            .filter { it.id != null && it.id != was }
+            .associate { reference ->
+                requireNotNull(reference.id) to requireNotNull(
+                    reference.resolve(
+                        "object", name, "the object",
+                        byId = { id -> objects.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId || it.pluginId != null } },
+                        byName = { objects.findByWorkspaceIdAndName(workspaceId, it) },
+                    )?.id,
+                )
+            }
+
+        val saved = objects.save(
+            WorkflowObject(
+                workspaceId = workspaceId,
+                name = name,
+                description = held.textAt("description"),
+                createdAt = held.textAt("createdAt")?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
+                    ?: OffsetDateTime.now(),
+                createdBy = held.textAt("createdBy") ?: currentUser(),
+                lastModifiedBy = currentUser(),
+            ),
+        )
+        val now = elsewhere + listOfNotNull(was?.let { it to requireNotNull(saved.id) })
+        saved.properties = held.path("properties").values().map { property ->
+            ObjectProperty(
+                name = property.textAt("name").orEmpty(),
+                kind = property.enumAt<PropertyKind>("kind") ?: PropertyKind.STRING,
+                refObjectId = property.longAt("refObjectId")?.let(now::get),
+                elementKind = property.enumAt<PropertyKind>("elementKind"),
+                description = property.textAt("description"),
+                inlineProperties = InlineShapes.write(InlineShapes.read(property.textAt("inlineProperties"))?.map { it.pointedAt(now) }),
+            )
+        }.toMutableList()
+        return objects.save(saved)
+    }
+
+    /** The same inline field with every reference in it, at any depth, moved to where [now] says it is. */
+    private fun InlineProperty.pointedAt(now: Map<Long, Long>): InlineProperty = copy(
+        refObjectId = refObjectId?.let(now::get),
+        properties = properties?.map { it.pointedAt(now) },
+    )
 
     /**
      * The editor's Validate. It answers rather than throws: a half-written
@@ -502,6 +603,9 @@ class ObjectAPI(
     }
 
     private companion object {
+        /** Where a bin snapshot keeps the name of every object its properties point at. */
+        const val REFERENCES = "references"
+
         /** What can be written after a dot, which is how a property is read. */
         val NAME = Regex("[A-Za-z_][A-Za-z0-9_]*")
 

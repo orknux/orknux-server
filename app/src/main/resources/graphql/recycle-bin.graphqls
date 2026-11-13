@@ -1,8 +1,11 @@
 # The recycle bin: objects a workspace deleted, kept whole so they can be put
-# back until they are purged. Deleting an agent, tool, function, skill, document
-# or diagram writes it down first and then removes it as before; a restore
-# re-creates it (with a new id, because a delete is refused while anything still
-# uses it); the retention is RECYCLE_BIN_RETENTION_DAYS, or sooner by hand.
+# back until they are purged. Deleting an agent, tool, function, action, skill,
+# memory, document, diagram, wireframe, sheet, picture or issue writes it down
+# first and then removes it as before; a restore re-creates it (with a new id,
+# because a delete is refused while anything still uses it). A workflow is taken
+# off its workspace and kept as it is, and really deleted when its entry goes.
+# A memory catalog or a skill catalog goes in as one entry with what it held.
+# The retention is RECYCLE_BIN_RETENTION_DAYS, or sooner by hand.
 
 extend type Query {
     "A workspace's recycle bin, newest first. Anyone who can see the workspace may read it."
@@ -26,6 +29,27 @@ enum RecycleBinKind {
     SKILL
     DOCUMENT
     DIAGRAM
+    SHEET
+    ACTION
+    WIREFRAME
+    MEMORY
+    "A picture on Design's Images page, whatever drew it."
+    IMAGE
+    ISSUE
+    "A workflow taken off the workspace; restoring assigns it again, with everything it had."
+    WORKFLOW
+    "A memory catalog with the memories it held; restored as that folder, and granted to the agents that had it."
+    MEMORY_CATALOG
+    "A skill catalog with the skills it held; restored as that folder."
+    SKILL_CATALOG
+    "A condition; restored into the shared list, asking what it asked."
+    CONDITION
+    "A trigger; restored into the shared list, on or off as it was."
+    TRIGGER
+    "An object a workspace drew, with every property it had."
+    OBJECT
+    "A variable or a secret, restored to its catalog with the value it held."
+    VARIABLE
 }
 
 "One deleted object, as the bin lists it; what it held is not read until it is restored."

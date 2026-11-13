@@ -53,6 +53,7 @@ class WorkflowAPI(
     private val workspaces: WorkspaceRepository,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin? = null,
 ) {
 
     @QueryMapping
@@ -240,11 +241,19 @@ class WorkflowAPI(
         return WorkspaceWorkflowView(assignment)
     }
 
-    /** Removes the assignment only; the workflow definition is kept. */
+    /**
+     * Takes a workflow off its workspace and into the recycle bin.
+     *
+     * Only the assignment goes here. The definition - the graph, what was
+     * published, its triggers, its runs - stays as it is while the bin holds
+     * it, so putting it back is assigning it again and nothing has to be
+     * rebuilt; it is deleted for good when its bin entry is, by hand or by age.
+     */
     @MutationMapping
     @Transactional
     fun removeWorkflow(@Argument id: Long): Boolean {
         val assignment = assignments.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) } ?: return false
+        recycleBin?.bin(assignment)
         assignments.delete(assignment)
         auditRecorder.record(
             assignment.workspaceId,

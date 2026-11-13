@@ -82,6 +82,16 @@ class DesignCatalogs(
     fun resolve(workspaceId: Long, kind: DesignCatalogKind, catalogId: Long?): Long =
         requireNotNull((if (catalogId == null) defaultOf(workspaceId, kind) else catalog(workspaceId, kind, catalogId)).id)
 
+    /**
+     * As [resolve], but the default where [catalogId] names nothing any more:
+     * what a restore from the recycle bin files into, since the catalog a thing
+     * was deleted from may itself have been deleted since.
+     */
+    fun resolveOrDefault(workspaceId: Long, kind: DesignCatalogKind, catalogId: Long?): Long {
+        val kept = catalogId?.let { repository(kind).findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
+        return requireNotNull((kept ?: defaultOf(workspaceId, kind)).id)
+    }
+
     /** Each catalog's name, by id, for a list that names the catalog of every row. */
     fun names(workspaceId: Long, kind: DesignCatalogKind): Map<Long, String> =
         catalogs(workspaceId, kind).associate { requireNotNull(it.id) to it.name }

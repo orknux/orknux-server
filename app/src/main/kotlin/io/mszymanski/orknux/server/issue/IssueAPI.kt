@@ -80,6 +80,8 @@ class IssueAPI(
     private val installation: InstallationSettings,
     /** What the workspace's statuses are, and which one a caller meant. */
     private val statuses: IssueStatusCatalogue,
+    /** Where a deleted issue is written down, files and all, before it goes. */
+    private val issueBin: IssueBin? = null,
 ) {
 
     /*
@@ -505,6 +507,8 @@ class IssueAPI(
          * tracker that leaves its screenshots behind fills somebody's disk with
          * files that belong to issues nobody can name.
          */
+        // Into the bin first, while its files can still be read.
+        issueBin?.bin(held)
         attachments.findByIssueIdOrderByUploadedAtAsc(requireNotNull(held.id))
             .forEach { store.remove(it.location) }
         issues.delete(held)

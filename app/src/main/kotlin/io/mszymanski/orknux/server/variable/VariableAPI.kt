@@ -1,7 +1,12 @@
 package io.mszymanski.orknux.server.variable
 
 import io.mszymanski.orknux.server.dependency.ComponentDependants
+import io.mszymanski.orknux.connector.security.SecretCipher
 import io.mszymanski.orknux.server.dependency.phrases
+import io.mszymanski.orknux.server.recyclebin.RecycleBin
+import io.mszymanski.orknux.server.recyclebin.RecycleBinReferenceGoneException
+import io.mszymanski.orknux.server.recyclebin.enumAt
+import io.mszymanski.orknux.server.recyclebin.textAt
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
@@ -17,6 +22,7 @@ import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
+import tools.jackson.databind.JsonNode
 import java.time.format.DateTimeFormatter
 
 /**
@@ -56,6 +62,15 @@ class VariableAPI(
     /** The types plugins define, and the check a value of one gets. Issue #377. */
     private val pluginTypes: io.mszymanski.orknux.server.plugin.PluginTypes,
     private val mapper: tools.jackson.databind.ObjectMapper,
+    /** Where a deleted variable is kept so it can be put back; null where a test builds this by hand. */
+    private val recycleBin: RecycleBin? = null,
+    /**
+     * What a value is encrypted with on its way into the bin and read with on
+     * its way out: the cipher its own column is kept in. Without it nothing is
+     * binned at all, because the alternative is a secret written down in the
+     * clear.
+     */
+    private val cipher: SecretCipher? = null,
 ) {
 
     /**
@@ -399,6 +414,8 @@ class VariableAPI(
         val credentialOf = credentialOf(variable)
         if (credentialOf.isNotEmpty()) throw VariableHeldAsCredentialException(variable.name, credentialOf)
 
+        // Kept, value encrypted, so it can be put back; then removed as before.
+        if (recycleBin != null && cipher != null) recycleBin.bin(variable, snapshot(variable, cipher))
         variables.delete(variable)
         auditRecorder.record(
             variable.workspaceId,
@@ -406,6 +423,74 @@ class VariableAPI(
             "Variable ${variable.name} removed",
         )
         return true
+    }
+
+    /**
+     * A variable as the recycle bin keeps it.
+     *
+     * Its value is encrypted here, by hand, because the entity's converter does
+     * that only for its own column and a snapshot is a different one. The same
+     * envelope, so a bin row gives away exactly what the variable's row did:
+     * nothing, to anybody without the installation's key. The catalog is kept
+     * by name beside the id the bin entry holds, for a catalog that has itself
+     * been deleted and made again since.
+     */
+    private fun snapshot(variable: WorkspaceVariable, cipher: SecretCipher): Map<String, Any?> = mapOf(
+        "name" to variable.name,
+        "catalogName" to catalogs.findByIdOrNull(variable.catalogId)?.name,
+        "description" to variable.description,
+        "type" to variable.type.name,
+        "kind" to variable.kind.name,
+        "elementType" to variable.elementType?.name,
+        "customType" to variable.customType,
+        "typeArguments" to variable.typeArguments,
+        "value" to cipher.encrypt(variable.value),
+        "createdBy" to variable.createdBy,
+    )
+
+    /**
+     * Puts a binned variable back in its catalog, value and all.
+     *
+     * The catalog is the one it was in while that is still this workspace's,
+     * otherwise the one now going by its name, and otherwise made again under
+     * that name: a catalog can only be deleted empty, so one that has gone took
+     * nothing with it but the name, and that is in the snapshot. A value this
+     * installation's key no longer reads comes back empty rather than as the
+     * envelope it could not open - which would be stored, and handed to a
+     * function, as if it were the secret.
+     */
+    @Transactional
+    fun recreate(workspaceId: Long, catalogId: Long?, held: JsonNode): WorkspaceVariable {
+        val name = requireNameable(held.textAt("name").orEmpty())
+        val catalogName = held.textAt("catalogName")
+        val catalog = catalogId?.let { catalogs.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
+            ?: catalogName?.let { catalogs.findByWorkspaceIdAndName(workspaceId, it) }
+            ?: catalogName?.let {
+                catalogs.save(VariableCatalog(workspaceId = workspaceId, name = it, createdBy = currentUser()))
+                    .also { made -> auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Catalog ${made.name} created") }
+            }
+            ?: throw RecycleBinReferenceGoneException("variable", name, "its catalog", null)
+        if (variables.findByCatalogIdAndName(requireNotNull(catalog.id), name) != null) {
+            throw VariableNameTakenException(name, catalog.name)
+        }
+
+        val value = held.textAt("value")?.let { kept -> cipher?.decrypt(kept)?.takeUnless { cipher.isEncrypted(it) } }
+        val variable = WorkspaceVariable(
+            workspaceId = workspaceId,
+            catalogId = requireNotNull(catalog.id),
+            name = name,
+            description = held.textAt("description"),
+            type = held.enumAt<VariableType>("type") ?: VariableType.STRING,
+            kind = held.enumAt<VariableKind>("kind") ?: VariableKind.SECRET,
+            elementType = held.enumAt<VariableType>("elementType"),
+            customType = held.textAt("customType"),
+            typeArguments = held.textAt("typeArguments"),
+            value = value,
+            createdBy = held.textAt("createdBy") ?: currentUser(),
+            lastModifiedBy = currentUser(),
+        )
+        requireHoldable(variable)
+        return variables.save(variable)
     }
 
     /**

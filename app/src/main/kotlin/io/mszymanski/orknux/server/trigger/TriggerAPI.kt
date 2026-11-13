@@ -15,6 +15,11 @@ import io.mszymanski.orknux.server.workflow.ConditionNotInCatalogueException
 import io.mszymanski.orknux.server.dependency.ComponentDependants
 import io.mszymanski.orknux.server.dependency.DependencyKind
 import io.mszymanski.orknux.server.dependency.phrases
+import io.mszymanski.orknux.server.recyclebin.BinReference
+import io.mszymanski.orknux.server.recyclebin.RecycleBin
+import io.mszymanski.orknux.server.recyclebin.enumAt
+import io.mszymanski.orknux.server.recyclebin.flagAt
+import io.mszymanski.orknux.server.recyclebin.textAt
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
@@ -31,6 +36,7 @@ import org.springframework.scheduling.support.CronExpression
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
 import tools.jackson.core.JacksonException
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
@@ -55,6 +61,8 @@ class TriggerAPI(
     /** Who a Slack connection posts as, which is what a reply is matched against. */
     private val botUsers: SlackBotUsers,
     private val dependants: ComponentDependants,
+    /** Where a deleted trigger is kept so it can be put back; null where a test builds this by hand. */
+    private val recycleBin: RecycleBin? = null,
 ) {
 
     /**
@@ -397,9 +405,103 @@ class TriggerAPI(
         val users = dependants.of(DependencyKind.TRIGGER, id)
         if (users.isNotEmpty()) throw TriggerInUseException(trigger.name, users.phrases())
 
+        // Kept whole, with the names of what it points at, so it can be put back; then removed as before.
+        recycleBin?.bin(trigger, snapshot(trigger))
         triggers.delete(trigger)
         auditRecorder.record(trigger.workspaceId, WorkspaceAuditCategory.WORKFLOW, "Trigger ${trigger.name} deleted")
         return true
+    }
+
+    /**
+     * A trigger as the recycle bin keeps it: what the form holds, and nothing of
+     * what it has done - when it last fired is history, and a trigger put back
+     * has not fired.
+     *
+     * The connection it listens on, the ones it watches, the object a webhook's
+     * body is read as, the function that lets a call through and the condition
+     * it asks are each kept by id *and* by name; see `BinReference` for why an
+     * id on its own is not enough to find them again.
+     */
+    private fun snapshot(trigger: WorkflowTrigger): Map<String, Any?> = mapOf(
+        "name" to trigger.name,
+        "type" to trigger.type.name,
+        "connectionId" to trigger.connectionId,
+        "connectionName" to trigger.connectionId?.let { connections.workspaceConnection(it) }?.name,
+        "action" to trigger.action?.name,
+        "watched" to trigger.watchedConnectionIds.map {
+            mapOf("id" to it, "name" to connections.workspaceConnection(it)?.name)
+        },
+        "cron" to trigger.cron,
+        "timezone" to trigger.timezone,
+        "webhookPath" to trigger.webhookPath,
+        "objectId" to trigger.objectId,
+        "objectName" to trigger.objectId?.let { objects.findByIdOrNull(it) }?.name,
+        "authType" to trigger.authType.name,
+        "authFunctionId" to trigger.authFunctionId,
+        "authFunctionName" to trigger.authFunctionId?.let { functions.findByIdOrNull(it) }?.name,
+        "conditionId" to trigger.conditionId,
+        "conditionName" to trigger.conditionId?.let { conditions.findByIdOrNull(it) }?.name,
+        "payload" to trigger.payload,
+        "enabled" to trigger.enabled,
+        "icon" to trigger.icon,
+    )
+
+    /**
+     * Puts a binned trigger back, through the checks a new one passes.
+     *
+     * Into the shared list, whichever it came from - one a workflow owned was
+     * reached through a node that no longer names it. Switched on or off as it
+     * was: nothing starts from a definition until a workflow has a node on it,
+     * and nothing did when it was deleted, or the delete would have been
+     * refused. A webhook path somebody has taken since is refused by
+     * [validate], as it would be on a save; what it names and can no longer be
+     * found is refused here, saying which.
+     */
+    @Transactional
+    fun recreate(workspaceId: Long, held: JsonNode): WorkflowTrigger {
+        val name = held.textAt("name").orEmpty()
+        if (triggers.findByWorkspaceIdAndWorkflowIdIsNullAndName(workspaceId, name) != null) {
+            throw TriggerNameTakenException(name)
+        }
+        val connectionById = { id: Long -> connections.workspaceConnection(id)?.takeIf { it.workspaceId == workspaceId } }
+        val connectionByName = { said: String -> connections.workspaceConnections(workspaceId).firstOrNull { it.name == said } }
+        val functionById = { id: Long ->
+            functions.findByIdOrNull(id)?.takeIf { it.scope != FunctionScope.WORKSPACE || it.workspaceId == workspaceId }
+        }
+
+        return triggers.save(
+            WorkflowTrigger(
+                workspaceId = workspaceId,
+                name = name,
+                type = held.enumAt<TriggerType>("type") ?: TriggerType.SCHEDULED,
+                connectionId = BinReference.at(held, "connection")
+                    .resolve("trigger", name, "the connection", connectionById, connectionByName)?.id,
+                action = held.enumAt<TriggerAction>("action"),
+                watchedConnectionIds = held.path("watched").values().mapNotNull {
+                    BinReference.of(it).resolve("trigger", name, "the connection", connectionById, connectionByName)?.id
+                }.toMutableSet(),
+                cron = held.textAt("cron"),
+                timezone = held.textAt("timezone"),
+                webhookPath = held.textAt("webhookPath"),
+                objectId = BinReference.at(held, "object").resolve(
+                    "trigger", name, "the object",
+                    byId = { id -> objects.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId } },
+                    byName = { objects.findByWorkspaceIdAndName(workspaceId, it) },
+                )?.id,
+                authType = held.enumAt<WebhookAuthType>("authType") ?: WebhookAuthType.NONE,
+                authFunctionId = BinReference.at(held, "authFunction").resolve(
+                    "trigger", name, "the function", functionById,
+                ) { functions.findByWorkspaceIdAndName(workspaceId, it) }?.id,
+                conditionId = BinReference.at(held, "condition").resolve(
+                    "trigger", name, "the condition",
+                    byId = { id -> conditions.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId } },
+                    byName = { conditions.findByWorkspaceIdAndWorkflowIdIsNullAndName(workspaceId, it) },
+                )?.id,
+                payload = held.textAt("payload"),
+                enabled = held.flagAt("enabled") ?: true,
+                icon = held.textAt("icon"),
+            ).also(::validate),
+        )
     }
 
     /**

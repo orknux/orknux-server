@@ -395,7 +395,7 @@ class DiagramAPI(
                 label = it.label,
                 x = it.x, y = it.y, w = it.w, h = it.h,
                 color = it.color, notes = it.notes, parent = it.parentKey, layer = it.layerKey, link = it.link,
-                border = it.borderColor, borderWidth = it.borderWidth, image = it.image,
+                border = it.borderColor, borderWidth = it.borderWidth, image = it.image, rotation = it.rotation,
             )
         },
         edges = edges.findByDiagramIdOrderByPositionAsc(diagramId).map {
@@ -529,6 +529,7 @@ class DiagramAPI(
                     diagramId = diagramId, key = node.id, position = at, kind = node.kind.key, label = node.label,
                     x = node.x, y = node.y, w = node.w, h = node.h, color = node.color, notes = node.notes, parentKey = node.parent,
                     layerKey = node.layer, link = node.link, borderColor = node.border, borderWidth = node.borderWidth, image = node.image,
+                    rotation = node.rotation,
                 )
             },
         )

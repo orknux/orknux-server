@@ -161,9 +161,13 @@ class SkillAPI(
         val held = skills.countByCatalogId(id)
         // Every skill in it goes, so every skill's history goes with it -
         // deleteByCatalogId is one statement and no delete hook would see them.
-        skills.findByCatalogId(id).forEach { skill ->
-            skill.id?.let { revisions.forget(ComponentRevisionKind.SKILL, it) }
-        }
+        // The folder goes to the recycle bin first, as one entry holding every
+        // skill it had: a folder is the quickest way there is to delete twenty
+        // skills at once, and what was deleted is the folder, so that is what
+        // is put back - an empty one too.
+        val inside = skills.findByCatalogId(id)
+        recycleBin.bin(catalog, inside)
+        inside.forEach { skill -> skill.id?.let { revisions.forget(ComponentRevisionKind.SKILL, it) } }
         skills.deleteByCatalogId(id)
         catalogs.delete(catalog)
         auditRecorder.record(
@@ -323,6 +327,31 @@ class SkillAPI(
         skill.lastModifiedAt = OffsetDateTime.now()
         skill.lastModifiedBy = currentUser()
         return requireNotNull(skills.save(skill).id)
+    }
+
+    /**
+     * Puts a binned catalog back: the folder under its name, and every skill it
+     * held in it. Refused where the name is a folder's again, or where one of
+     * its skills' names has been taken since - nothing is put back by halves,
+     * the transaction being the restore's. No grant is restored because none
+     * was lost: a catalog an agent draws on is not deleted.
+     */
+    @Transactional
+    fun recreateCatalogFromBin(workspaceId: Long, snapshot: String): Long {
+        val tree = mapper.readTree(snapshot)
+        val name = tree.path("name").asString()
+        if (catalogs.findByWorkspaceIdAndName(workspaceId, name) != null) throw SkillCatalogNameTakenException(name)
+        val catalog = requireNotNull(
+            catalogs.save(
+                SkillCatalog(
+                    workspaceId = workspaceId,
+                    name = name,
+                    createdBy = tree.path("createdBy").takeIf { it.isString }?.asString() ?: currentUser(),
+                ),
+            ).id,
+        )
+        tree.path("skills").values().forEach { recreateFromBin(workspaceId, catalog, it.asString()) }
+        return catalog
     }
 
     /**

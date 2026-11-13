@@ -198,6 +198,33 @@ class MemoryAPITest(
         assertThat(catalogs.findAll()).isEmpty()
     }
 
+    /**
+     * The other half of #166, and the fix for the catch-22 it made with the
+     * default grant: an empty catalog holds nothing an agent could lose, so being
+     * granted does not stop it being deleted - and the grant is dropped with it,
+     * so the agent's form stops listing a folder that is gone. Every catalog is
+     * granted to every agent the moment it is made, so without this an empty one
+     * could never be deleted at all.
+     */
+    @Test
+    fun `an empty memory catalog an agent is granted still deletes, and the grant is dropped`() {
+        val id = catalog("Scratch")
+        val agentId = agents.save(
+            Agent(
+                workspaceId = workspaceId,
+                name = "Reviewer",
+                type = AgentType.LLM,
+                memoryCatalogs = mutableListOf("Scratch"),
+            ),
+        ).id!!
+
+        graphQlTester.document("""mutation { deleteMemoryCatalog(id: $id) }""")
+            .execute().path("deleteMemoryCatalog").entity(Boolean::class.java).isEqualTo(true)
+
+        assertThat(catalogs.findAll()).isEmpty()
+        assertThat(agents.findById(agentId).get().memoryCatalogs).doesNotContain("Scratch")
+    }
+
     @Test
     fun `an agent reads the catalogs it was granted, and nothing else`() {
         val granted = catalog("API Documentation")

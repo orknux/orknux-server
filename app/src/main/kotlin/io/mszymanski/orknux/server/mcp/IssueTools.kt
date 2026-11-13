@@ -85,6 +85,8 @@ class IssueTools(
     /** What a deleted issue was carrying, so the bytes go with the rows. Issue #478. */
     private val attachments: io.mszymanski.orknux.server.issue.IssueAttachmentRepository,
     private val store: io.mszymanski.orknux.server.attachment.AttachmentStore,
+    /** The same bin the browser's delete fills: an agent's delete is not a way round it. */
+    private val issueBin: io.mszymanski.orknux.server.issue.IssueBin? = null,
 ) {
 
     /**
@@ -664,6 +666,7 @@ class IssueTools(
 
         val number = held.number
         val title = held.title
+        issueBin?.bin(held)
         attachments.findByIssueIdOrderByUploadedAtAsc(requireNotNull(held.id)).forEach { store.remove(it.location) }
         issues.delete(held)
         audited(scope, scope.workspaceId, "Issue #$number deleted")

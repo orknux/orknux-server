@@ -39,6 +39,7 @@ class MemoryAPI(
     private val defaultGrants: io.mszymanski.orknux.server.agent.DefaultGrants,
     /** The agents granted a catalog, which follow it when it is renamed. */
     private val agentRows: io.mszymanski.orknux.server.agent.AgentRepository,
+    private val recycleBin: io.mszymanski.orknux.server.recyclebin.RecycleBin? = null,
 ) {
 
     @QueryMapping
@@ -190,10 +191,42 @@ class MemoryAPI(
          */
         if (catalog.isDefault) throw MemoryCatalogNotRemovableException(catalog.name)
 
-        val granted = dependants.of(DependencyKind.MEMORY_CATALOG, id)
-        if (granted.isNotEmpty()) throw MemoryCatalogInUseException(catalog.name, granted.phrases())
-
         val held = memories.countByCatalogId(id)
+        /*
+         * Issue #166 keeps a catalog an agent reads from being deleted out from
+         * under it - but only one that still holds something to lose. Every memory
+         * catalog is granted to all the workspace's agents the moment it is made
+         * (DefaultGrants), so refusing any granted catalog left an empty one
+         * undeletable from birth; its grant is dropped below instead. A non-empty
+         * granted catalog still refuses - emptying it first is the way out.
+         */
+        if (held > 0L) {
+            val granted = dependants.of(DependencyKind.MEMORY_CATALOG, id)
+            if (granted.isNotEmpty()) throw MemoryCatalogInUseException(catalog.name, granted.phrases())
+        }
+
+        /*
+         * The agents granted it lose the grant: the catalog is gone, and an empty
+         * one took nothing from them. This is the dual of the create that adds the
+         * grant and the rename that makes it follow a rename - without it the grant
+         * would dangle and, the name being re-bindable, silently re-bind to a new
+         * catalog of the same name later.
+         */
+        val granted = agentRows.findGrantedMemoryCatalog(catalog.workspaceId, catalog.name)
+
+        /*
+         * To the bin as one entry - the folder, what it held, and who had it -
+         * before any of the three goes. An empty catalog is binned too: it is a
+         * thing somebody made and named, and restoring it gives the agents back
+         * the grant this delete is about to take.
+         */
+        recycleBin?.bin(catalog, memories.findByCatalogIdInOrderByLastModifiedAtDesc(listOf(id)), granted.mapNotNull { it.id })
+
+        granted.forEach { agent ->
+            agent.memoryCatalogs = agent.memoryCatalogs.filterNot { it == catalog.name }.toMutableList()
+            agentRows.save(agent)
+        }
+
         memories.deleteByCatalogId(id)
         catalogs.delete(catalog)
         auditRecorder.record(
@@ -327,6 +360,7 @@ class MemoryAPI(
         val catalog = catalogs.findByIdOrNull(memory.catalogId)?.takeIf { access.canSee(it.workspaceId) }
             ?: return false
 
+        recycleBin?.bin(memory, catalog.workspaceId)
         memories.delete(memory)
         auditRecorder.record(
             catalog.workspaceId,
