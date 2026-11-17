@@ -15,6 +15,37 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.4.4
+
+### ✨ Added
+
+- **A map of the diagram.** A small map of the whole drawing sits in the canvas's bottom-right corner, with the part on screen outlined; drag or scroll on it to move about. A shape with no colour of its own is coloured on the map by its kind, so the map shows what is where. It is shown in View too, and the button beside it hides it - remembered per browser.
+- **Text placed and sized inside a diagram shape.** A shape's panel places its text left, centre or right and top, middle or bottom, and takes a size in pixels (6 to 96). Exports and thumbnails draw it the same way, and agents can set it as a node's `align`, `valign` and `textSize`. A shape left alone keeps the placement its kind always had.
+- **Suggested lines, as Miro does.** Rest the pointer on the handle on a side of a shape and a faint line is offered to the nearest shape that way, or, where there is none, a faint copy of the shape joined to it. Click to take it: the line is drawn, or the copy is made with its text ready to type.
+- **The Add shortcut works in the diagram editor.** The key that opens the workflow editor's Add menu (`A` by default, in Preferences) opens the diagram's at the pointer; a search at its top has the keyboard and finds a shape by name across every category, the arrow keys lead from it into the shapes, and Enter puts the chosen one where the pointer was. Below the search the menu leads with the shapes used last; the rest are under Basic shapes, Flowchart, Architecture and UML, each opening its shapes in a menu beside it as the pointer reaches it, or with the right arrow.
+- **Rectangle select in a diagram.** A button in the canvas's corner, or the Select shortcut (`S` by default), turns a drag on empty canvas into a rectangle that selects every shape it touches; the selection moves, recolours and deletes together. While it is on, the middle button moves the canvas. Off, a drag moves the canvas and Shift-drag selects, as before. Remembered per browser.
+- **Alignment guides.** A shape being dragged shows a purple line where its edge or middle lines up with another shape's, and snaps to it within a few pixels.
+- **Bend a straight or curved line.** A selected straight or curved line has a grip in the middle of each part; drag one to bend the line there. Each bend has a grip of its own to move it and a cross beside it that takes it out, a part between two bends is dragged whole, and the line's panel takes all its bends out at once. A straight line runs from bend to bend, a curved one passes smoothly through them; exports draw them the same way, and agents can set a line's bends as its `points`.
+- **A right-angle line's middle runs can be dragged aside.** A selected right-angle line has a grip on each of its middle runs; drag one to move that part of the line, and the bend is kept and exported - the exported picture is framed round a line as well as the shapes, so a run dragged out past them is in it.
+
+### 🔧 Changed
+
+- **The diagram editor's chat is a panel of its own, on the left.** It used to share the right-hand panel with the settings, under them; now the settings have that panel's whole height, and the chat sits left of the canvas, open by default, with its own width and a button that folds it away to a chat button in the canvas's top left corner - remembered per browser. The layers button moved to the top right, beside View and Edit.
+- **A new diagram line is curved.** Lines drawn from now on are curved rather than straight; a line already in a diagram keeps its style, and the line's panel still switches it.
+- **A dragged diagram shape follows the pointer exactly and settles on the grid when let go**, rather than jumping from grid point to grid point while it moves.
+- **Big diagrams keep up with the pointer.** On a diagram of hundreds of shapes, dragging a shape or moving the canvas no longer redraws every shape and line for each pixel moved.
+- **A shape's handles are easier to hit.** The handles a line is drawn from and the corners a shape is resized by can be taken hold of from a few pixels off, mostly on the outside.
+- **A selected line's properties fit the panel** without scrolling: style and route share a row, and so do the two ends. The values in the diagram's panel are a size smaller, a step above their labels rather than shouting over them.
+
+### 🐛 Fixed
+
+- **A diagram line with no arrowhead no longer shows arrowheads moving along it** when it is lit; only a line that points one way does.
+- **A curved diagram line pinned to a side meets it square on**, instead of arriving at a slant.
+- **A right-angle diagram line pinned to a side leaves and arrives by that side**, instead of turning back across its shape.
+- **The colour row of a diagram shape is no longer cut off** in a narrow panel.
+- **A diagram menu's scrollbar can be seen.** On a menu's dark surface it all but vanished, so a long list looked as if it ended at the bottom of the menu.
+- **The Recycle Bin's footer counts "entries"**, as the Audit Log does, and is translated.
+
 ## 1.4.3
 
 ### ✨ Added
