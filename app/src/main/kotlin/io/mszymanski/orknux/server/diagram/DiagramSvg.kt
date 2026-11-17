@@ -25,7 +25,19 @@ class DiagramSvg {
      */
     fun frame(drawing: DiagramDrawing): List<Int> {
         // Each node's box as it is drawn: a turned one reaches past the box it was turned from.
-        val boxes = drawing.visible().nodes.map { DiagramOutline.extent(it) }
+        val shown = drawing.visible()
+        val byId = shown.nodes.associateBy { it.id }
+        /*
+         * And each line as it is drawn: a run dragged aside or a line bent out
+         * stands outside every box, and a frame measured from the boxes alone
+         * cut it off the picture.
+         */
+        val corners = shown.edges.flatMap { edge ->
+            val from = byId[edge.from] ?: return@flatMap emptyList()
+            val to = byId[edge.to] ?: return@flatMap emptyList()
+            DiagramRoute.of(edge, from, to).trace.map { (x, y) -> doubleArrayOf(x, y, x, y) }
+        }
+        val boxes = shown.nodes.map { DiagramOutline.extent(it) } + corners
         val left = (boxes.minOfOrNull { kotlin.math.floor(it[0]).toInt() } ?: 0) - PAD
         val top = (boxes.minOfOrNull { kotlin.math.floor(it[1]).toInt() } ?: 0) - PAD
         val right = (boxes.maxOfOrNull { kotlin.math.ceil(it[2]).toInt() } ?: 200) + PAD
@@ -94,10 +106,10 @@ class DiagramSvg {
         val words = clean(node.label).trim()
         if (words.isEmpty()) return false
         val outline = DiagramOutline.of(node.kind, node.w, node.h)
-        if (node.kind == DiagramNodeKind.GROUP) return fitted(words.lineSequence().first(), node.w - 20, 13) != words.lineSequence().first()
-        if (outline?.icon == true) return fitted(words.lineSequence().first(), node.w + 40, SIZE) != words.lineSequence().first()
+        if (node.kind == DiagramNodeKind.GROUP) return fitted(words.lineSequence().first(), node.w - 20, sizeOf(node, GROUP_SIZE)) != words.lineSequence().first()
+        if (outline?.icon == true) return fitted(words.lineSequence().first(), node.w + 40, sizeOf(node)) != words.lineSequence().first()
         if (node.kind == DiagramNodeKind.CLASS) return false
-        if (node.kind == DiagramNodeKind.IMAGE) return fitted(words.lineSequence().first(), node.w, SIZE) != words.lineSequence().first()
+        if (node.kind == DiagramNodeKind.IMAGE) return fitted(words.lineSequence().first(), node.w, sizeOf(node)) != words.lineSequence().first()
         val (width, height) = if (outline != null) {
             val inside = outline.inside
             ((inside.right - inside.left) * node.w / 100).toInt() to ((inside.bottom - inside.top) * node.h / 100).toInt()
@@ -105,9 +117,9 @@ class DiagramSvg {
             val inset = if (node.kind == DiagramNodeKind.DIAMOND || node.kind == DiagramNodeKind.ELLIPSE) node.w / 5 else 8
             (node.w - inset * 2) to (node.h - 8)
         }
-        val fits = max(1, (width / (SIZE * CHAR_WIDTH)).toInt())
+        val fits = max(1, (width / (sizeOf(node) * CHAR_WIDTH)).toInt())
         if (words.split(Regex("\\s+")).any { it.length > fits }) return true
-        return wrap(words, width, SIZE, Int.MAX_VALUE).size > max(1, height / LINE)
+        return wrap(words, width, sizeOf(node), Int.MAX_VALUE).size > max(1, height / lineOf(node))
     }
 
     /** Whether a line's label is cut short where it is drawn. */
@@ -143,16 +155,20 @@ class DiagramSvg {
             // Words alone: no box, no outline, no fill unless one was given; the words start at the left, as typed.
             DiagramNodeKind.TEXT -> {
                 if (node.color != null) rect(x, y, w, h, fill, 2, stroke = "stroke=\"none\"")
-                val lines = wrap(clean(node.label), w - 8, SIZE, max(1, (h - 4) / LINE))
-                val first = y + h / 2 - (lines.size - 1) * LINE / 2 + SIZE * 7 / 20
+                val lines = wrap(clean(node.label), w - 8, sizeOf(node), max(1, (h - 4) / lineOf(node)))
                 // Text that leads somewhere is drawn as the editor draws it: a link's blue, underlined.
                 val linked = !node.link.isNullOrBlank()
-                lines.forEachIndexed { at, line ->
-                    val baseline = first + at * LINE
-                    text(x + 4, baseline, line, SIZE, if (linked) LINK_INK else if (node.color != null) ink else INK)
+                val align = node.align ?: DiagramTextAlign.LEFT
+                setWords(lines, x + 4, x + w - 4, y + 2, y + h - 2, align, node.valign ?: DiagramTextValign.MIDDLE, if (linked) LINK_INK else if (node.color != null) ink else INK, sizeOf(node), lineOf(node)) { line, at, baseline ->
                     if (linked && line.isNotBlank()) {
-                        val length = (line.length * SIZE * CHAR_WIDTH).toInt()
-                        append("<line x1=\"${x + 4}\" y1=\"${baseline + 3}\" x2=\"${x + 4 + length}\" y2=\"${baseline + 3}\" stroke=\"$LINK_INK\" stroke-width=\"1\"/>")
+                        val length = (line.length * sizeOf(node) * CHAR_WIDTH).toInt()
+                        // Under the words, wherever they were set: from their left end, which the anchor put at, before or about `at`.
+                        val from = when (align) {
+                            DiagramTextAlign.LEFT -> at
+                            DiagramTextAlign.CENTER -> at - length / 2
+                            DiagramTextAlign.RIGHT -> at - length
+                        }
+                        append("<line x1=\"$from\" y1=\"${baseline + 3}\" x2=\"${from + length}\" y2=\"${baseline + 3}\" stroke=\"$LINK_INK\" stroke-width=\"1\"/>")
                     }
                 }
                 return
@@ -160,8 +176,8 @@ class DiagramSvg {
             // A link card: its name, marked as a link, on a card - where it leads cannot be followed from a picture.
             DiagramNodeKind.LINK -> {
                 rect(x, y, w, h, fill, 8, stroke = outlined(node))
-                val name = fitted("↗ " + clean(node.label).lineSequence().firstOrNull().orEmpty(), w - 20, SIZE)
-                text(x + 12, y + h / 2 + SIZE * 7 / 20, name, SIZE, LINK_INK, bold = true)
+                val name = fitted("↗ " + clean(node.label).lineSequence().firstOrNull().orEmpty(), w - 20, sizeOf(node))
+                text(x + 12, y + h / 2 + sizeOf(node) * 7 / 20, name, sizeOf(node), LINK_INK, bold = true)
                 return
             }
             DiagramNodeKind.ELLIPSE ->
@@ -171,15 +187,45 @@ class DiagramSvg {
             DiagramNodeKind.NOTE -> rect(x, y, w, h, fill, 2, dashed = true, stroke = outlined(node))
             DiagramNodeKind.GROUP -> {
                 rect(x, y, w, h, fill, 8, dashed = true, stroke = outlined(node))
-                text(x + 10, y + 18, fitted(clean(node.label).lineSequence().firstOrNull().orEmpty(), w - 20, 13), 13, MUTED, bold = true)
+                val size = sizeOf(node, GROUP_SIZE)
+                val name = fitted(clean(node.label).lineSequence().firstOrNull().orEmpty(), w - 20, size)
+                // A group's name is at its top left, where it is out of the way of what the group holds, unless it was put elsewhere.
+                if (node.align == null && node.valign == null) text(x + 10, y + 5 + size, name, size, MUTED, bold = true)
+                else setWords(listOf(name), x + 10, x + w - 10, y + 5, y + h - 5, node.align ?: DiagramTextAlign.LEFT, node.valign ?: DiagramTextValign.TOP, MUTED, size, lineOf(node), bold = true)
                 return
             }
             else -> Unit
         }
         val inset = if (node.kind == DiagramNodeKind.DIAMOND || node.kind == DiagramNodeKind.ELLIPSE) w / 5 else 8
-        val lines = wrap(clean(node.label), w - inset * 2, SIZE, max(1, (h - 8) / LINE))
-        val first = y + h / 2 - (lines.size - 1) * LINE / 2 + SIZE * 7 / 20
-        lines.forEachIndexed { at, line -> text(x + w / 2, first + at * LINE, line, SIZE, ink, anchor = "middle") }
+        val lines = wrap(clean(node.label), w - inset * 2, sizeOf(node), max(1, (h - 8) / lineOf(node)))
+        setWords(lines, x + inset, x + w - inset, y + 4, y + h - 4, node.align ?: DiagramTextAlign.CENTER, node.valign ?: DiagramTextValign.MIDDLE, ink, sizeOf(node), lineOf(node))
+    }
+
+    /**
+     * A box's lines of words, set in the room they have: across it from the
+     * left, about the middle or up to the right, and down it from the top,
+     * about the middle or up from the bottom - as the editor sets them.
+     */
+    private fun StringBuilder.setWords(
+        lines: List<String>, left: Int, right: Int, top: Int, bottom: Int,
+        align: DiagramTextAlign, valign: DiagramTextValign, ink: String, size: Int = SIZE, line: Int = LINE, bold: Boolean = false,
+        each: (line: String, x: Int, baseline: Int) -> Unit = { _, _, _ -> },
+    ) {
+        val (x, anchor) = when (align) {
+            DiagramTextAlign.LEFT -> left to null
+            DiagramTextAlign.CENTER -> (left + right) / 2 to "middle"
+            DiagramTextAlign.RIGHT -> right to "end"
+        }
+        // The baseline of the first line: a line's box is [line] tall and its words sit about seven tenths down it.
+        val first = when (valign) {
+            DiagramTextValign.TOP -> top + line / 2
+            DiagramTextValign.MIDDLE -> (top + bottom) / 2 - (lines.size - 1) * line / 2
+            DiagramTextValign.BOTTOM -> bottom - line / 2 - (lines.size - 1) * line
+        } + size * 7 / 20
+        lines.forEachIndexed { at, words ->
+            text(x, first + at * line, words, size, ink, bold = bold, anchor = anchor)
+            each(words, x, first + at * line)
+        }
     }
 
     private fun StringBuilder.edge(edge: DiagramLink, from: DiagramShape, to: DiagramShape, route: DiagramRoute.Route, under: List<List<Pair<Double, Double>>>) {
@@ -269,8 +315,8 @@ class DiagramSvg {
         val words = clean(node.label)
         if (outline.icon) {
             // Beneath the icon, on the paper rather than on the fill, so it is ink whatever the colour.
-            val line = fitted(words.lineSequence().firstOrNull().orEmpty(), node.w + 40, SIZE)
-            text(node.x + node.w / 2, node.y + node.h - 6, line, SIZE, INK, anchor = "middle")
+            val line = fitted(words.lineSequence().firstOrNull().orEmpty(), node.w + 40, sizeOf(node))
+            text(node.x + node.w / 2, node.y + node.h - 6, line, sizeOf(node), INK, anchor = "middle")
             return
         }
         if (node.kind == DiagramNodeKind.CLASS) {
@@ -282,9 +328,8 @@ class DiagramSvg {
         val right = node.x + (inside.right * node.w / 100).toInt()
         val top = node.y + (inside.top * node.h / 100).toInt()
         val bottom = node.y + (inside.bottom * node.h / 100).toInt()
-        val lines = wrap(words, right - left, SIZE, max(1, (bottom - top) / LINE))
-        val first = (top + bottom) / 2 - (lines.size - 1) * LINE / 2 + SIZE * 7 / 20
-        lines.forEachIndexed { at, line -> text((left + right) / 2, first + at * LINE, line, SIZE, ink, anchor = "middle") }
+        val lines = wrap(words, right - left, sizeOf(node), max(1, (bottom - top) / lineOf(node)))
+        setWords(lines, left, right, top, bottom, node.align ?: DiagramTextAlign.CENTER, node.valign ?: DiagramTextValign.MIDDLE, ink, sizeOf(node), lineOf(node))
     }
 
     /** A class: its name bold in the middle, each compartment under a rule, its lines from the left. */
@@ -297,11 +342,11 @@ class DiagramSvg {
                 y += 2
             }
             lines.forEach { line ->
-                if (y + LINE > bottom) return
-                val shown = fitted(line, node.w - 16, SIZE)
-                if (at == 0) text(node.x + node.w / 2, y + SIZE, shown, SIZE, ink, bold = true, anchor = "middle")
-                else text(node.x + 8, y + SIZE, shown, SIZE, ink)
-                y += LINE
+                if (y + lineOf(node) > bottom) return
+                val shown = fitted(line, node.w - 16, sizeOf(node))
+                if (at == 0) text(node.x + node.w / 2, y + sizeOf(node), shown, sizeOf(node), ink, bold = true, anchor = "middle")
+                else text(node.x + 8, y + sizeOf(node), shown, sizeOf(node), ink)
+                y += lineOf(node)
             }
             y += 4
         }
@@ -315,7 +360,7 @@ class DiagramSvg {
      */
     private fun StringBuilder.picture(node: DiagramShape, data: String?) {
         val caption = clean(node.label).lineSequence().firstOrNull()?.takeIf { it.isNotBlank() }
-        val room = if (caption != null) node.h - LINE - 4 else node.h
+        val room = if (caption != null) node.h - lineOf(node) - 4 else node.h
         if (data != null) {
             append("<image x=\"${node.x}\" y=\"${node.y}\" width=\"${node.w}\" height=\"${max(1, room)}\" ")
             // xlink:href, which browsers still read: the PNG is drawn by Batik, which reads nothing else and refused the drawing.
@@ -326,7 +371,7 @@ class DiagramSvg {
             text(node.x + node.w / 2, node.y + room / 2 + 4, fitted(said, node.w - 16, 12), 12, MUTED, anchor = "middle")
         }
         if (node.border != null || node.borderWidth != null) rect(node.x, node.y, node.w, max(1, room), "none", 4, stroke = outlined(node))
-        caption?.let { text(node.x + node.w / 2, node.y + node.h - 6, fitted(it, node.w, SIZE), SIZE, INK, anchor = "middle") }
+        caption?.let { text(node.x + node.w / 2, node.y + node.h - 6, fitted(it, node.w, sizeOf(node)), sizeOf(node), INK, anchor = "middle") }
     }
 
     /** A box's outline: its own colour and thickness, or the ink every box had. */
@@ -350,6 +395,12 @@ class DiagramSvg {
         if (anchor != null) append(" text-anchor=\"$anchor\"")
         append(">").append(escape(words)).append("</text>")
     }
+
+    /** How big [node]'s words are drawn: the size it asked for, or [usual] for where they are. */
+    private fun sizeOf(node: DiagramShape, usual: Int = SIZE): Int = node.textSize ?: usual
+
+    /** How tall a line of [node]'s words is: eighteen pixels at the usual fourteen, and in that proportion at a size it asked for. */
+    private fun lineOf(node: DiagramShape): Int = node.textSize?.let { max(it + 2, (it * LINE + SIZE / 2) / SIZE) } ?: LINE
 
     private fun wrap(words: String, width: Int, size: Int, most: Int): List<String> {
         val fits = max(1, (width / (size * CHAR_WIDTH)).toInt())
@@ -408,6 +459,9 @@ class DiagramSvg {
         /** The square a line end's mark is drawn in, in its own units; a format, not a behaviour. */
         private const val MARK = 12.0
         private const val SIZE = 14
+
+        /** A group's name, a little smaller than a box's words. */
+        private const val GROUP_SIZE = 13
         private const val LINE = 18
         private const val CHAR_WIDTH = 0.56
         private const val ELLIPSIS = "…"

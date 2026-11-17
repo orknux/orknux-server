@@ -37,6 +37,12 @@ data class DiagramShape(
      * was turned, which is what the editor moves and resizes.
      */
     val rotation: Int? = null,
+    /** Where its words sit across it; null is where its kind puts them. Nothing on a picture, a link card, an icon or a class, whose words have a place of their own. */
+    val align: DiagramTextAlign? = null,
+    /** Where its words sit down it; null is where its kind puts them. */
+    val valign: DiagramTextValign? = null,
+    /** How big its words are drawn, in whole pixels; null is the size its kind is drawn at - fourteen, and thirteen for a group's name. */
+    val textSize: Int? = null,
 ) {
     /** The uploaded picture it shows, by id; null for an address on the web, or none. */
     val uploadedImage: Long? get() = image?.takeIf { it.all(Char::isDigit) }?.toLongOrNull()
@@ -65,11 +71,12 @@ data class DiagramLink(
     /** The layer it is on, by id; null is the drawing's first. */
     val layer: String? = null,
     /**
-     * Its own corners, start to end, where it was routed around what is in its
-     * way ([DiagramRouter]); empty is a line drawn the one way [routing] names.
-     * Only a right-angle line follows them. Its two ends are not among them:
-     * they stay on the boxes, worked out from the first and last corner, so a
-     * box moved by hand still carries the line.
+     * Its own points, start to end: a right-angle line's corners, where it was
+     * routed around what is in its way ([DiagramRouter]) or a run of it was
+     * dragged aside; a straight or curved line's bends, where it was bent by
+     * hand. Empty is a line drawn the one way [routing] names. Its two ends are
+     * not among them: they stay on the boxes, worked out from the first and
+     * last point, so a box moved by hand still carries the line.
      */
     val points: List<Pair<Int, Int>> = emptyList(),
     /**
@@ -266,6 +273,17 @@ class DiagramDocument(private val mapper: ObjectMapper) {
             border = color(node.path("border"), id),
             borderWidth = thickness(node.path("borderWidth"), "node $id", "borderWidth"),
             rotation = turn(node.path("rotation"), id),
+            align = text(node.path("align"))?.trim()?.takeIf { it.isNotEmpty() }?.let { said ->
+                DiagramTextAlign.byKey(said) ?: throw DiagramDocumentInvalidException(
+                    "node $id has align $said, which is not one of ${DiagramTextAlign.entries.joinToString(", ") { it.key }}",
+                )
+            },
+            valign = text(node.path("valign"))?.trim()?.takeIf { it.isNotEmpty() }?.let { said ->
+                DiagramTextValign.byKey(said) ?: throw DiagramDocumentInvalidException(
+                    "node $id has valign $said, which is not one of ${DiagramTextValign.entries.joinToString(", ") { it.key }}",
+                )
+            },
+            textSize = textSize(node.path("textSize"), id),
             image = text(node.path("image"))?.trim()?.takeIf { it.isNotEmpty() }?.also { said ->
                 if (said.length > Diagrams.LINK_LENGTH || !(said.all(Char::isDigit) || PICTURE_ADDRESS.matches(said))) {
                     throw DiagramDocumentInvalidException("node $id has image $said, which is neither an uploaded picture's id nor an address on the web (https://...)")
@@ -288,6 +306,20 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         }?.takeIf { it.isFinite() && kotlin.math.abs(it) <= 1_000_000 }
             ?: throw DiagramDocumentInvalidException("node $id has rotation $value, which is not a number of degrees")
         return Math.floorMod(read.roundToInt(), 360).takeIf { it != 0 }
+    }
+
+    /** How big a box's words are: whole pixels from [LEAST_TEXT] to [MOST_TEXT]; absent, null or empty is the usual size. */
+    private fun textSize(value: JsonNode, id: String): Int? {
+        if (value.isMissingNode || value.isNull || (value.isString && value.stringValue().isNullOrBlank())) return null
+        val read = when {
+            value.isNumber -> value.doubleValue()
+            value.isString -> value.stringValue()?.trim()?.toDoubleOrNull()
+            else -> null
+        }?.takeIf { it.isFinite() }?.roundToInt()
+        if (read == null || read < LEAST_TEXT || read > MOST_TEXT) {
+            throw DiagramDocumentInvalidException("node $id has textSize $value, which is not a whole number of pixels from $LEAST_TEXT to $MOST_TEXT")
+        }
+        return read
     }
 
     /** A stroke's thickness: whole pixels from 1 to [MOST_THICKNESS]; absent or null is the usual one. */
@@ -464,6 +496,9 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         node.border?.let { put("border", it) }
         node.borderWidth?.let { put("borderWidth", it) }
         node.rotation?.let { put("rotation", it) }
+        node.align?.let { put("align", it.key) }
+        node.valign?.let { put("valign", it.key) }
+        node.textSize?.let { put("textSize", it) }
         node.image?.let { put("image", it) }
         node.notes?.let { notes ->
             if (notesUpTo != null && notes.length > notesUpTo) {
@@ -573,6 +608,10 @@ class DiagramDocument(private val mapper: ObjectMapper) {
 
         /** How thick a stroke may be, in pixels; a format - past this an outline is a fill. */
         const val MOST_THICKNESS = 12
+
+        /** How small and how big a box's words may be, in pixels; a format - under the one they cannot be read, over the other they are a poster. */
+        const val LEAST_TEXT = 6
+        const val MOST_TEXT = 96
 
         val COLOR = Regex("^#[0-9a-fA-F]{6}$")
 

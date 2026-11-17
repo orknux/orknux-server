@@ -734,10 +734,12 @@ class DiagramTools(
                 "conversation, puts a picture of it there."
 
         private const val NODE_SAID =
-            "Each is {id, kind, label, x, y, w, h, color, border, borderWidth, rotation, notes, parent, layer, link, image}: whole pixels from the top left, absolute even " +
+            "Each is {id, kind, label, x, y, w, h, color, border, borderWidth, rotation, align, valign, textSize, notes, parent, layer, link, image}: whole pixels from the top left, absolute even " +
                 "inside a group; id optional on a new one; color #rrggbb is its fill; border #rrggbb and borderWidth, whole " +
                 "pixels 1 to 12, its outline - null for the usual; rotation turns it about its middle, in degrees " +
-                "clockwise - null or 0 for upright; notes are free text about the node; parent " +
+                "clockwise - null or 0 for upright; align (left, center, right) and valign (top, middle, bottom) are where " +
+                "its label sits inside it - null for the usual, which is the middle of a box; textSize is how big its label is drawn, " +
+                "whole pixels 6 to 96 - null for the usual 14; notes are free text about the node; parent " +
                 "is the id of the group it sits in; layer is the id of the layer it is on, the first when left out; link is what a " +
                 "reader opens from the box - a web address, or another diagram as diagram:<id> (its id from $LIST), a document " +
                 "as document:<id> or a wireframe as wireframe:<id> - and " +
@@ -749,7 +751,8 @@ class DiagramTools(
             "Each is {id, from, to, label, line, start, end, routing, layer, points, color, width}: from and to are node ids; " +
                 "color #rrggbb and width, whole pixels 1 to 12, how it is stroked - null for the usual; id optional on a new one; " +
                 "kind may stand in for line, start and end; layer is the id of the layer it is on, the first when left out; " +
-                "points are the corners $ROUTE found for it, [[x, y], ...] - leave them to it, and null clears them. " +
+                "points, [[x, y], ...]: on a right-angle line the corners $ROUTE found for it - leave them to it; on a straight or " +
+                "curved line the bends it is drawn through, set to bend it round something; null clears them. " +
                 "A label is one short line: the detail goes in the notes of a box."
 
         /** What a layer is, said once for create and change. */
@@ -792,6 +795,9 @@ class DiagramTools(
                     "border" to mapOf("type" to "string"),
                     "borderWidth" to mapOf("type" to "number"),
                     "rotation" to mapOf("type" to "number"),
+                    "align" to mapOf("type" to "string"),
+                    "valign" to mapOf("type" to "string"),
+                    "textSize" to mapOf("type" to "number"),
                     "image" to mapOf("type" to "string"),
                 ),
             ),

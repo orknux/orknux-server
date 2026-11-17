@@ -201,6 +201,17 @@ class DiagramNode(
 
     /** How far it is turned about its middle, in whole degrees clockwise; null is upright. V685. */
     val rotation: Int? = null,
+
+    /** Where its words sit inside it, across and down - a [DiagramTextAlign] and a [DiagramTextValign] key; null is where its kind puts them. V686. */
+    @Column(name = "text_align", length = 8)
+    val textAlign: String? = null,
+
+    @Column(name = "text_valign", length = 8)
+    val textValign: String? = null,
+
+    /** How big its words are drawn, in pixels; null is the size its kind is drawn at. V687. */
+    @Column(name = "text_size")
+    val textSize: Int? = null,
 )
 
 /** One line between two boxes, by their keys. */
@@ -517,6 +528,39 @@ enum class DiagramSide(val key: String) {
 
     companion object {
         fun byKey(key: String?): DiagramSide? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
+    }
+}
+
+/**
+ * Where a box's words sit across it. Null is where its kind puts them - the
+ * middle of a box, the left of a group or of words alone - which is how every
+ * box was drawn before this could be said.
+ */
+enum class DiagramTextAlign(val key: String) {
+    LEFT("left"),
+    CENTER("center"),
+    RIGHT("right"),
+    ;
+
+    companion object {
+        /** By its key; `centre` is read as it is spelt on this side of the water too. */
+        fun byKey(key: String?): DiagramTextAlign? = key?.trim()?.lowercase()?.let { said ->
+            entries.firstOrNull { it.key == said } ?: CENTER.takeIf { said == "centre" || said == "middle" }
+        }
+    }
+}
+
+/** Where a box's words sit down it; null is where its kind puts them, as with [DiagramTextAlign]. */
+enum class DiagramTextValign(val key: String) {
+    TOP("top"),
+    MIDDLE("middle"),
+    BOTTOM("bottom"),
+    ;
+
+    companion object {
+        fun byKey(key: String?): DiagramTextValign? = key?.trim()?.lowercase()?.let { said ->
+            entries.firstOrNull { it.key == said } ?: MIDDLE.takeIf { said == "center" || said == "centre" }
+        }
     }
 }
 

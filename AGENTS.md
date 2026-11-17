@@ -134,6 +134,22 @@ checks nothing, and succeeds on a codebase that does not compile. Reporting a
 clean typecheck off that run is reporting that a command exited 0. `tsc -b`
 follows the references, which is why it is the one the build and CI use.
 
+**Somebody waiting to try a change gets the build first, and the long runs
+after.** A change that is checked and waiting for a person is put where they
+can use it - a test server rebuilt, a dev server pointed at it - as the first
+thing, in minutes, and the full suites, both engines and every browser check
+run behind it while they look. Never queue an hour of verification in front of
+the thing they asked to see. The checks still run, every one, and their results
+are reported when they end; what changes is only that nobody sits waiting on
+them. A run that would take more than a few minutes before anything is in a
+person's hands is the wrong order, whatever the reason for it looked like.
+
+And while they are testing round after round - a report, a fix, another
+report - the full suite has no place between the rounds at all. Each round is
+the typecheck, the check for what changed, and the rebuild, and nothing more,
+because the next report is already on its way; the full suite on both engines
+and every browser check run once, when the rounds stop or before a commit.
+
 ## Clients and versions
 
 **A server works with every client of its major version.** The desktop app is a
