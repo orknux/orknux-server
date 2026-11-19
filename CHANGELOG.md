@@ -15,6 +15,17 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.4.6
+
+### ✨ Added
+- **A link card's words take a colour and a style.** The side panel's Text row now works on link cards as well - bold, italic, underline, strikethrough and a colour - and an export draws the card's name in that colour.
+- **A click on the diagram's map goes there.** The spot clicked comes to the middle of the canvas; dragging the map still moves the view.
+- **A plugin can list a Slack channel's members.** The server's Slack door now reads `conversations.members`, which the Slack plugin's new `channelMembers` tool uses; the scopes are the ones listing channels and users already take.
+
+### 🐛 Fixed
+- **The diagram's custom colour picker kept the old colour.** A colour picked from the browser's own picker - for a fill, a line or text - was put back to the previous one as it was handed over.
+- **A GitHub file's address pasted into a code shape was dropped** unless Enter followed it. It is taken on paste, and when the field is left.
+
 ## 1.4.5
 
 ### ✨ Added
