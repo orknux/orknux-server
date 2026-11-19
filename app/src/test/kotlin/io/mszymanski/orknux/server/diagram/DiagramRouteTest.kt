@@ -37,6 +37,41 @@ class DiagramRouteTest {
     }
 
     @Test
+    fun `a label moved along a line sits that share of the way along it, straight or curved`() {
+        val a = box("a", 0, 0)
+        val b = box("b", 400, 0)
+        // Straight from a's right (160, 30) to b's left (400, 30): a quarter of the way is x 220.
+        val straight = DiagramRoute.of(DiagramLink("e", "a", "b", label = "hi", labelAt = 0.25), a, b)
+        assertThat(straight.labelX).isBetween(219.0, 221.0)
+        assertThat(straight.labelY).isBetween(29.0, 31.0)
+        // Curved, near its start rather than in its middle.
+        val curved = DiagramRoute.of(DiagramLink("e", "a", "b", label = "hi", routing = DiagramRouting.CURVED, labelAt = 0.1), a, b)
+        assertThat(curved.labelX).isLessThan(220.0)
+        val middle = DiagramRoute.of(DiagramLink("e", "a", "b", label = "hi", routing = DiagramRouting.CURVED), a, b)
+        assertThat(middle.labelX).isBetween(270.0, 290.0)
+    }
+
+    @Test
+    fun `an end pinned part way along a side leaves from that point of it, kept through the document`() {
+        val a = box("a", 0, 0)
+        val b = box("b", 360, 260)
+        // A quarter of the way along the top is (40, 0); three quarters down the right is (160, 45).
+        val top = DiagramRoute.of(a, b, DiagramRouting.STRAIGHT, fromSide = DiagramSide.TOP, fromAt = 0.25).points!!.first()
+        assertThat(top.first).isBetween(39.0, 41.0)
+        assertThat(top.second).isLessThan(1.0)
+        val right = DiagramRoute.of(a, b, DiagramRouting.CURVED, toSide = DiagramSide.RIGHT, toAt = 0.75).d
+        assertThat(right).endsWith("520.0 305.0")
+
+        val document = DiagramDocument(tools.jackson.databind.ObjectMapper())
+        val read = document.read("""{"nodes":[{"id":"a"},{"id":"b"}],"edges":[{"id":"e","from":"a","to":"b","fromSide":"top","fromAt":0.25,"toAt":0.9}]}""")
+        val edge = read.edges.single()
+        assertThat(edge.fromAt).isEqualTo(0.25)
+        // A share with no side to be along is nothing.
+        assertThat(edge.toAt).isNull()
+        assertThat(document.write(read)).contains("\"fromAt\":0.25")
+    }
+
+    @Test
     fun `a curve meets a side it is pinned to square on, and bends across the gap where it is pinned nowhere`() {
         val a = box("a", 0, 0)
         val b = box("b", 600, 400)

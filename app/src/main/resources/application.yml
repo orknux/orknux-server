@@ -1046,6 +1046,8 @@ orknux:
     document.selection.characters: ${ORKNUX_TUNING_DOCUMENT_SELECTION_CHARACTERS:8000}
     document.selection.context.characters: ${ORKNUX_TUNING_DOCUMENT_SELECTION_CONTEXT_CHARACTERS:600}
     diagram.note.characters: ${ORKNUX_TUNING_DIAGRAM_NOTE_CHARACTERS:5000}
+    diagram.label.characters: ${ORKNUX_TUNING_DIAGRAM_LABEL_CHARACTERS:5000}
+    diagram.source.characters: ${ORKNUX_TUNING_DIAGRAM_SOURCE_CHARACTERS:20000}
     diagram.description.characters: ${ORKNUX_TUNING_DIAGRAM_DESCRIPTION_CHARACTERS:2000}
     diagram.items.most: ${ORKNUX_TUNING_DIAGRAM_ITEMS_MOST:2000}
     diagram.search.hits: ${ORKNUX_TUNING_DIAGRAM_SEARCH_HITS:20}

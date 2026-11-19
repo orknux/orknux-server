@@ -150,6 +150,8 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("quickChatModelAny", { it.quickChatModelAny }, { w, v -> w.quickChatModelAny = v }, YES_NO),
     FileField("quickChatMayWrite", { it.quickChatMayWrite }, { w, v -> w.quickChatMayWrite = v }, YES_NO),
     FileField("chatShowTimestamps", { it.chatShowTimestamps }, { w, v -> w.chatShowTimestamps = v }, YES_NO),
+    // How long a diagram's code and Jira shapes keep what they read: a number, carried as it is.
+    FileField("diagramFetchMinutes", { it.diagramFetchMinutes }, { w, v -> w.diagramFetchMinutes = v }, WHOLE_OR_NULL),
     FileField("voiceButtonHidden", { it.voiceButtonHidden }, { w, v -> w.voiceButtonHidden = v }, YES_NO),
     FileField("widgetTimerSound", { it.widgetTimerSound }, { w, v -> w.widgetTimerSound = v }, YES_NO),
     FileField("sessionCostShown", { it.sessionCostShown }, { w, v -> w.sessionCostShown = v }, YES_NO),

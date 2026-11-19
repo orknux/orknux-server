@@ -161,7 +161,8 @@ class DiagramNode(
     @Column(nullable = false, length = 20)
     val kind: String,
 
-    @Column(nullable = false, length = Diagrams.LABEL_LENGTH)
+    /** Unbounded: a note shape holds a paragraph or more, and a cap here was a save refused mid-sentence. */
+    @Column(nullable = false, columnDefinition = "text")
     val label: String,
 
     @Column(nullable = false) val x: Int,
@@ -212,6 +213,14 @@ class DiagramNode(
     /** How big its words are drawn, in pixels; null is the size its kind is drawn at. V687. */
     @Column(name = "text_size")
     val textSize: Int? = null,
+
+    /** Whether its words are sized to fill it rather than drawn at [textSize]; null is not. V689. */
+    @Column(name = "text_fit")
+    val textFit: Boolean? = null,
+
+    /** What a code or a Jira shape shows: a GitHub file's address, or an issue key or address. V689. */
+    @Column(columnDefinition = "text")
+    val source: String? = null,
 )
 
 /** One line between two boxes, by their keys. */
@@ -237,7 +246,7 @@ class DiagramEdge(
     @Column(name = "target_key", nullable = false, length = Diagrams.ID_LENGTH)
     val targetKey: String,
 
-    @Column(length = Diagrams.LABEL_LENGTH)
+    @Column(columnDefinition = "text")
     val label: String? = null,
 
     /** The nearest of the four kinds, kept for a reader that knows only them - an older jar among them. */
@@ -284,6 +293,13 @@ class DiagramEdge(
     /** The side of its target box it is pinned to; null is the floating end every line had. V684. */
     @Column(name = "to_side", length = 8)
     val toSide: String? = null,
+
+    /** Where along its pinned side each end sits, a share of the side; null is its middle. V690. */
+    @Column(name = "from_at")
+    val fromAt: Double? = null,
+
+    @Column(name = "to_at")
+    val toAt: Double? = null,
 )
 
 interface DiagramCatalogRepository : JpaRepository<DiagramCatalog, Long> {
@@ -351,7 +367,7 @@ object Diagrams {
     const val NAME_LENGTH = 200
     const val CATALOG_NAME_LENGTH = 120
 
-    /** A node's or an edge's own words. */
+    /** A layer's name. A node's and an edge's own words have no cap. */
     const val LABEL_LENGTH = 500
 
     /** How long a box's link may be; a format - an address longer than this is not one a person typed. */
@@ -418,6 +434,8 @@ enum class DiagramNodeKind(val key: String, val said: String, val w: Int, val h:
     MOBILE("mobile", "a phone: a mobile app, somebody on their phone", 80, 140),
     IMAGE("image", "a picture, its label a caption beneath: give image an address on the web (https://...) to show; one a person uploaded is named by its id", 240, 160),
     TEXT("text", "words alone, with no box, outline or fill: a title, a heading over part of the diagram, a caption or a remark placed anywhere", 200, 40),
+    CODE("code", "lines of a file on GitHub, highlighted: set source to the file's address as copied from its page (https://github.com/owner/repo/blob/<ref>/<path>, with #L10-L40 for a stretch of lines); the label is a caption, and the server reads the code itself - nothing to fetch", 480, 280),
+    JIRA("jira", "a Jira issue as a card - key, summary, status, type and assignee: set source to the issue key (PROJ-123) or its address; the server reads the issue itself - nothing to fetch", 260, 110),
     LINK("link", "a link card: another diagram, a document, a wireframe or a web page this one leads to - set its link (diagram:<id>, document:<id>, wireframe:<id> or https://...), and its label is the name shown on the card", 220, 64),
     GROUP("group", "a labelled area other nodes sit inside, given as their parent: a boundary, a network, a team", 360, 240),
     ;

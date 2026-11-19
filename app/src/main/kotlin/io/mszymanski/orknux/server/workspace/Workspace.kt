@@ -235,6 +235,19 @@ class Workspace(
     @Column(name = "widget_timer_sound", nullable = false)
     var widgetTimerSound: Boolean = true,
 
+    /**
+     * Which of the workspace's Jira connections diagrams' Jira shapes read an
+     * issue through; null is whichever the Jira plugin is pointed at for the
+     * workspace. Code shapes have no such choice - they read through the
+     * GitHub plugin, with its token. V691.
+     */
+    @Column(name = "diagram_jira_connection_id")
+    var diagramJiraConnectionId: Long? = null,
+
+    /** How many minutes such a shape's copy is drawn before it is read again; null is sixty. V689. */
+    @Column(name = "diagram_fetch_minutes")
+    var diagramFetchMinutes: Int? = null,
+
     /** Whether a session page shows what the session has cost, in tokens and money. On by default. */
     @Column(name = "session_cost_shown", nullable = false)
     var sessionCostShown: Boolean = true,

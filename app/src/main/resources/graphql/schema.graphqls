@@ -2047,6 +2047,8 @@ type Mutation {
     setWorkspaceSpeechModel(workspaceId: ID!, modelId: ID): Workspace!
     "Chooses the model the workspace draws with; null takes the picture button away."
     setWorkspaceImageModel(workspaceId: ID!, modelId: ID): Workspace!
+    "Chooses the Jira connection diagrams' Jira shapes read through, and how long a code or Jira shape's copy is kept; a null connection is the Jira plugin's own, null minutes is sixty. Code shapes read through the GitHub plugin."
+    setWorkspaceDiagramSources(workspaceId: ID!, jiraConnectionId: ID, fetchMinutes: Int): Workspace!
     """
     When a chat is summarised, how short the summary has to be, and what writes it.
 
@@ -2601,6 +2603,10 @@ type Workspace {
     with.
     """
     imageModelId: ID
+    "The Jira connection Jira shapes in diagrams read an issue through; null is whichever the Jira plugin is pointed at."
+    diagramJiraConnectionId: ID
+    "How many minutes a code or Jira shape's copy is kept before it is read again; null is sixty."
+    diagramFetchMinutes: Int
     """
     The model behind the quick chat beside the page. Null means
     quickChatModelAny decides.

@@ -122,6 +122,13 @@ class FunctionCaller(
          * it to the workspace's.
          */
         granted: ConnectionGrants? = null,
+        /**
+         * Plugin settings this one call is made with instead of the workspace's,
+         * by parameter name, as resolved JSON - a diagram's Jira shape reading
+         * through the connection its workspace chose for diagrams rather than
+         * the one the Jira plugin is pointed at. Empty for every other caller.
+         */
+        insteadOfSettings: Map<String, String> = emptyMap(),
     ): ScriptResult {
         val arguments = declared + externals.of(function, insteadOfVariables)
 
@@ -137,7 +144,7 @@ class FunctionCaller(
          * `this.settings` — the editor says so where the edit is made.
          */
         if (function.scope == FunctionScope.PLUGIN && function.editedAt == null) {
-            return callPlugin(function, arguments, workspaceId, sessionId, granted)
+            return callPlugin(function, arguments, workspaceId, sessionId, granted, insteadOfSettings)
         }
 
         /*
@@ -348,6 +355,7 @@ class FunctionCaller(
         workspaceId: Long,
         sessionId: Long? = null,
         granted: ConnectionGrants? = null,
+        insteadOfSettings: Map<String, String> = emptyMap(),
     ): ScriptResult {
         val plugin = function.pluginId?.let { plugins.findByIdOrNull(it) }
             ?: return ScriptResult.Failed("is declared by a plugin that is no longer loaded", 0)
@@ -365,7 +373,7 @@ class FunctionCaller(
             )
         }
 
-        val missing = pluginParameters.missingFor(plugin, workspaceId)
+        val missing = pluginParameters.missingFor(plugin, workspaceId) - insteadOfSettings.keys
         if (missing.isNotEmpty()) {
             return ScriptResult.Failed(
                 "cannot run: the ${plugin.key} plugin has not been told " + missing.joinToString(", ") +
@@ -396,7 +404,7 @@ class FunctionCaller(
             pluginSources.sourceOf(plugin),
             declared,
             handed,
-            pluginParameters.settingsFor(plugin, workspaceId),
+            pluginParameters.settingsFor(plugin, workspaceId, insteadOfSettings),
             // What a person accepted for this plugin, and nothing else. Read per
             // call from this plugin's row, so one plugin's agreement cannot reach
             // another's context.

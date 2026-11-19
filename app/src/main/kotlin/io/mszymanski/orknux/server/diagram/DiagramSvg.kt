@@ -1,6 +1,9 @@
 package io.mszymanski.orknux.server.diagram
 
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
 /**
  * A diagram drawn as one SVG: the picture a chat shows beside the link, and
@@ -45,7 +48,12 @@ class DiagramSvg {
         return listOf(left, top, max(1, right - left), max(1, bottom - top))
     }
 
-    fun drawing(drawing: DiagramDrawing, pictures: (DiagramShape) -> String? = { null }): String {
+    /**
+     * The drawing as an SVG. [pictures] answers a picture's data address; [read] what a code or a Jira shape
+     * last read - its lines, or its issue as JSON - and an export never fetches, so a shape not yet read is an
+     * empty card naming its source.
+     */
+    fun drawing(drawing: DiagramDrawing, read: (DiagramShape) -> String? = { null }, pictures: (DiagramShape) -> String? = { null }): String {
         // Only what is shown: a layer hidden in the editor is out of every picture of it too.
         @Suppress("NAME_SHADOWING")
         val drawing = drawing.visible()
@@ -91,7 +99,7 @@ class DiagramSvg {
                 edge(edge, from, to, route, drawn)
                 route.points?.let { drawn += it }
             }
-            nodes.filter { it.kind != DiagramNodeKind.GROUP }.forEach { node(it, pictures) }
+            nodes.filter { it.kind != DiagramNodeKind.GROUP }.forEach { node(it, pictures, read) }
             append("</svg>")
         }
     }
@@ -129,17 +137,25 @@ class DiagramSvg {
     }
 
     /** A node as it is drawn: turned about its middle where it is, words and all, as the editor turns it. */
-    private fun StringBuilder.node(node: DiagramShape, pictures: (DiagramShape) -> String? = { null }) {
-        val turn = node.rotation ?: return upright(node, pictures)
+    private fun StringBuilder.node(node: DiagramShape, pictures: (DiagramShape) -> String? = { null }, read: (DiagramShape) -> String? = { null }) {
+        val turn = node.rotation ?: return upright(node, pictures, read)
         append("<g transform=\"rotate($turn ${r(node.x + node.w / 2.0)} ${r(node.y + node.h / 2.0)})\">")
-        upright(node, pictures)
+        upright(node, pictures, read)
         append("</g>")
     }
 
-    private fun StringBuilder.upright(node: DiagramShape, pictures: (DiagramShape) -> String?) {
+    private fun StringBuilder.upright(node: DiagramShape, pictures: (DiagramShape) -> String?, read: (DiagramShape) -> String?) {
         val (x, y, w, h) = listOf(node.x, node.y, node.w, node.h)
         if (node.kind == DiagramNodeKind.IMAGE) {
             picture(node, pictures(node))
+            return
+        }
+        if (node.kind == DiagramNodeKind.CODE) {
+            code(node, read(node))
+            return
+        }
+        if (node.kind == DiagramNodeKind.JIRA) {
+            jira(node, read(node))
             return
         }
         val fill = node.color ?: when (node.kind) {
@@ -159,7 +175,7 @@ class DiagramSvg {
                 // Text that leads somewhere is drawn as the editor draws it: a link's blue, underlined.
                 val linked = !node.link.isNullOrBlank()
                 val align = node.align ?: DiagramTextAlign.LEFT
-                setWords(lines, x + 4, x + w - 4, y + 2, y + h - 2, align, node.valign ?: DiagramTextValign.MIDDLE, if (linked) LINK_INK else if (node.color != null) ink else INK, sizeOf(node), lineOf(node)) { line, at, baseline ->
+                setWords(lines, x + 4, x + w - 4, y + 2, y + h - 2, align, node.valign ?: DiagramTextValign.MIDDLE, if (linked) LINK_INK else if (node.color != null) ink else INK, sizeOf(node), lineOf(node), label = node.label) { line, at, baseline ->
                     if (linked && line.isNotBlank()) {
                         val length = (line.length * sizeOf(node) * CHAR_WIDTH).toInt()
                         // Under the words, wherever they were set: from their left end, which the anchor put at, before or about `at`.
@@ -196,9 +212,11 @@ class DiagramSvg {
             }
             else -> Unit
         }
-        val inset = if (node.kind == DiagramNodeKind.DIAMOND || node.kind == DiagramNodeKind.ELLIPSE) w / 5 else 8
+        val rounded = node.kind == DiagramNodeKind.DIAMOND || node.kind == DiagramNodeKind.ELLIPSE
+        // Fitted inside a diamond or an ellipse, the words are set as wide as the room they were fitted to, not the box.
+        val inset = if (rounded && node.textFit == true) max(8, (w - fitted(node).second) / 2) else if (rounded) w / 5 else 8
         val lines = wrap(clean(node.label), w - inset * 2, sizeOf(node), max(1, (h - 8) / lineOf(node)))
-        setWords(lines, x + inset, x + w - inset, y + 4, y + h - 4, node.align ?: DiagramTextAlign.CENTER, node.valign ?: DiagramTextValign.MIDDLE, ink, sizeOf(node), lineOf(node))
+        setWords(lines, x + inset, x + w - inset, y + 4, y + h - 4, node.align ?: DiagramTextAlign.CENTER, node.valign ?: DiagramTextValign.MIDDLE, ink, sizeOf(node), lineOf(node), label = node.label)
     }
 
     /**
@@ -209,8 +227,13 @@ class DiagramSvg {
     private fun StringBuilder.setWords(
         lines: List<String>, left: Int, right: Int, top: Int, bottom: Int,
         align: DiagramTextAlign, valign: DiagramTextValign, ink: String, size: Int = SIZE, line: Int = LINE, bold: Boolean = false,
+        /** The label these lines were wrapped from, for the parts of it that are styled; null draws them plain. */
+        label: String? = null,
         each: (line: String, x: Int, baseline: Int) -> Unit = { _, _, _ -> },
     ) {
+        val styles = label?.let(::stylesOf)
+        val source = if (styles != null) clean(label) else ""
+        var cursor = 0
         val (x, anchor) = when (align) {
             DiagramTextAlign.LEFT -> left to null
             DiagramTextAlign.CENTER -> (left + right) / 2 to "middle"
@@ -223,7 +246,19 @@ class DiagramSvg {
             DiagramTextValign.BOTTOM -> bottom - line / 2 - (lines.size - 1) * line
         } + size * 7 / 20
         lines.forEachIndexed { at, words ->
-            text(x, first + at * line, words, size, ink, bold = bold, anchor = anchor)
+            if (styles == null) {
+                text(x, first + at * line, words, size, ink, bold = bold, anchor = anchor)
+            } else {
+                /*
+                 * Each character of the wrapped line found in the label it came from, in order - wrapping only
+                 * drops spaces and line breaks, and adds an ellipsis - so it is drawn in the style it has there.
+                 */
+                val styled = words.map { ch ->
+                    while (cursor < source.length && source[cursor] != ch && source[cursor].isWhitespace()) cursor += 1
+                    if (cursor < source.length && source[cursor] == ch) styles[cursor++] to ch else DiagramStyledText.PLAIN to ch
+                }
+                styledText(x, first + at * line, styled, size, ink, bold, anchor)
+            }
             each(words, x, first + at * line)
         }
     }
@@ -257,7 +292,14 @@ class DiagramSvg {
         val my = route.labelY
         val half = shown.length * 12 * CHAR_WIDTH / 2 + 4
         append("<rect x=\"${r(mx - half)}\" y=\"${r(my - 9)}\" width=\"${r(half * 2)}\" height=\"16\" rx=\"3\" fill=\"$PAPER\"/>")
-        text(mx.toInt(), (my + 4).toInt(), shown, 12, MUTED, anchor = "middle")
+        val styles = stylesOf(edge.label)
+        if (styles == null) {
+            text(mx.toInt(), (my + 4).toInt(), shown, 12, MUTED, anchor = "middle")
+        } else {
+            // Its first line from its start, cut short at most: each character is where it was in the label.
+            val source = clean(edge.label)
+            styledText(mx.toInt(), (my + 4).toInt(), shown.mapIndexed { at, ch -> (if (at < source.length && source[at] == ch) styles[at] else DiagramStyledText.PLAIN) to ch }, 12, MUTED, false, "middle")
+        }
     }
 
     /** The marker an end is drawn with, by id; the arrow keeps the two it always had, so an old line draws as it did. */
@@ -329,7 +371,7 @@ class DiagramSvg {
         val top = node.y + (inside.top * node.h / 100).toInt()
         val bottom = node.y + (inside.bottom * node.h / 100).toInt()
         val lines = wrap(words, right - left, sizeOf(node), max(1, (bottom - top) / lineOf(node)))
-        setWords(lines, left, right, top, bottom, node.align ?: DiagramTextAlign.CENTER, node.valign ?: DiagramTextValign.MIDDLE, ink, sizeOf(node), lineOf(node))
+        setWords(lines, left, right, top, bottom, node.align ?: DiagramTextAlign.CENTER, node.valign ?: DiagramTextValign.MIDDLE, ink, sizeOf(node), lineOf(node), label = node.label)
     }
 
     /** A class: its name bold in the middle, each compartment under a rule, its lines from the left. */
@@ -374,6 +416,66 @@ class DiagramSvg {
         caption?.let { text(node.x + node.w / 2, node.y + node.h - 6, fitted(it, node.w, sizeOf(node)), sizeOf(node), INK, anchor = "middle") }
     }
 
+    /**
+     * A code shape: a dark card, as the editor draws it, with a caption naming the file and its lines in a
+     * fixed-width face, numbered. Plain: the picture has no highlighting, which is the editor's alone.
+     */
+    private fun StringBuilder.code(node: DiagramShape, body: String?) {
+        val source = node.source?.let(DiagramCodeSource::of)
+        rect(node.x, node.y, node.w, node.h, CODE_PAPER, 6, stroke = if (node.border != null || node.borderWidth != null) outlined(node) else "stroke=\"$CODE_RULE\" stroke-width=\"1\"")
+        val caption = clean(node.label).lineSequence().firstOrNull()?.takeIf { it.isNotBlank() }
+            ?: source?.let { it.path.substringAfterLast('/') + (it.fromLine?.let { from -> ":$from" + (it.toLine?.takeIf { to -> to != from }?.let { to -> "–$to" } ?: "") } ?: "") }
+            ?: "code"
+        text(node.x + 10, node.y + 17, fitted(caption, node.w - 20, 12), 12, CODE_MUTED, bold = true)
+        append("<line x1=\"${node.x}\" y1=\"${node.y + 26}\" x2=\"${node.x + node.w}\" y2=\"${node.y + 26}\" stroke=\"$CODE_RULE\" stroke-width=\"1\"/>")
+        val size = node.textSize ?: CODE_SIZE
+        val line = size + 5
+        if (body == null) {
+            text(node.x + 10, node.y + 26 + line + 4, fitted(node.source ?: "", node.w - 20, size), size, CODE_MUTED)
+            return
+        }
+        val first = source?.fromLine ?: 1
+        val rows = max(0, (node.h - 26 - 8) / line)
+        val lines = body.split('\n').take(rows)
+        val gutter = ((first + lines.size - 1).toString().length + 1) * size * 0.6
+        val fits = max(1, ((node.w - 20 - gutter) / (size * 0.6)).toInt())
+        lines.forEachIndexed { at, said ->
+            val baseline = node.y + 26 + 4 + line * (at + 1) - 4
+            append("<text x=\"${node.x + 10}\" y=\"$baseline\" font-size=\"$size\" font-family=\"$MONO\" fill=\"$CODE_MUTED\">${first + at}</text>")
+            val shown = said.replace("\t", "    ").let { if (it.length > fits) it.take(max(0, fits - 1)) + ELLIPSIS else it }
+            if (shown.isNotBlank()) {
+                append("<text x=\"${r(node.x + 10 + gutter)}\" y=\"$baseline\" font-size=\"$size\" font-family=\"$MONO\" fill=\"$CODE_INK\" xml:space=\"preserve\">")
+                append(escape(shown)).append("</text>")
+            }
+        }
+    }
+
+    /** A Jira shape: a card with the issue's key, its summary, and its status, type and assignee - or its key alone where nothing was read. */
+    private fun StringBuilder.jira(node: DiagramShape, body: String?) {
+        val issue = body?.let { runCatching { tools.jackson.databind.ObjectMapper().readTree(it) }.getOrNull() }?.takeIf { it.isObject }
+        fun field(name: String): String? = issue?.path(name)?.let { if (it.isString) it.stringValue() else if (it.isObject) it.path("name").stringValue() else null }?.takeIf { it.isNotBlank() }
+        val fill = node.color ?: WHITE
+        val ink = if (dark(fill)) WHITE else INK
+        rect(node.x, node.y, node.w, node.h, fill, 8, stroke = outlined(node))
+        val size = sizeOf(node)
+        val key = field("key") ?: node.source?.let { DiagramJiraSource.of(it)?.key } ?: "Jira"
+        text(node.x + 12, node.y + 8 + size, fitted(key, node.w - 24, size), size, LINK_INK, bold = true)
+        val status = field("status")
+        if (status != null) {
+            val said = fitted(status.uppercase(), node.w / 2, 10)
+            val width = (said.length * 10 * CHAR_WIDTH + 12).toInt()
+            rect(node.x + node.w - 12 - width, node.y + 8, width, 16, JIRA_STATUS, 3, stroke = "stroke=\"none\"")
+            text(node.x + node.w - 12 - width / 2, node.y + 20, said, 10, INK, bold = true, anchor = "middle")
+        }
+        val summary = field("summary") ?: clean(node.label).ifBlank { "" }
+        val rows = max(1, (node.h - 8 - size - 8 - 22) / lineOf(node))
+        wrap(summary, node.w - 24, size, rows).forEachIndexed { at, said ->
+            text(node.x + 12, node.y + 8 + size + 6 + lineOf(node) * (at + 1), said, size, ink)
+        }
+        val foot = listOfNotNull(field("type"), field("assignee")).joinToString(" · ")
+        if (foot.isNotEmpty()) text(node.x + 12, node.y + node.h - 10, fitted(foot, node.w - 24, 11), 11, MUTED)
+    }
+
     /** A box's outline: its own colour and thickness, or the ink every box had. */
     private fun outlined(node: DiagramShape): String =
         "stroke=\"${node.border ?: INK}\" stroke-width=\"${node.borderWidth?.let { "$it" } ?: "1.5"}\""
@@ -388,6 +490,35 @@ class DiagramSvg {
         append("/>")
     }
 
+    /** One line of words, each run in its own style: a tspan per run, in one text so the line is anchored as one. */
+    private fun StringBuilder.styledText(x: Int, y: Int, chars: List<Pair<DiagramStyledText.Style, Char>>, size: Int, colour: String, bold: Boolean, anchor: String?) {
+        if (chars.isEmpty()) return
+        append("<text x=\"$x\" y=\"$y\" font-size=\"$size\" fill=\"$colour\" xml:space=\"preserve\"")
+        if (bold) append(" font-weight=\"600\"")
+        if (anchor != null) append(" text-anchor=\"$anchor\"")
+        append(">")
+        var at = 0
+        while (at < chars.size) {
+            val style = chars[at].first
+            var end = at
+            while (end < chars.size && chars[end].first == style) end += 1
+            val words = escape(chars.subList(at, end).joinToString("") { it.second.toString() })
+            if (style.plain) {
+                append(words)
+            } else {
+                append("<tspan")
+                if (style.bold) append(" font-weight=\"700\"")
+                if (style.italic) append(" font-style=\"italic\"")
+                val lines = listOfNotNull("underline".takeIf { style.underline }, "line-through".takeIf { style.strike })
+                if (lines.isNotEmpty()) append(" text-decoration=\"${lines.joinToString(" ")}\"")
+                style.color?.let { append(" fill=\"$it\"") }
+                append(">").append(words).append("</tspan>")
+            }
+            at = end
+        }
+        append("</text>")
+    }
+
     private fun StringBuilder.text(x: Int, y: Int, words: String, size: Int, colour: String, bold: Boolean = false, anchor: String? = null) {
         if (words.isEmpty()) return
         append("<text x=\"$x\" y=\"$y\" font-size=\"$size\" fill=\"$colour\"")
@@ -397,10 +528,51 @@ class DiagramSvg {
     }
 
     /** How big [node]'s words are drawn: the size it asked for, or [usual] for where they are. */
-    private fun sizeOf(node: DiagramShape, usual: Int = SIZE): Int = node.textSize ?: usual
+    private fun sizeOf(node: DiagramShape, usual: Int = SIZE): Int =
+        if (node.textFit == true) fit(node) else node.textSize ?: usual
 
     /** How tall a line of [node]'s words is: eighteen pixels at the usual fourteen, and in that proportion at a size it asked for. */
-    private fun lineOf(node: DiagramShape): Int = node.textSize?.let { max(it + 2, (it * LINE + SIZE / 2) / SIZE) } ?: LINE
+    private fun lineOf(node: DiagramShape): Int =
+        (if (node.textFit == true) fit(node) else node.textSize)?.let { max(it + 2, (it * LINE + SIZE / 2) / SIZE) } ?: LINE
+
+    /**
+     * The largest size [node]'s words fill it at, for a shape set to fit its text: wrapped as they are drawn,
+     * in the room its outline leaves, from [FIT_MOST] down to [FIT_LEAST]. The editor works it out the same way.
+     */
+    private fun fit(node: DiagramShape): Int = fitted(node).first
+
+    /**
+     * The largest size [node]'s words fit at, and how wide they are then set.
+     * A diamond's or an ellipse's room is not its box less an inset: the words
+     * have to stay inside the slanted or curved sides, so it is tried as a few
+     * rectangles that do - wide and short to narrow and tall - and the one that
+     * takes the largest words wins. The editor's `fittedIn` does the same.
+     */
+    private fun fitted(node: DiagramShape): Pair<Int, Int> {
+        val words = clean(node.label).trim()
+        val outline = DiagramOutline.of(node.kind, node.w, node.h)
+        val rooms: List<Pair<Int, Int>> = when {
+            outline != null -> {
+                val inside = outline.inside
+                listOf(((inside.right - inside.left) * node.w / 100).toInt() to ((inside.bottom - inside.top) * node.h / 100).toInt())
+            }
+            node.kind == DiagramNodeKind.DIAMOND -> FIT_SHARES.map { t -> (node.w * (1 - t) * FIT_ROOM).toInt() to (node.h * t * FIT_ROOM).toInt() }
+            node.kind == DiagramNodeKind.ELLIPSE -> FIT_ANGLES.map { a -> (node.w * cos(a) * FIT_ROOM).toInt() to (node.h * sin(a) * FIT_ROOM).toInt() }
+            else -> listOf((node.w - 16) to (node.h - 8))
+        }
+        if (words.isEmpty()) return SIZE to rooms.first().first
+        return rooms.map { (width, height) -> sizeIn(words, width, height) to width }.maxBy { it.first }
+    }
+
+    private fun sizeIn(words: String, width: Int, height: Int): Int {
+        for (size in FIT_MOST downTo FIT_LEAST) {
+            val line = max(size + 2, (size * LINE + SIZE / 2) / SIZE)
+            val fits = max(1, (width / (size * CHAR_WIDTH)).toInt())
+            if (words.split(Regex("\\s+")).any { it.length > fits }) continue
+            if (wrap(words, width, size, Int.MAX_VALUE).size * line <= height) return size
+        }
+        return FIT_LEAST
+    }
 
     private fun wrap(words: String, width: Int, size: Int, most: Int): List<String> {
         val fits = max(1, (width / (size * CHAR_WIDTH)).toInt())
@@ -475,10 +647,35 @@ class DiagramSvg {
         private const val MUTED = "#71717a"
         private const val NOTE = "#fef9c3"
         private const val GROUP = "#eef2f7"
+        /** A code shape's card, as the editor draws it whatever the theme: dark, with light lines. */
+        private const val CODE_PAPER = "#18181b"
+        private const val CODE_RULE = "#3f3f46"
+        private const val CODE_INK = "#e4e4e7"
+        private const val CODE_MUTED = "#a1a1aa"
+        private const val CODE_SIZE = 12
+        /** The sizes a shape set to fit its text is drawn between; the editor's text size runs the same. */
+        private const val FIT_LEAST = 6
+        private const val FIT_MOST = 96
+        /** How much of a diamond's height its words' room takes - the rest of its width is left to it: rectangles that stay inside the sides. */
+        private val FIT_SHARES = listOf(0.3, 0.4, 0.5, 0.6, 0.7)
+        /** Where an ellipse's words' room meets its curve, as angles: wide and short to narrow and tall. */
+        private val FIT_ANGLES = listOf(25.0, 35.0, 45.0, 55.0, 65.0).map { it * PI / 180 }
+        /** A little short of the outline, so a fitted word does not touch it. */
+        private const val FIT_ROOM = 0.9
+        private const val MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        private const val JIRA_STATUS = "#e4e4e7"
 
         /** What XML 1.0 can hold: a control character other than a tab or a new line would refuse the whole picture. */
-        fun clean(text: String): String =
+        /** The words a label says, as they are drawn and measured: control characters out, and the marks that style part of it ([DiagramStyledText]). */
+        fun clean(text: String): String = DiagramStyledText.plain(bare(text))
+
+        /** A label with its control characters out and its marks still in. */
+        private fun bare(text: String): String =
             text.replace("\r\n", "\n").filter { it == '\n' || it == '\t' || it >= ' ' }.replace('\t', ' ')
+
+        /** The style of each character of [clean] of [text]; null where nothing of it is styled. */
+        fun stylesOf(text: String): List<DiagramStyledText.Style>? =
+            DiagramStyledText.stylesOf(bare(text)).takeIf { styles -> styles.any { !it.plain } }
 
         fun escape(text: String): String = buildString {
             text.forEach {

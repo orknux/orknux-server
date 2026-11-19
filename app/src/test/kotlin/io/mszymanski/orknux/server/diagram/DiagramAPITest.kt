@@ -63,6 +63,7 @@ class DiagramAPITest(
         tunables.set(Tunable.DIAGRAM_NOTE_CHARACTERS, null, "alice")
         tunables.set(Tunable.DIAGRAM_ITEMS_MOST, null, "alice")
         received.clear()
+        tunables.set(Tunable.DIAGRAM_LABEL_CHARACTERS, null, "alice")
     }
 
     @AfterEach
@@ -70,6 +71,7 @@ class DiagramAPITest(
         server?.stop(0)
         tunables.set(Tunable.DIAGRAM_NOTE_CHARACTERS, null, "alice")
         tunables.set(Tunable.DIAGRAM_ITEMS_MOST, null, "alice")
+        tunables.set(Tunable.DIAGRAM_LABEL_CHARACTERS, null, "alice")
     }
 
     private fun create(name: String, document: String? = null, catalogId: Long? = null): Long = graphQlTester.document(
@@ -81,6 +83,9 @@ class DiagramAPITest(
     private fun save(id: Long, document: String, revision: Int? = null) = graphQlTester.document(
         """mutation(${'$'}id: ID!, ${'$'}d: String!, ${'$'}r: Int) { saveDiagram(id: ${'$'}id, document: ${'$'}d, revision: ${'$'}r) { revision nodeCount edgeCount document } }""",
     ).variable("id", id).variable("d", document).variable("r", revision).execute()
+
+    private fun document(id: Long): String =
+        graphQlTester.document("""{ diagram(id: $id) { document } }""").execute().path("diagram.document").entity(String::class.java).get()
 
     private fun catalog(name: String): Long = graphQlTester.document(
         """mutation { createDiagramCatalog(workspaceId: $workspaceId, name: "$name") { id } }""",
@@ -245,6 +250,25 @@ class DiagramAPITest(
         assertThat(edges.getValue("float").has("toSide")).isFalse()
         save(id, """{"nodes":[{"id":"a"},{"id":"b"}],"edges":[{"id":"e","from":"a","to":"b","fromSide":"sideways"}]}""").errors()
             .expect { it.message?.contains("fromSide sideways") == true }.verify()
+    }
+
+    /** A label past the cap is kept up to it rather than refused - a note shape's text is its label. */
+    @Test
+    fun `a label past the cap is trimmed on save, and the cap is a Tunable`() {
+        val id = create("Labels")
+        val fallback = Tunable.DIAGRAM_LABEL_CHARACTERS.fallback
+        save(id, """{"nodes":[{"id":"a","kind":"note","label":"${"x".repeat(fallback + 10)}"},{"id":"b","label":"B"}],
+            "edges":[{"id":"e","from":"a","to":"b","label":"${"y".repeat(fallback + 1)}"}]}""")
+            .path("saveDiagram.nodeCount").entity(Int::class.java).isEqualTo(2)
+        val kept = mapper.readTree(document(id))
+        assertThat(kept.path("nodes").first { it.path("id").stringValue() == "a" }.path("label").stringValue()).hasSize(fallback)
+        assertThat(kept.path("edges").first().path("label").stringValue()).hasSize(fallback)
+
+        tunables.set(Tunable.DIAGRAM_LABEL_CHARACTERS, 100, "alice")
+        graphQlTester.document("""{ diagram(id: $id) { labelCharactersMost } }""").execute()
+            .path("diagram.labelCharactersMost").entity(Int::class.java).isEqualTo(100)
+        save(id, """{"nodes":[{"id":"a","label":"${"z".repeat(150)}"}]}""")
+        assertThat(mapper.readTree(document(id)).path("nodes").first().path("label").stringValue()).isEqualTo("z".repeat(100))
     }
 
     /** From the editor's door: notes past the cap are refused and name the node; the cap is the installation's. */
@@ -438,7 +462,7 @@ class DiagramAPITest(
     /** The editor's chat is told the person has the diagram open: the tools answer its url, and a model pasted it under the diagram. */
     @Test
     fun `the chat never links the diagram the person has open`() {
-        val view = DiagramView(1, workspaceId, 1, "General", "Flow", null, 500, DiagramAgentAccess.CHANGE, "{}", 0, 0, 1, 2000, "alice", "", "alice", "")
+        val view = DiagramView(1, workspaceId, 1, "General", "Flow", null, 500, DiagramAgentAccess.CHANGE, "{}", 0, 0, 1, 2000, 5000, "alice", "", "alice", "")
         val offered = chat.offered(OrknuxScope(workspaceId = workspaceId, mayWrite = true))
         val briefing = chat.briefing(view, offered)
         assertThat(briefing).contains("never link to it")

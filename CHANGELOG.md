@@ -15,6 +15,37 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **Code from GitHub in diagrams.** A code shape shows lines of a GitHub file, highlighted and numbered. Paste the file's address with `#L10-L40` for a stretch of lines. It reads through the GitHub plugin, with the plugin's token; Workspace → Settings → Code and Jira in diagrams says whether the plugin is ready.
+- **Jira issues in diagrams.** A Jira shape shows an issue's key, summary, status, type and assignee, read through the Jira plugin. The same settings choose which of the workspace's Jira connections it reads from, the plugin's own by default.
+- **What those shapes read is kept, and read lazily.** A diagram opens on the kept copy at once. Only once it is drawn are the shapes in view whose copy is older than the workspace's minutes read again. Refresh in the side panel reads one now.
+- **Pasting an address onto a diagram makes the shape that shows it:** a GitHub file becomes a code shape, a Jira issue a Jira card, and anything else a link card.
+- **Text that fits its shape.** A shape's text can be set to fill it, as large as fits, on the canvas and in exports.
+- **A line on its own can be cut, copied and pasted.** Pasted alone, it goes back between the shapes it joined.
+- **Part of a shape's or a line's words can be styled.** While typing, select words and press Ctrl+B, Ctrl+I or Ctrl+U, or use the bar shown over them for strikethrough and colours; the words show styled as they are typed. The label keeps markdown-like marks (`**bold**`, `*italic*`, `__underlined__`, `~~struck~~`, `[coloured]{#dc2626}`), which agents can write too. Exports draw the words the same way.
+- **A shape's whole text can be coloured and styled from the side panel**: bold, italic, underline, strikethrough and a colour. With several shapes selected, the panel sets their fill and text style together.
+- **A line's label can be moved along it:** drag the label, and it slides along the line to the point nearest the pointer, on lines of every shape. Double-clicking a line puts its label where it was double-clicked. Exports put it in the same place.
+- **A line's end can be pinned to any point of a shape's outline**, not only the middle of a side: drag its grip to the point, or let a new line go there. A line being drawn ends on the point it will be pinned to, marked with a dot. Exports agree.
+
+### 🔧 Changed
+
+- **Holding Space in the diagram editor only looks.** The canvas moves under the pointer, and nothing is selected, dragged or joined until Space is let go.
+- **A new line looks like the line made or restyled last**: its style, ends, routing, colour and thickness. The first line of a diagram is still a curved arrow.
+- **The text size field steps from the size it shows.** Its − and + buttons, and Up or Down, start from that size in the empty field (14 gives 15), not from the field's least.
+- **A diagram shape's or line's text is no longer refused past 500 characters.** It is kept up to 5,000 and trimmed beyond, a number set in Admin → Settings under Limits (`ORKNUX_TUNING_DIAGRAM_LABEL_CHARACTERS`); a long note no longer stops a diagram saving.
+
+### 🐛 Fixed
+
+- A link card's address now follows its text size.
+- A link card is easier to select: its open button is smaller, and a click on it selects the card as well as opening the link.
+- A link card can be filled with a colour. The colour row was shown for it, but the card stayed white.
+- Text fitted to a diamond or an ellipse stays inside its outline; it was sized for the box around it and ran over the slanted or curved sides.
+- A selected link, code or Jira card is lit by the selection's ring, as a selected shape is.
+- A line is drawn in the colour and thickness chosen for it. Both were saved, but every line was still drawn in the usual grey at the usual width.
+
 ## 1.4.4
 
 ### ✨ Added

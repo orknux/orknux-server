@@ -680,7 +680,8 @@ class WorkspaceDuplicateTest(
             .map { it.name }.toSet()
         // Its id and its name are the copy's own; who may see it is a decision about people.
         // A copy is never an admin workspace: what it may read is an administrator's decision, made on it.
-        val left = setOf("id", "name", "roles", "adminRoles", "adminWorkspace")
+        // The Jira connection diagrams read through is a row of the original's: a copy's Jira shapes read through its Jira plugin's own until one is chosen there.
+        val left = setOf("id", "name", "roles", "adminRoles", "adminWorkspace", "diagramJiraConnectionId")
         // Carried by name and pointed at the copied models.
         val models = setOf("companionModelId", "transcriptionModelId", "speechModelId", "compactionModelId",
             "imageModelId", "quickChatModelId", "sessionCompactionModelId", "completionModelId")

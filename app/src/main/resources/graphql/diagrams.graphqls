@@ -13,9 +13,38 @@ extend type Query {
     diagramNodeIndex(workspaceId: ID!): [DiagramIndexEntry!]!
     "Node labels, notes, edge labels and diagram names that hold the words, best match first; with diagramId, in that diagram only."
     searchDiagrams(workspaceId: ID!, query: String!, diagramId: ID): [DiagramHit!]!
+    "What the diagram's code and Jira shapes last read, from the workspace's copies only: nothing is fetched."
+    diagramSources(diagramId: ID!): [DiagramSource!]!
+}
+
+"Which shapes read from outside the diagram."
+enum DiagramSourceKind {
+    "A code shape: lines of a file on GitHub."
+    CODE
+    "A Jira shape: one issue."
+    JIRA
+}
+
+"What one code or Jira shape last read."
+type DiagramSource {
+    kind: DiagramSourceKind!
+    "The shape's source: a GitHub file's address, or an issue key."
+    source: String!
+    "The code's lines, or the issue as JSON; null where nothing was read yet."
+    body: String
+    "ISO-8601; null where it was never read."
+    fetchedAt: String
+    "Older than the workspace keeps a copy, or never read."
+    stale: Boolean!
+    "Why the last read failed, where it did; body is then the last one that worked."
+    failed: String
+    "Whether the workspace has chosen a function to read this kind with."
+    configured: Boolean!
 }
 
 extend type Mutation {
+    "Reads one code or Jira shape again where its copy is stale, or always with force, through the workspace's chosen function."
+    fetchDiagramSource(diagramId: ID!, kind: DiagramSourceKind!, source: String!, force: Boolean): DiagramSource!
     createDiagramCatalog(workspaceId: ID!, name: String!): DiagramCatalog!
     renameDiagramCatalog(id: ID!, name: String!): DiagramCatalog!
     "Refused while the catalog holds diagrams."
@@ -89,6 +118,8 @@ type Diagram {
     revision: Int!
     "How long a node's notes may be on this installation."
     noteCharactersMost: Int!
+    "How long a node's or a line's label is kept on this installation; a save trims what is past it."
+    labelCharactersMost: Int!
     createdBy: String!
     "ISO-8601."
     createdAt: String!

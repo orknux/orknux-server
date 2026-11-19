@@ -51,7 +51,7 @@ class PluginParameters(
      * whatever a row says: the declaration decides what crosses, not the settings
      * table, so a stale row cannot smuggle anything in.
      */
-    fun settingsFor(plugin: Plugin, workspaceId: Long): String {
+    fun settingsFor(plugin: Plugin, workspaceId: Long, instead: Map<String, String> = emptyMap()): String {
         val stored = byName(plugin, workspaceId)
         val json: ObjectNode = mapper.createObjectNode()
 
@@ -60,6 +60,8 @@ class PluginParameters(
             .toSet()
 
         declarations.readParameters(plugin.declaredParameters).forEach { parameter ->
+            // A value the caller stands in for this one - a diagram's own Jira connection - as JSON already resolved.
+            instead[parameter.name]?.let { json.set(parameter.name, mapper.readTree(it)); return@forEach }
             val setting = stored[parameter.name] ?: return@forEach
             val value = resolved(parameter, setting, Opened(workspaceId, ownKinds)) ?: return@forEach
             json.set(parameter.name, mapper.readTree(value))

@@ -43,6 +43,13 @@ data class DiagramShape(
     val valign: DiagramTextValign? = null,
     /** How big its words are drawn, in whole pixels; null is the size its kind is drawn at - fourteen, and thirteen for a group's name. */
     val textSize: Int? = null,
+    /** Whether its words are sized to fill it, as large as fits, rather than drawn at [textSize]; null is not. */
+    val textFit: Boolean? = null,
+    /**
+     * What it shows, where it is a [DiagramNodeKind.CODE] or a [DiagramNodeKind.JIRA]: a GitHub file's
+     * address ([DiagramCodeSource]), or an issue's key or address ([DiagramJiraSource]). Nothing on any other kind.
+     */
+    val source: String? = null,
 ) {
     /** The uploaded picture it shows, by id; null for an address on the web, or none. */
     val uploadedImage: Long? get() = image?.takeIf { it.all(Char::isDigit) }?.toLongOrNull()
@@ -80,9 +87,9 @@ data class DiagramLink(
      */
     val points: List<Pair<Int, Int>> = emptyList(),
     /**
-     * Where along it its label sits, as a share of its length from its start,
-     * where [DiagramRouter] moved it clear of a box or another label; null is
-     * the middle of its longest run. Only a routed line has one.
+     * Where along it its label sits, as a share of its length from its start:
+     * where a person slid it, or where [DiagramRouter] moved it clear of a box
+     * or another label; null is where the line's shape puts it.
      */
     val labelAt: Double? = null,
     /** Its colour, #rrggbb, ends included; null is the ink every line had. */
@@ -93,6 +100,13 @@ data class DiagramLink(
     val fromSide: DiagramSide? = null,
     /** The side of [to] it is pinned to; null is the floating end that finds the side facing [from]. */
     val toSide: DiagramSide? = null,
+    /**
+     * Where along its pinned side each end sits, as a share of the side from its start - left to right along the
+     * top and the bottom, top to bottom down the left and the right, as the box is drawn upright - so an end can be
+     * pinned to any point of the outline. Null is the side's middle; nothing without a side.
+     */
+    val fromAt: Double? = null,
+    val toAt: Double? = null,
 ) {
     /** The nearest of the four kinds a line had before it had a style and two ends. */
     val kind: DiagramEdgeKind get() = DiagramEdgeKind.nearest(line, start, end)
@@ -254,9 +268,6 @@ class DiagramDocument(private val mapper: ObjectMapper) {
             )
         val id = id(node, "node ${at + 1}", taken)
         val label = text(node.path("label"))?.trim().orEmpty()
-        if (label.length > Diagrams.LABEL_LENGTH) {
-            throw DiagramDocumentInvalidException("node $id has a label longer than ${Diagrams.LABEL_LENGTH} characters")
-        }
         return DiagramShape(
             id = id,
             kind = kind,
@@ -284,6 +295,8 @@ class DiagramDocument(private val mapper: ObjectMapper) {
                 )
             },
             textSize = textSize(node.path("textSize"), id),
+            textFit = node.path("textFit").takeIf { it.isBoolean }?.booleanValue()?.takeIf { it },
+            source = source(node.path("source"), kind, id),
             image = text(node.path("image"))?.trim()?.takeIf { it.isNotEmpty() }?.also { said ->
                 if (said.length > Diagrams.LINK_LENGTH || !(said.all(Char::isDigit) || PICTURE_ADDRESS.matches(said))) {
                     throw DiagramDocumentInvalidException("node $id has image $said, which is neither an uploaded picture's id nor an address on the web (https://...)")
@@ -336,6 +349,23 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         return read
     }
 
+    /** What a code or a Jira shape reads, held to what its kind can read; on any other kind it is dropped. */
+    private fun source(value: JsonNode, kind: DiagramNodeKind, id: String): String? {
+        val said = text(value)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return when (kind) {
+            DiagramNodeKind.CODE -> said.also {
+                DiagramCodeSource.of(it) ?: throw DiagramDocumentInvalidException(
+                    "node $id has source $it, which is not a GitHub file's address (https://github.com/owner/repo/blob/<ref>/<path>, " +
+                        "with #L10-L40 for at most ${DiagramCodeSource.MOST_LINES} lines)",
+                )
+            }
+            DiagramNodeKind.JIRA -> DiagramJiraSource.of(said)?.key ?: throw DiagramDocumentInvalidException(
+                "node $id has source $said, which is neither a Jira issue key (PROJ-123) nor an issue's address",
+            )
+            else -> null
+        }
+    }
+
     /** A box's link, held to what may be opened by a click; empty is none. */
     private fun link(value: JsonNode, of: String): String? {
         val said = text(value)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -363,9 +393,6 @@ class DiagramDocument(private val mapper: ObjectMapper) {
                 "edge $id has kind $asked, which is not one of ${DiagramEdgeKind.entries.joinToString(", ") { it.key }}",
             )
         val label = text(node.path("label"))?.trim()?.takeIf { it.isNotEmpty() }
-        if (label != null && label.length > Diagrams.LABEL_LENGTH) {
-            throw DiagramDocumentInvalidException("edge $id has a label longer than ${Diagrams.LABEL_LENGTH} characters")
-        }
         // The kind says all three where nothing else does; each one named beside it is that one's own.
         val line = text(node.path("line"))?.let { said ->
             DiagramLineStyle.byKey(said) ?: throw DiagramDocumentInvalidException(
@@ -389,6 +416,8 @@ class DiagramDocument(private val mapper: ObjectMapper) {
             width = thickness(node.path("width"), "edge $id", "width"),
             fromSide = side(node, "fromSide", id),
             toSide = side(node, "toSide", id),
+            fromAt = share(node, "fromAt", id).takeIf { side(node, "fromSide", id) != null },
+            toAt = share(node, "toAt", id).takeIf { side(node, "toSide", id) != null },
         )
     }
 
@@ -397,6 +426,19 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         DiagramSide.byKey(said) ?: throw DiagramDocumentInvalidException(
             "edge $of has $field $said, which is not one of ${DiagramSide.entries.joinToString(", ") { it.key }}",
         )
+    }
+
+    /** Where along its side an end sits: a share from 0 to 1, kept to three places; absent, null or a half is the middle. */
+    private fun share(node: JsonNode, field: String, of: String): Double? {
+        val value = node.path(field)
+        if (value.isMissingNode || value.isNull) return null
+        val read = when {
+            value.isNumber -> value.doubleValue()
+            value.isString -> value.stringValue()?.trim()?.toDoubleOrNull()
+            else -> null
+        }?.takeIf { it.isFinite() && it in 0.0..1.0 }
+            ?: throw DiagramDocumentInvalidException("edge $of has $field $value, which is not a share of its side from 0 to 1")
+        return (Math.round(read * 1000) / 1000.0).takeIf { it != 0.5 }
     }
 
     /** A line's corners: a list of [x, y] pairs or {x, y} objects, whole pixels; null or absent is none. */
@@ -499,6 +541,8 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         node.align?.let { put("align", it.key) }
         node.valign?.let { put("valign", it.key) }
         node.textSize?.let { put("textSize", it) }
+        node.textFit?.let { put("textFit", it) }
+        node.source?.let { put("source", it) }
         node.image?.let { put("image", it) }
         node.notes?.let { notes ->
             if (notesUpTo != null && notes.length > notesUpTo) {
@@ -527,6 +571,8 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         edge.width?.let { put("width", it) }
         edge.fromSide?.let { put("fromSide", it.key) }
         edge.toSide?.let { put("toSide", it.key) }
+        edge.fromAt?.let { put("fromAt", it) }
+        edge.toAt?.let { put("toAt", it) }
     }
 
     /** A node changed in place: whatever [change] names is replaced, the rest kept; a null clears notes, colour or parent. */
@@ -625,6 +671,6 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         val STYLED = listOf("line", "start", "end")
 
         /** What a line's corners were found for: change one and they are dropped. */
-        val ROUTED = listOf("routing", "from", "to", "source", "target", "fromSide", "toSide")
+        val ROUTED = listOf("routing", "from", "to", "source", "target", "fromSide", "toSide", "fromAt", "toAt")
     }
 }

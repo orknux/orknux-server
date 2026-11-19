@@ -36,11 +36,20 @@ object DiagramRoute {
         val trace: List<Pair<Double, Double>> get() = points ?: curve(d)
     }
 
-    /** One line as it is drawn: by its own corners or bends where it has them, else the way its routing says. */
-    fun of(edge: DiagramLink, from: DiagramShape, to: DiagramShape): Route = when {
-        edge.routed -> through(from, to, edge.points, edge.labelAt)
-        edge.points.isNotEmpty() -> bent(from, to, edge.routing, edge.points, edge.fromSide, edge.toSide, edge.labelAt)
-        else -> of(from, to, edge.routing, edge.fromSide, edge.toSide)
+    /**
+     * One line as it is drawn: by its own corners or bends where it has them, else the way its routing says - with
+     * its label [DiagramLink.labelAt] of the way along it where it was moved there, whatever the line's shape, as
+     * the editor puts it.
+     */
+    fun of(edge: DiagramLink, from: DiagramShape, to: DiagramShape): Route {
+        val route = when {
+            edge.routed -> through(from, to, edge.points, edge.labelAt)
+            edge.points.isNotEmpty() -> bent(from, to, edge.routing, edge.points, edge.fromSide, edge.toSide, edge.labelAt, edge.fromAt, edge.toAt)
+            else -> of(from, to, edge.routing, edge.fromSide, edge.toSide, edge.fromAt, edge.toAt)
+        }
+        val at = edge.labelAt ?: return route
+        val (x, y) = along(route.trace, at)
+        return route.copy(labelX = x, labelY = y)
     }
 
     /**
@@ -64,10 +73,12 @@ object DiagramRoute {
         fromSide: DiagramSide? = null,
         toSide: DiagramSide? = null,
         labelAt: Double? = null,
+        fromAt: Double? = null,
+        toAt: Double? = null,
     ): Route {
         val inner = bends.map { it.first.toDouble() to it.second.toDouble() }
-        val (fax, fay) = aim(from, fromSide, inner.first().first, inner.first().second)
-        val (tax, tay) = aim(to, toSide, inner.last().first, inner.last().second)
+        val (fax, fay) = aim(from, fromSide, fromAt, inner.first().first, inner.first().second)
+        val (tax, tay) = aim(to, toSide, toAt, inner.last().first, inner.last().second)
         val all = listOf(DiagramOutline.border(from, fax, fay)) + inner + listOf(DiagramOutline.border(to, tax, tay))
         if (routing != DiagramRouting.CURVED) {
             var longest = 1
@@ -114,15 +125,20 @@ object DiagramRoute {
      * the other box, which is how every end found its side before one could be
      * pinned.
      */
-    private fun aim(node: DiagramShape, side: DiagramSide?, fx: Double, fy: Double): Pair<Double, Double> {
+    private fun aim(node: DiagramShape, side: DiagramSide?, at: Double?, fx: Double, fy: Double): Pair<Double, Double> {
         val cx = node.x + node.w / 2.0
         val cy = node.y + node.h / 2.0
         val far = 1_000_000.0
+        /*
+         * Pinned part way along a side: toward that point of the box's side, so the outline is met on the ray
+         * through it - the very point on a box, and the outline's own point that way on any other shape.
+         */
+        val along = at?.let { it - 0.5 }
         val (dx, dy) = when (side) {
-            DiagramSide.TOP -> 0.0 to -far
-            DiagramSide.BOTTOM -> 0.0 to far
-            DiagramSide.LEFT -> -far to 0.0
-            DiagramSide.RIGHT -> far to 0.0
+            DiagramSide.TOP -> if (along != null) (along * node.w) to (-node.h / 2.0) else 0.0 to -far
+            DiagramSide.BOTTOM -> if (along != null) (along * node.w) to (node.h / 2.0) else 0.0 to far
+            DiagramSide.LEFT -> if (along != null) (-node.w / 2.0) to (along * node.h) else -far to 0.0
+            DiagramSide.RIGHT -> if (along != null) (node.w / 2.0) to (along * node.h) else far to 0.0
             null -> return fx to fy
         }
         // A side turns with its box: the top of one turned a quarter is on its right.
@@ -314,14 +330,22 @@ object DiagramRoute {
 
     private const val CURVE_STEPS = 24
 
-    fun of(from: DiagramShape, to: DiagramShape, routing: DiagramRouting, fromSide: DiagramSide? = null, toSide: DiagramSide? = null): Route {
+    fun of(
+        from: DiagramShape,
+        to: DiagramShape,
+        routing: DiagramRouting,
+        fromSide: DiagramSide? = null,
+        toSide: DiagramSide? = null,
+        fromAt: Double? = null,
+        toAt: Double? = null,
+    ): Route {
         val ax = from.x + from.w / 2.0
         val ay = from.y + from.h / 2.0
         val bx = to.x + to.w / 2.0
         val by = to.y + to.h / 2.0
         if (routing == DiagramRouting.STRAIGHT) {
-            val (fax, fay) = aim(from, fromSide, bx, by)
-            val (tax, tay) = aim(to, toSide, ax, ay)
+            val (fax, fay) = aim(from, fromSide, fromAt, bx, by)
+            val (tax, tay) = aim(to, toSide, toAt, ax, ay)
             val (x1, y1) = DiagramOutline.border(from, fax, fay)
             val (x2, y2) = DiagramOutline.border(to, tax, tay)
             return Route("M ${r(x1)} ${r(y1)} L ${r(x2)} ${r(y2)}", (x1 + x2) / 2, (y1 + y2) / 2, listOf(x1 to y1, x2 to y2))
@@ -335,8 +359,8 @@ object DiagramRoute {
             val toward = if (flat) (if (bx >= ax) 1.0 else -1.0) else (if (by >= ay) 1.0 else -1.0)
             // An end pinned nowhere leaves by the side facing the other box, as it does on a line pinned at neither end.
             val out = if (flat) toward to 0.0 else 0.0 to toward
-            val (fax, fay) = aim(from, fromSide, ax + out.first * far, ay + out.second * far)
-            val (tax, tay) = aim(to, toSide, bx - out.first * far, by - out.second * far)
+            val (fax, fay) = aim(from, fromSide, fromAt, ax + out.first * far, ay + out.second * far)
+            val (tax, tay) = aim(to, toSide, toAt, bx - out.first * far, by - out.second * far)
             val start = DiagramOutline.border(from, fax, fay)
             val end = DiagramOutline.border(to, tax, tay)
             val corners = straightened(
@@ -361,8 +385,8 @@ object DiagramRoute {
         }
         return if (flat) {
             val toward = if (bx >= ax) 1 else -1
-            val (fax, fay) = aim(from, fromSide, ax + toward * far, ay)
-            val (tax, tay) = aim(to, toSide, bx - toward * far, by)
+            val (fax, fay) = aim(from, fromSide, fromAt, ax + toward * far, ay)
+            val (tax, tay) = aim(to, toSide, toAt, bx - toward * far, by)
             val (x1, y1) = DiagramOutline.border(from, fax, fay)
             val (x2, y2) = DiagramOutline.border(to, tax, tay)
             val mx = (x1 + x2) / 2
@@ -379,8 +403,8 @@ object DiagramRoute {
             Route(jumped(corners, emptyList()), mx, (y1 + y2) / 2, corners)
         } else {
             val toward = if (by >= ay) 1 else -1
-            val (fax, fay) = aim(from, fromSide, ax, ay + toward * far)
-            val (tax, tay) = aim(to, toSide, bx, by - toward * far)
+            val (fax, fay) = aim(from, fromSide, fromAt, ax, ay + toward * far)
+            val (tax, tay) = aim(to, toSide, toAt, bx, by - toward * far)
             val (x1, y1) = DiagramOutline.border(from, fax, fay)
             val (x2, y2) = DiagramOutline.border(to, tax, tay)
             val my = (y1 + y2) / 2

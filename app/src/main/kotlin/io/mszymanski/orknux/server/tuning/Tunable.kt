@@ -519,6 +519,24 @@ enum class Tunable(
         "How long a diagram node's notes may be",
         "A save, from the editor or from an agent, with longer notes on a node is refused and names the node.",
     ),
+    /*
+     * A label trims rather than refuses: a note shape keeps its text in its
+     * label, and a save refused while somebody types loses more than a tail.
+     */
+    DIAGRAM_LABEL_CHARACTERS(
+        "diagram.label.characters", 5_000, 100, null, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How long a diagram shape's or line's text may be",
+        "A save, from the editor or from an agent, keeps this much of a longer one and drops the rest.",
+    ),
+    /*
+     * What a code or a Jira shape keeps of what it read - the lines of a file,
+     * an issue as JSON. A diagram draws a stretch of a file, not a file.
+     */
+    DIAGRAM_SOURCE_CHARACTERS(
+        "diagram.source.characters", 20_000, 1_000, null, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much a diagram's code or Jira shape keeps of what it read",
+        "Code past this is cut off at the end of the shape; read fewer lines with #L10-L40 on its address.",
+    ),
     DIAGRAM_DESCRIPTION_CHARACTERS(
         "diagram.description.characters", 2_000, 100, null, TuningSection.MEDIA, TuningUnit.CHARACTERS,
         "How long a diagram's description may be",

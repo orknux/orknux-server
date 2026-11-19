@@ -513,6 +513,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS` | How much of a document a search shows around a match, in characters. | `160` |
 | `ORKNUX_TUNING_DOCUMENT_VERSIONS_KEPT` | How many versions of each document its history keeps, in items; 0 keeps them all. | `50` |
 | `ORKNUX_TUNING_DIAGRAM_NOTE_CHARACTERS` | How long a diagram node's notes may be, in characters. | `5000` |
+| `ORKNUX_TUNING_DIAGRAM_LABEL_CHARACTERS` | How long a diagram shape's or line's text may be, in characters; a save keeps this much of a longer one. | `5000` |
+| `ORKNUX_TUNING_DIAGRAM_SOURCE_CHARACTERS` | How much a diagram's code or Jira shape keeps of what it read, in characters. | `20000` |
 | `ORKNUX_TUNING_DIAGRAM_DESCRIPTION_CHARACTERS` | How long a diagram's description may be, in characters. | `2000` |
 | `ORKNUX_TUNING_DIAGRAM_ITEMS_MOST` | How many nodes and connections one diagram may hold, in items. | `2000` |
 | `ORKNUX_TUNING_DIAGRAM_SEARCH_HITS` | How many hits a diagram search answers with, in items. | `20` |

@@ -24,7 +24,7 @@ class DiagramShapesTest {
         )
         assertThat(DiagramNodeKind.entries - added).containsExactly(
             DiagramNodeKind.BOX, DiagramNodeKind.ROUNDED, DiagramNodeKind.ELLIPSE,
-            DiagramNodeKind.DIAMOND, DiagramNodeKind.NOTE, DiagramNodeKind.IMAGE, DiagramNodeKind.TEXT, DiagramNodeKind.LINK, DiagramNodeKind.GROUP,
+            DiagramNodeKind.DIAMOND, DiagramNodeKind.NOTE, DiagramNodeKind.IMAGE, DiagramNodeKind.TEXT, DiagramNodeKind.CODE, DiagramNodeKind.JIRA, DiagramNodeKind.LINK, DiagramNodeKind.GROUP,
         )
     }
 

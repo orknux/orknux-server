@@ -182,7 +182,7 @@ class DiagramAPI(
     ): DiagramView {
         access.requireVisible(workspaceId)
         val catalog = catalogFor(workspaceId, catalogId)
-        held(drawing)
+        @Suppress("NAME_SHADOWING") val drawing = held(drawing)
         val who = who()
         val made = diagrams.save(
             Diagram(
@@ -397,6 +397,7 @@ class DiagramAPI(
                 color = it.color, notes = it.notes, parent = it.parentKey, layer = it.layerKey, link = it.link,
                 border = it.borderColor, borderWidth = it.borderWidth, image = it.image, rotation = it.rotation,
                 align = DiagramTextAlign.byKey(it.textAlign), valign = DiagramTextValign.byKey(it.textValign), textSize = it.textSize,
+                textFit = it.textFit, source = it.source,
             )
         },
         edges = edges.findByDiagramIdOrderByPositionAsc(diagramId).map {
@@ -412,6 +413,7 @@ class DiagramAPI(
                 points = DiagramLink.readPoints(it.points),
                 color = it.color, width = it.width, labelAt = it.labelAt,
                 fromSide = DiagramSide.byKey(it.fromSide), toSide = DiagramSide.byKey(it.toSide),
+                fromAt = it.fromAt, toAt = it.toAt,
             )
         },
         layers = document.readLayers(diagrams.findByIdOrNull(diagramId)?.layers),
@@ -436,6 +438,7 @@ class DiagramAPI(
             edgeCount = drawn?.edges?.size ?: edges.countByDiagramId(id).toInt(),
             revision = diagram.revision,
             noteCharactersMost = tuning[Tunable.DIAGRAM_NOTE_CHARACTERS],
+            labelCharactersMost = tuning[Tunable.DIAGRAM_LABEL_CHARACTERS],
             createdBy = diagram.createdBy,
             createdAt = diagram.createdAt.toString(),
             updatedBy = diagram.updatedBy,
@@ -484,7 +487,7 @@ class DiagramAPI(
         said: Boolean = true,
         also: (Diagram) -> Unit = {},
     ): DiagramView {
-        held(drawing)
+        @Suppress("NAME_SHADOWING") val drawing = held(drawing)
         val id = requireNotNull(held.id)
         // From an editor, which saves as it is edited: at the start of a visit and then every so often, so a
         // long visit can be rolled back to any point in it. Every time from anything else.
@@ -531,6 +534,7 @@ class DiagramAPI(
                     x = node.x, y = node.y, w = node.w, h = node.h, color = node.color, notes = node.notes, parentKey = node.parent,
                     layerKey = node.layer, link = node.link, borderColor = node.border, borderWidth = node.borderWidth, image = node.image,
                     rotation = node.rotation, textAlign = node.align?.key, textValign = node.valign?.key, textSize = node.textSize,
+                    textFit = node.textFit, source = node.source,
                 )
             },
         )
@@ -542,14 +546,18 @@ class DiagramAPI(
                     lineStyle = edge.line.key, startEnd = edge.start.key, endEnd = edge.end.key, routing = edge.routing.key,
                     layerKey = edge.layer,
                     points = DiagramLink.writePoints(edge.points), labelAt = edge.labelAt, color = edge.color, width = edge.width,
-                    fromSide = edge.fromSide?.key, toSide = edge.toSide?.key,
+                    fromSide = edge.fromSide?.key, toSide = edge.toSide?.key, fromAt = edge.fromAt, toAt = edge.toAt,
                 )
             },
         )
     }
 
-    /** The installation's two numbers, on every save from every door: how much it holds, and how long notes are. */
-    private fun held(drawing: DiagramDrawing) {
+    /**
+     * The installation's numbers, on every save from every door: how much it holds and how long notes are, which
+     * refuse, and how long a label is, which trims - a note shape keeps its text in its label, and a long paste
+     * there losing its tail is better than a save refused while somebody is typing.
+     */
+    private fun held(drawing: DiagramDrawing): DiagramDrawing {
         val most = tuning[Tunable.DIAGRAM_ITEMS_MOST]
         if (drawing.size > most) throw DiagramTooLargeException(drawing.size, most)
         val notes = tuning[Tunable.DIAGRAM_NOTE_CHARACTERS]
@@ -557,6 +565,12 @@ class DiagramAPI(
             val length = node.notes?.length ?: 0
             if (length > notes) throw DiagramNotesTooLongException(node.label.ifBlank { node.id }, length, notes)
         }
+        val label = tuning[Tunable.DIAGRAM_LABEL_CHARACTERS]
+        if (drawing.nodes.none { it.label.length > label } && drawing.edges.none { (it.label?.length ?: 0) > label }) return drawing
+        return drawing.copy(
+            nodes = drawing.nodes.map { if (it.label.length > label) it.copy(label = it.label.take(label)) else it },
+            edges = drawing.edges.map { edge -> edge.label?.takeIf { it.length > label }?.let { edge.copy(label = it.take(label)) } ?: edge },
+        )
     }
 
     private fun catalog(id: Long): DiagramCatalog {
@@ -619,6 +633,8 @@ data class DiagramView(
     val revision: Int,
     /** How long a node's notes may be on this installation, for the editor's counter. */
     val noteCharactersMost: Int,
+    /** How long a node's or a line's label is kept on this installation; a save trims what is past it. */
+    val labelCharactersMost: Int,
     val createdBy: String,
     val createdAt: String,
     val updatedBy: String,

@@ -50,6 +50,10 @@ class DiagramExport(
     private val store: io.mszymanski.orknux.server.attachment.AttachmentStore? = null,
     /** And its pictures from the web, fetched under the rules there; none in a test that builds this by hand. */
     private val web: DiagramWebPictures? = null,
+    /** What code and Jira shapes last read, kept per workspace; none in a test that builds this by hand. */
+    private val sources: DiagramSources? = null,
+    private val diagrams: DiagramRepository? = null,
+    private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository? = null,
 ) {
 
     /**
@@ -70,6 +74,16 @@ class DiagramExport(
                 DiagramPictureData.of(held.contentType, store.open(held.location).use { it.readAllBytes() })
             }
         }
+    }
+
+    /** What [drawing]'s code and Jira shapes last read, from the workspace's copies - an export never fetches. */
+    private fun read(drawing: DiagramDrawing, diagramId: Long?): (DiagramShape) -> String? {
+        if (diagramId == null || sources == null || diagrams == null || workspaces == null) return { null }
+        val shapes = drawing.nodes.mapNotNull { node -> DiagramSourceKind.of(node.kind)?.let { kind -> node.source?.let { kind to it } } }
+        if (shapes.isEmpty()) return { null }
+        val workspace = diagrams.findById(diagramId).orElse(null)?.let { workspaces.findById(it.workspaceId).orElse(null) } ?: return { null }
+        val held = sources.cached(workspace, shapes).associate { (it.kind to it.source) to it.body }
+        return { node -> DiagramSourceKind.of(node.kind)?.let { kind -> node.source?.let { held[kind to it] } } }
     }
 
     private val pictures = DiagramSvg()
@@ -93,7 +107,7 @@ class DiagramExport(
         /** Where a box's link leads, as an address a PDF reader can open; null where it can be followed nowhere. */
         links: (String) -> String? = { null },
     ): Made = when (format) {
-        DiagramFormat.SVG -> Made.Written(DiagramFile(format, pictures.drawing(drawing, embedded(diagramId)).toByteArray()))
+        DiagramFormat.SVG -> Made.Written(DiagramFile(format, pictures.drawing(drawing, read = read(drawing, diagramId), pictures = embedded(diagramId)).toByteArray()))
         DiagramFormat.PNG -> when (val png = if (scale == null) png(drawing, diagramId) else scaled(drawing, scale, diagramId)) {
             is SvgRenderer.Drawing.Drawn -> Made.Written(DiagramFile(format, png.png))
             is SvgRenderer.Drawing.Refused -> Made.Refused(png.reason)
@@ -114,7 +128,7 @@ class DiagramExport(
 
     /** The picture, twice its drawn size for a sharp screen, held to the Tunable. */
     fun png(drawing: DiagramDrawing, diagramId: Long? = null): SvgRenderer.Drawing {
-        val svg = pictures.drawing(drawing, embedded(diagramId))
+        val svg = pictures.drawing(drawing, read = read(drawing, diagramId), pictures = embedded(diagramId))
         val natural = svg.substringAfter("width=\"").substringBefore('"').toIntOrNull() ?: 400
         return svgs.png(svg, minOf(natural * 2, tuning[Tunable.DIAGRAM_PICTURE_PIXELS]))
     }
@@ -122,7 +136,7 @@ class DiagramExport(
     /** The picture at [scale] times its drawn size, as wide as the renderer draws at most. */
     fun scaled(drawing: DiagramDrawing, scale: Int, diagramId: Long? = null): SvgRenderer.Drawing {
         require(scale in SCALES) { "a scale is one of $SCALES" }
-        val svg = pictures.drawing(drawing, embedded(diagramId))
+        val svg = pictures.drawing(drawing, read = read(drawing, diagramId), pictures = embedded(diagramId))
         val natural = svg.substringAfter("width=\"").substringBefore('"').toIntOrNull() ?: 400
         return svgs.png(svg, (natural * scale).coerceIn(1, SvgRenderer.MOST_WIDTH))
     }
@@ -139,11 +153,16 @@ class DiagramExport(
      * the page, and these are that area.
      */
     private fun vectorPdf(drawing: DiagramDrawing, diagramId: Long?, links: (String) -> String?): ByteArray =
-        pdfOf(drawing, embedded(diagramId), links)
+        pdfOf(drawing, embedded(diagramId), links, read(drawing, diagramId))
 
     /** [vectorPdf] with the drawing's pictures answered by [drawn]; apart so a test can hand pictures in. */
-    internal fun pdfOf(drawing: DiagramDrawing, drawn: (DiagramShape) -> String?, links: (String) -> String? = { null }): ByteArray {
-        val svg = pictures.drawing(drawing, drawn)
+    internal fun pdfOf(
+        drawing: DiagramDrawing,
+        drawn: (DiagramShape) -> String?,
+        links: (String) -> String? = { null },
+        read: (DiagramShape) -> String? = { null },
+    ): ByteArray {
+        val svg = pictures.drawing(drawing, read = read, pictures = drawn)
         val (left, top, width, height) = pictures.frame(drawing)
         val areas = drawing.visible().nodes.mapNotNull { node ->
             val target = node.link?.takeIf { it.isNotBlank() }?.let(links) ?: return@mapNotNull null
@@ -202,7 +221,7 @@ class DiagramExport(
         fun quoted(words: String) = "\"" + words.replace("\"", "#quot;").replace(Regex("\\s*\\n\\s*"), "<br/>") + "\""
         fun shape(node: DiagramShape): String {
             val id = ids.getValue(node.id)
-            val label = quoted(node.label.ifBlank { node.id })
+            val label = quoted(DiagramStyledText.plain(node.label).ifBlank { node.id })
             return when (node.kind) {
                 DiagramNodeKind.BOX -> "$id[$label]"
                 DiagramNodeKind.ROUNDED -> "$id($label)"
@@ -230,6 +249,7 @@ class DiagramExport(
                 DiagramNodeKind.STEP, DiagramNodeKind.CALLOUT, DiagramNodeKind.OFF_PAGE -> "$id>$label]"
                 DiagramNodeKind.DOCUMENTS, DiagramNodeKind.IMAGE -> "$id[$label]"
                 DiagramNodeKind.LINK -> "$id($label)"
+                DiagramNodeKind.CODE, DiagramNodeKind.JIRA -> "$id[${quoted(node.label.ifBlank { node.source ?: node.id })}]"
                 DiagramNodeKind.TEXT -> "$id[$label]"
             }
         }
@@ -264,7 +284,7 @@ class DiagramExport(
                     else -> ">"
                 }
                 val arrow = start + (if (solid) "--" else "-.-") + end
-                val label = edge.label?.takeIf { it.isNotBlank() }?.let { "|" + quoted(it) + "|" }.orEmpty()
+                val label = edge.label?.takeIf { it.isNotBlank() }?.let { "|" + quoted(DiagramStyledText.plain(it)) + "|" }.orEmpty()
                 appendLine("  $from $arrow$label $to")
             }
         }

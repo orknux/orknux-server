@@ -26,6 +26,9 @@ class DiagramExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is DiagramChangedException,
             is DiagramReadOnlyException,
             is DiagramAnswerFailedException,
+            is DiagramSourceInvalidException,
+            is DiagramJiraConnectionUnfitException,
+            is DiagramFetchMinutesInvalidException,
             -> ErrorType.BAD_REQUEST
             else -> return null
         }

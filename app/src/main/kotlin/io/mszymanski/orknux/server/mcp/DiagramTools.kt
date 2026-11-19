@@ -734,17 +734,21 @@ class DiagramTools(
                 "conversation, puts a picture of it there."
 
         private const val NODE_SAID =
-            "Each is {id, kind, label, x, y, w, h, color, border, borderWidth, rotation, align, valign, textSize, notes, parent, layer, link, image}: whole pixels from the top left, absolute even " +
+            "Each is {id, kind, label, x, y, w, h, color, border, borderWidth, rotation, align, valign, textSize, textFit, notes, parent, layer, link, image, source}: whole pixels from the top left, absolute even " +
                 "inside a group; id optional on a new one; color #rrggbb is its fill; border #rrggbb and borderWidth, whole " +
                 "pixels 1 to 12, its outline - null for the usual; rotation turns it about its middle, in degrees " +
                 "clockwise - null or 0 for upright; align (left, center, right) and valign (top, middle, bottom) are where " +
                 "its label sits inside it - null for the usual, which is the middle of a box; textSize is how big its label is drawn, " +
-                "whole pixels 6 to 96 - null for the usual 14; notes are free text about the node; parent " +
+                "whole pixels 6 to 96 - null for the usual 14; textFit true sizes it to fill the node instead; part of a label " +
+                "is styled with marks around it - **bold**, *italic*, __underlined__, ~~struck through~~ and [coloured]{#dc2626} - " +
+                "which nest, and a backslash writes a mark literally (\\*); notes are free text about the node; parent " +
                 "is the id of the group it sits in; layer is the id of the layer it is on, the first when left out; link is what a " +
                 "reader opens from the box - a web address, or another diagram as diagram:<id> (its id from $LIST), a document " +
                 "as document:<id> or a wireframe as wireframe:<id> - and " +
                 "null takes it away; image is the picture a node of kind image shows - an address on the web, " +
-                "https://..., or the id of one a person put on the diagram - and is nothing on any other kind. " +
+                "https://..., or the id of one a person put on the diagram - and is nothing on any other kind; source is what a " +
+                "node of kind code or jira shows - a GitHub file's address (https://github.com/owner/repo/blob/<ref>/<path>, " +
+                "#L10-L40 for some of its lines) or a Jira issue key (PROJ-123) - and is nothing on any other kind. " +
                 "Lay them out left to right or top to bottom, about 80 pixels apart."
 
         private const val EDGE_SAID =
@@ -798,7 +802,9 @@ class DiagramTools(
                     "align" to mapOf("type" to "string"),
                     "valign" to mapOf("type" to "string"),
                     "textSize" to mapOf("type" to "number"),
+                    "textFit" to mapOf("type" to "boolean"),
                     "image" to mapOf("type" to "string"),
+                    "source" to mapOf("type" to "string"),
                 ),
             ),
         )
