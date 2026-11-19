@@ -229,6 +229,7 @@ class SlackWebApi(
             "users.conversations",
             "conversations.history",
             "conversations.replies",
+            "conversations.members",
             "users.list",
             "users.lookupByEmail",
             "files.info",

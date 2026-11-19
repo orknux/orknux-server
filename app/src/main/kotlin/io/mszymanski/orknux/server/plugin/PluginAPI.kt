@@ -1771,7 +1771,8 @@ class PluginUploadAPI(
                  * Slack wants for the method on that token. Reads only:
                  * `auth.test`, `conversations.list`, `users.conversations`,
                  * `conversations.history`, `conversations.replies`,
-                 * `users.list`, `users.lookupByEmail` and `files.info`;
+                 * `conversations.members`, `users.list`, `users.lookupByEmail`
+                 * and `files.info`;
                  * anything else is refused, naming those.
                  *
                  * @param args Slack's arguments by Slack's names, as strings,
@@ -1785,6 +1786,7 @@ class PluginUploadAPI(
                     | 'users.conversations'
                     | 'conversations.history'
                     | 'conversations.replies'
+                    | 'conversations.members'
                     | 'users.list'
                     | 'users.lookupByEmail'
                     | 'files.info',

@@ -193,7 +193,9 @@ class DiagramSvg {
             DiagramNodeKind.LINK -> {
                 rect(x, y, w, h, fill, 8, stroke = outlined(node))
                 val name = fitted("↗ " + clean(node.label).lineSequence().firstOrNull().orEmpty(), w - 20, sizeOf(node))
-                text(x + 12, y + h / 2 + sizeOf(node) * 7 / 20, name, sizeOf(node), LINK_INK, bold = true)
+                // A colour every word of its label was given is the card's words' colour, as the editor draws it.
+                val colours = stylesOf(node.label)?.filterIndexed { at, _ -> !clean(node.label)[at].isWhitespace() }?.map { it.color }?.distinct()
+                text(x + 12, y + h / 2 + sizeOf(node) * 7 / 20, name, sizeOf(node), colours?.singleOrNull() ?: LINK_INK, bold = true)
                 return
             }
             DiagramNodeKind.ELLIPSE ->

@@ -39,4 +39,12 @@ class DiagramStyledTextTest {
         assertThat(svg).contains("<tspan font-weight=\"700\">now</tspan>").contains("<tspan fill=\"#dc2626\">later</tspan>")
         assertThat(svg).doesNotContain("**").doesNotContain("{#dc2626}")
     }
+
+    @Test
+    fun `a link card's words take the colour its whole label was given`() {
+        fun drawn(label: String) = DiagramSvg().drawing(DiagramDrawing(nodes = listOf(DiagramShape("a", DiagramNodeKind.LINK, label, 0, 0, 220, 64)), edges = emptyList()))
+        assertThat(drawn("[Runbook]{#16a34a}")).contains("fill=\"#16a34a\"").contains("Runbook").doesNotContain("{#16a34a}")
+        // Only part of it coloured, the card keeps its link colour.
+        assertThat(drawn("Run[book]{#16a34a}")).doesNotContain("fill=\"#16a34a\"")
+    }
 }

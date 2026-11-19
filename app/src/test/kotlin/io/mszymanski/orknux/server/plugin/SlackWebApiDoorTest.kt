@@ -164,7 +164,7 @@ class SlackWebApiDoorTest(
 
         assertThat(answer.path("error").asString())
             .contains("chat.delete is not a Slack method this reads")
-            .contains("auth.test, conversations.list, users.conversations, conversations.history, conversations.replies, users.list, users.lookupByEmail, files.info")
+            .contains("auth.test, conversations.list, users.conversations, conversations.history, conversations.replies, conversations.members, users.list, users.lookupByEmail, files.info")
         assertThat(called).isEmpty()
     }
 
